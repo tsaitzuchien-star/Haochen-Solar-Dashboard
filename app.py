@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import growattServer
 from streamlit_autorefresh import st_autorefresh
 import json
@@ -46,11 +46,14 @@ footer {visibility: hidden;}
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. Growatt SPH 數據精準抓取 (含本地快取記憶)
+# 2. Growatt SPH 數據精準抓取 (含本地快取記憶與台灣時區)
 # ==========================================
 USER = "cc00035"
 PASS = "@@@00035"
 CACHE_FILE = "solar_cache.json"
+
+# 設定台灣時區 (UTC+8)
+TW_TZ = timezone(timedelta(hours=8))
 
 def load_cache():
     if os.path.exists(CACHE_FILE):
@@ -86,9 +89,10 @@ def fetch_solar_data():
         sph_sn = next((d['deviceSn'] for d in devices if d['deviceType'] == 'sph'), None)
         status = api.mix_system_status(sph_sn, plant_id) if sph_sn else None
         
-        # 處理本地快取 (解決夜間 epvToday 消失的問題)
+        # 處理本地快取
         cache_data = load_cache()
-        current_date = datetime.now().strftime("%Y-%m-%d")
+        # 強制使用台灣時區的日期
+        current_date = datetime.now(TW_TZ).strftime("%Y-%m-%d")
         last_date = cache_data.get('last_date', "")
         
         if status is None or not isinstance(status, dict):
@@ -155,9 +159,11 @@ if not d.get("success"):
     st.stop()
 
 # ==========================================
-# 3. 頂端標題與時間
+# 3. 頂端標題與時間 (強制顯示台灣時間)
 # ==========================================
-now = datetime.now()
+# 取得 UTC+8 台灣時間
+now_tw = datetime.now(TW_TZ)
+
 st.markdown(f"""
 <div style="display: flex; justify-content: space-between; align-items: flex-end; padding-bottom: 10px; border-bottom: 1px solid #334155; margin-bottom: 20px;">
     <div>
@@ -166,7 +172,7 @@ st.markdown(f"""
     </div>
     <div style="text-align: right;">
         <div style="color: #10B981; font-size: 14px; font-weight: bold;">● 系統即時連線中</div>
-        <div style="color: #F8FAFC; font-size: 20px; font-family: monospace;">{now.strftime("%Y-%m-%d %H:%M:%S")}</div>
+        <div style="color: #F8FAFC; font-size: 20px; font-family: monospace;">{now_tw.strftime("%Y-%m-%d %H:%M:%S")}</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -211,7 +217,6 @@ def complete_battery_card(value, color, title, status_text, power_val):
 col1, col2, col3 = st.columns([1.5, 1.5, 1])
 
 with col1:
-    # 修改：主視覺變更為 pv_today，副標籤加入 today_ac
     h1 = f"""<div class="metric-card">
         <div>
             <div class="sub-text">🌞 今日太陽能總產出 (PV Yield)</div>
