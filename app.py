@@ -5,6 +5,8 @@ import plotly.graph_objects as go
 from datetime import datetime
 import growattServer
 from streamlit_autorefresh import st_autorefresh
+import json
+import os
 
 # ==========================================
 # 1. 頁面基本設定與高階 CSS 樣式
@@ -44,10 +46,23 @@ footer {visibility: hidden;}
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. Growatt SPH 數據精準抓取
+# 2. Growatt SPH 數據精準抓取 (含本地快取記憶)
 # ==========================================
 USER = "cc00035"
 PASS = "@@@00035"
+CACHE_FILE = "solar_cache.json"
+
+def load_cache():
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, "r") as f: return json.load(f)
+        except: pass
+    return {}
+
+def save_cache(data):
+    try:
+        with open(CACHE_FILE, "w") as f: json.dump(data, f)
+    except: pass
 
 @st.cache_data(ttl=60) 
 def fetch_solar_data():
@@ -63,53 +78,74 @@ def fetch_solar_data():
         plant_id = api.plant_list(user_id)['data'][0]['plantId']
         plant_info = api.plant_info(plant_id)
         
-        today_kwh = float(plant_info.get('todayEnergy', 0))
-        month_kwh = float(plant_info.get('monthEnergy', 842.5))
-        total_kwh = float(plant_info.get('totalEnergy', 0))
+        # 基礎 AC 端數據
+        today_ac = float(plant_info.get('todayEnergy', 0))
+        total_ac = float(plant_info.get('totalEnergy', 0))
         
         devices = api.device_list(plant_id)
         sph_sn = next((d['deviceSn'] for d in devices if d['deviceType'] == 'sph'), None)
         status = api.mix_system_status(sph_sn, plant_id) if sph_sn else None
         
-        # 夜間 / 離線保護機制
+        # 處理本地快取 (解決夜間 epvToday 消失的問題)
+        cache_data = load_cache()
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        last_date = cache_data.get('last_date', "")
+        
         if status is None or not isinstance(status, dict):
+            # 夜間模式：呼叫快取
+            if current_date != last_date:
+                pv_today = 0.0 # 過了午夜，自動歸零
+            else:
+                pv_today = cache_data.get('pv_today', today_ac)
+            pv_total = cache_data.get('pv_total', total_ac)
+            
             fallback_soc = int(plant_info.get('sphList', [{}])[0].get('capacity', '0%').replace('%', '')) if plant_info.get('sphList') else 0
+            
             return {
                 "success": True, "is_night": True,
-                "today_kwh": today_kwh, "month_kwh": month_kwh, "total_kwh": total_kwh,
+                "today_ac": today_ac, "pv_today": pv_today, "pv_total": pv_total,
                 "current_kw": 0.0, "pv_power": [0.0, 0.0, 0.0], "pv_volts": [0.0, 0.0, 0.0],
                 "batt_soc": fallback_soc, "batt_status": "待機/夜間", "batt_power": 0.0,
                 "load_power": 0.0, "grid_power": 0.0, "grid_status": "市電待機", "temp": 0.0,
                 "vbat": 0.0, "vgrid": 0.0, "fgrid": 0.0, "veps": 0.0, "feps": 0.0
             }
-        
-        # 白天/即時全數據解析
-        p_pv1, p_pv2, p_pv3 = float(status.get('ppv1', 0)), float(status.get('ppv2', 0)), float(status.get('ppv3', 0))
-        p_charge, p_discharge = float(status.get('pCharge', 0)), float(status.get('pdisCharge', 0))
-        p_buy = float(status.get('pactouserr', 0))
-        
-        grid_status = "🔌 向台電買電" if p_buy > 0 else "⚖️ 市電待機/自給自足"
-        batt_status = "🔋 充電中" if p_charge > 0 else ("⚡ 放電中" if p_discharge > 0 else "💤 電池待機")
-        
-        return {
-            "success": True, "is_night": False,
-            "today_kwh": today_kwh, "month_kwh": month_kwh, "total_kwh": total_kwh,
-            "current_kw": (p_pv1 + p_pv2 + p_pv3) / 1000,
-            "pv_power": [p_pv1/1000, p_pv2/1000, p_pv3/1000],
-            "pv_volts": [float(status.get('vpv1', 0)), float(status.get('vpv2', 0)), float(status.get('vpv3', 0))],
-            "batt_soc": int(float(status.get('soc', 0))),
-            "batt_status": batt_status,
-            "batt_power": (p_charge if p_charge > 0 else p_discharge) / 1000,
-            "load_power": float(status.get('pLocalLoad', 0)) / 1000,
-            "grid_power": p_buy / 1000,
-            "grid_status": grid_status,
-            "temp": float(status.get('temp1', 0)),
-            "vbat": float(status.get('vbat', 0)),
-            "vgrid": float(status.get('vgrid', 0)),
-            "fgrid": float(status.get('fgrid', 0)),
-            "veps": float(status.get('epsV', status.get('veps', 0))),
-            "feps": float(status.get('epsF', status.get('feps', 0)))
-        }
+        else:
+            # 白天模式：抓取真實 PV 數據並更新快取
+            pv_today = float(status.get('epvToday', today_ac))
+            pv_total = float(status.get('epvTotal', total_ac))
+            
+            if pv_today >= cache_data.get('pv_today', 0) or current_date != last_date:
+                cache_data['pv_today'] = pv_today
+                cache_data['pv_total'] = pv_total
+                cache_data['last_date'] = current_date
+                save_cache(cache_data)
+
+            p_pv1, p_pv2, p_pv3 = float(status.get('ppv1', 0)), float(status.get('ppv2', 0)), float(status.get('ppv3', 0))
+            p_charge, p_discharge = float(status.get('pCharge', 0)), float(status.get('pdisCharge', 0))
+            p_buy = float(status.get('pactouserr', 0))
+            
+            grid_status = "🔌 向台電買電" if p_buy > 0 else "⚖️ 市電待機/自給自足"
+            batt_status = "🔋 充電中" if p_charge > 0 else ("⚡ 放電中" if p_discharge > 0 else "💤 電池待機")
+            
+            return {
+                "success": True, "is_night": False,
+                "today_ac": today_ac, "pv_today": pv_today, "pv_total": pv_total,
+                "current_kw": (p_pv1 + p_pv2 + p_pv3) / 1000,
+                "pv_power": [p_pv1/1000, p_pv2/1000, p_pv3/1000],
+                "pv_volts": [float(status.get('vpv1', 0)), float(status.get('vpv2', 0)), float(status.get('vpv3', 0))],
+                "batt_soc": int(float(status.get('soc', 0))),
+                "batt_status": batt_status,
+                "batt_power": (p_charge if p_charge > 0 else p_discharge) / 1000,
+                "load_power": float(status.get('pLocalLoad', 0)) / 1000,
+                "grid_power": p_buy / 1000,
+                "grid_status": grid_status,
+                "temp": float(status.get('temp1', 0)),
+                "vbat": float(status.get('vbat', 0)),
+                "vgrid": float(status.get('vgrid', 0)),
+                "fgrid": float(status.get('fgrid', 0)),
+                "veps": float(status.get('epsV', status.get('veps', 0))),
+                "feps": float(status.get('epsF', status.get('feps', 0)))
+            }
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -175,17 +211,18 @@ def complete_battery_card(value, color, title, status_text, power_val):
 col1, col2, col3 = st.columns([1.5, 1.5, 1])
 
 with col1:
+    # 修改：主視覺變更為 pv_today，副標籤加入 today_ac
     h1 = f"""<div class="metric-card">
         <div>
-            <div class="sub-text">🌞 今日發電概況</div>
+            <div class="sub-text">🌞 今日太陽能總產出 (PV Yield)</div>
             <div style="display:flex; align-items:baseline; margin-top:10px;">
-                <span class="glow-text-green" style="font-size: 70px; line-height: 1.1;">{d['today_kwh']:.1f}</span>
+                <span class="glow-text-green" style="font-size: 70px; line-height: 1.1;">{d['pv_today']:.1f}</span>
                 <span style="color:#64748B; font-size:20px; margin-left:10px;">kWh</span>
             </div>
         </div>
         <div style="margin-top:auto; border-top:1px dashed #334155; padding-top:15px; display:flex; justify-content:space-between;">
-            <div><div class="sub-text">本月累計</div><div style="color:#F8FAFC; font-size:24px;">{d['month_kwh']:.1f} <span style="font-size:14px; color:#64748B;">kWh</span></div></div>
-            <div style="text-align:right;"><div class="sub-text">建站總發電</div><div style="color:#F8FAFC; font-size:24px;">{d['total_kwh']:.1f} <span style="font-size:14px; color:#64748B;">kWh</span></div></div>
+            <div><div class="sub-text">逆變器交流輸出</div><div style="color:#F8FAFC; font-size:24px;">{d['today_ac']:.1f} <span style="font-size:14px; color:#64748B;">kWh</span></div></div>
+            <div style="text-align:right;"><div class="sub-text">建站總發電</div><div style="color:#F8FAFC; font-size:24px;">{d['pv_total']:.1f} <span style="font-size:14px; color:#64748B;">kWh</span></div></div>
         </div>
     </div>"""
     st.markdown(h1, unsafe_allow_html=True)
@@ -207,7 +244,6 @@ with col2:
     st.markdown(h2, unsafe_allow_html=True)
 
 with col3:
-    # 替換為最新的 st.iframe 語法以消除警告
     st.iframe(complete_battery_card(d['batt_soc'], "#8B5CF6", "儲能電池 (SOC)", d['batt_status'], d['batt_power']), height=300)
 
 st.markdown("<div style='height: 15px;'></div>", unsafe_allow_html=True)
@@ -249,7 +285,6 @@ with col_bar:
             textfont=dict(color='#fff', size=14)
         )
     ])
-    # 替換為最新的 width='stretch' 語法以消除警告
     fig_bar.update_layout(
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", 
         font=dict(color="#94A3B8"), height=350, margin=dict(l=10, r=10, t=20, b=10),
@@ -274,7 +309,6 @@ with col_line:
         if d['is_night']: y_data = np.zeros(len(times))
         fig_line.add_trace(go.Scatter(x=times, y=y_data, name=sys_names[i], mode='lines', line=dict(width=3, color=sys_colors[i]), stackgroup='one'))
 
-    # 替換為最新的 width='stretch' 語法以消除警告
     fig_line.update_layout(
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", 
         font=dict(color="#94A3B8"), height=350, margin=dict(l=10, r=10, t=20, b=10), 
