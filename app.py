@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -72,6 +71,7 @@ def fetch_solar_data():
         sph_sn = next((d['deviceSn'] for d in devices if d['deviceType'] == 'sph'), None)
         status = api.mix_system_status(sph_sn, plant_id) if sph_sn else None
         
+        # 夜間 / 離線保護機制
         if status is None or not isinstance(status, dict):
             fallback_soc = int(plant_info.get('sphList', [{}])[0].get('capacity', '0%').replace('%', '')) if plant_info.get('sphList') else 0
             return {
@@ -79,9 +79,11 @@ def fetch_solar_data():
                 "today_kwh": today_kwh, "month_kwh": month_kwh, "total_kwh": total_kwh,
                 "current_kw": 0.0, "pv_power": [0.0, 0.0, 0.0], "pv_volts": [0.0, 0.0, 0.0],
                 "batt_soc": fallback_soc, "batt_status": "待機/夜間", "batt_power": 0.0,
-                "load_power": 0.0, "grid_power": 0.0, "grid_status": "市電待機", "temp": 0.0
+                "load_power": 0.0, "grid_power": 0.0, "grid_status": "市電待機", "temp": 0.0,
+                "vbat": 0.0, "vgrid": 0.0, "fgrid": 0.0, "veps": 0.0, "feps": 0.0
             }
         
+        # 白天/即時全數據解析
         p_pv1, p_pv2, p_pv3 = float(status.get('ppv1', 0)), float(status.get('ppv2', 0)), float(status.get('ppv3', 0))
         p_charge, p_discharge = float(status.get('pCharge', 0)), float(status.get('pdisCharge', 0))
         p_buy = float(status.get('pactouserr', 0))
@@ -101,7 +103,12 @@ def fetch_solar_data():
             "load_power": float(status.get('pLocalLoad', 0)) / 1000,
             "grid_power": p_buy / 1000,
             "grid_status": grid_status,
-            "temp": float(status.get('temp1', 0))
+            "temp": float(status.get('temp1', 0)),
+            "vbat": float(status.get('vbat', 0)),
+            "vgrid": float(status.get('vgrid', 0)),
+            "fgrid": float(status.get('fgrid', 0)),
+            "veps": float(status.get('epsV', status.get('veps', 0))),
+            "feps": float(status.get('epsF', status.get('feps', 0)))
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -131,7 +138,6 @@ st.markdown(f"""
 # ==========================================
 # 4. 老闆視角：三大核心指標 (Row 1)
 # ==========================================
-# 重構：將「整張卡片」包含樣式包裝進 ECharts 的 HTML 中，避免被 Streamlit 切割
 def complete_battery_card(value, color, title, status_text, power_val):
     html = f"""
     <!DOCTYPE html><html><head><script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
@@ -143,7 +149,7 @@ def complete_battery_card(value, color, title, status_text, power_val):
         padding: 20px;
         border: 1px solid #334155;
         box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-        height: 290px; /* 強制與左側卡片同高 */
+        height: 290px;
         box-sizing: border-box;
         display: flex;
         flex-direction: column;
@@ -201,8 +207,8 @@ with col2:
     st.markdown(h2, unsafe_allow_html=True)
 
 with col3:
-    # 預留稍微多一點的高度給 iframe，確保不會產生卷軸 (290px 卡片高度 + 10px 緩衝)
-    components.html(complete_battery_card(d['batt_soc'], "#8B5CF6", "儲能電池 (SOC)", d['batt_status'], d['batt_power']), height=300)
+    # 替換為最新的 st.iframe 語法以消除警告
+    st.iframe(complete_battery_card(d['batt_soc'], "#8B5CF6", "儲能電池 (SOC)", d['batt_status'], d['batt_power']), height=300)
 
 st.markdown("<div style='height: 15px;'></div>", unsafe_allow_html=True)
 
@@ -243,13 +249,14 @@ with col_bar:
             textfont=dict(color='#fff', size=14)
         )
     ])
+    # 替換為最新的 width='stretch' 語法以消除警告
     fig_bar.update_layout(
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", 
         font=dict(color="#94A3B8"), height=350, margin=dict(l=10, r=10, t=20, b=10),
         xaxis=dict(gridcolor="#334155", showgrid=False), 
         yaxis=dict(gridcolor="#334155", showgrid=True, range=[0, max(max(d['pv_power'])*1.2, 1)])
     )
-    st.plotly_chart(fig_bar, use_container_width=True)
+    st.plotly_chart(fig_bar, width='stretch')
     st.markdown("</div>", unsafe_allow_html=True)
 
 with col_line:
@@ -267,11 +274,57 @@ with col_line:
         if d['is_night']: y_data = np.zeros(len(times))
         fig_line.add_trace(go.Scatter(x=times, y=y_data, name=sys_names[i], mode='lines', line=dict(width=3, color=sys_colors[i]), stackgroup='one'))
 
+    # 替換為最新的 width='stretch' 語法以消除警告
     fig_line.update_layout(
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", 
         font=dict(color="#94A3B8"), height=350, margin=dict(l=10, r=10, t=20, b=10), 
         legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center", traceorder="normal", font=dict(color="#FFFFFF")),
         xaxis=dict(gridcolor="#334155", showgrid=True), yaxis=dict(gridcolor="#334155", showgrid=True)
     )
-    st.plotly_chart(fig_line, use_container_width=True)
+    st.plotly_chart(fig_line, width='stretch')
     st.markdown("</div>", unsafe_allow_html=True)
+
+# ==========================================
+# 7. 系統核心運行參數 (Row 4：專業診斷區塊)
+# ==========================================
+st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
+st.markdown("<div style='color: #E2E8F0; font-size: 18px; font-weight: bold; margin-bottom: 10px;'>⚙️ 系統核心運行參數 (System Diagnostics)</div>", unsafe_allow_html=True)
+
+diag1, diag2, diag3, diag4 = st.columns(4)
+
+def diag_card(title, icon, color, rows):
+    rows_html = "".join([f'<div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:14px;"><span style="color:#94A3B8;">{k}</span><span style="color:#F8FAFC; font-weight:500; font-family:monospace;">{v}</span></div>' for k, v in rows])
+    return f"""<div style="background:#1E293B; border-radius:8px; padding:15px; border-top:3px solid {color}; border-left:1px solid #334155; border-right:1px solid #334155; border-bottom:1px solid #334155; box-shadow: 0 2px 10px rgba(0,0,0,0.2); height: 100%;">
+    <div style="color:{color}; font-size:16px; font-weight:bold; border-bottom:1px solid #334155; padding-bottom:8px; margin-bottom:12px;">{icon} {title}</div>
+    {rows_html}
+    </div>"""
+
+with diag1:
+    st.markdown(diag_card("太陽能陣列 (MPPT)", "☀️", "#10B981", [
+        ("PV1 電壓 / 功率", f"{d['pv_volts'][0]:.1f} V / {d['pv_power'][0]*1000:.0f} W"),
+        ("PV2 電壓 / 功率", f"{d['pv_volts'][1]:.1f} V / {d['pv_power'][1]*1000:.0f} W"),
+        ("PV3 電壓 / 功率", f"{d['pv_volts'][2]:.1f} V / {d['pv_power'][2]*1000:.0f} W")
+    ]), unsafe_allow_html=True)
+
+with diag2:
+    st.markdown(diag_card("市電電網端 (Grid)", "⚡", "#38BDF8", [
+        ("電網電壓", f"{d['vgrid']:.1f} V"),
+        ("電網頻率", f"{d['fgrid']:.2f} Hz"),
+        ("市電狀態", d['grid_status'].split(" ", 1)[-1])
+    ]), unsafe_allow_html=True)
+
+with diag3:
+    st.markdown(diag_card("離網備用端 (EPS)", "🏠", "#F59E0B", [
+        ("離網電壓", f"{d['veps']:.1f} V"),
+        ("離網頻率", f"{d['feps']:.2f} Hz"),
+        ("家庭即時總負載", f"{d['load_power']*1000:.0f} W")
+    ]), unsafe_allow_html=True)
+
+with diag4:
+    st.markdown(diag_card("主機與電池端 (System)", "🔋", "#8B5CF6", [
+        ("電池電壓", f"{d['vbat']:.1f} V"),
+        ("電池當前電量", f"{d['batt_soc']} %"),
+        ("逆變器內部溫度", f"{d['temp']} °C")
+    ]), unsafe_allow_html=True)
+
+st.markdown("<div style='height: 40px;'></div>", unsafe_allow_html=True)
