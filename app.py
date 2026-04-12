@@ -7,6 +7,8 @@ import growattServer
 from streamlit_autorefresh import st_autorefresh
 import json
 import os
+import gspread
+from google.oauth2.service_account import Credentials
 
 # ==========================================
 # 1. 頁面基本設定與高階 CSS 樣式
@@ -20,7 +22,6 @@ st.markdown("""
 footer {visibility: hidden;}
 .stApp {background-color: #0F172A; font-family: 'Segoe UI', Roboto, sans-serif;}
 
-/* 戰情室專屬發光卡片特效 */
 .metric-card {
     background: linear-gradient(145deg, #1E293B, #0F172A);
     border-radius: 12px;
@@ -45,14 +46,34 @@ footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
+TW_TZ = timezone(timedelta(hours=8))
+
+# ==========================================
+# 1.5 企業級 Google Sheets 連線引擎
+# ==========================================
+@st.cache_resource
+def init_gsheets():
+    try:
+        scope = ['https://spreadsheets.google.com/feeds','https://www.googleapis.com/auth/drive']
+        creds = Credentials.from_service_account_file('gcp_key.json', scopes=scope)
+        client = gspread.authorize(creds)
+        sheet = client.open('Solar_History').sheet1
+        
+        # 自動初始化欄位標題 (已更新為中文並加入電池電量)
+        if len(sheet.get_all_values()) == 0:
+            sheet.append_row(["日期", "時間", "PV1 陣列發電(kW)", "PV2 陣列發電(kW)", "PV3 陣列發電(kW)", "今日交流輸出(kWh)", "電池電量(%)"])
+        return sheet
+    except Exception as e:
+        return None
+
+google_sheet = init_gsheets()
+
 # ==========================================
 # 2. Growatt SPH 數據精準抓取
 # ==========================================
 USER = "cc00035"
 PASS = "@@@00035"
 CACHE_FILE = "solar_cache.json"
-
-TW_TZ = timezone(timedelta(hours=8))
 
 def load_cache():
     if os.path.exists(CACHE_FILE):
@@ -95,7 +116,6 @@ def fetch_solar_data():
         last_date = cache_data.get('last_date', "")
         
         if status is None or not isinstance(status, dict) or status.get('ppv1') is None:
-            
             raw_pac = float(sph_device.get('pac', sph_device.get('power', 0)))
             is_daytime = (6 <= now_time.hour <= 18)
             
@@ -173,29 +193,48 @@ if not d.get("success"):
     st.stop()
 
 # ==========================================
-# 2.5 戰情室專屬：本地自動數據庫記錄器
+# 2.5 戰情室專屬：自動數據庫寫入 (Google/Local)
 # ==========================================
 now_tw = datetime.now(TW_TZ)
 date_str = now_tw.strftime("%Y-%m-%d")
-# 將當前時間對齊到最近的 15 分鐘區間 (例如 09:38 -> 09:30)
 minute_snapped = (now_tw.minute // 15) * 15
 time_slot = now_tw.replace(minute=minute_snapped, second=0, microsecond=0).strftime("%H:%M")
-history_file = f"history_chart_{date_str}.json"
 
 daily_chart_history = {}
-if os.path.exists(history_file):
-    try:
-        with open(history_file, "r") as f:
-            daily_chart_history = json.load(f)
-    except: pass
+history_file = f"history_chart_{date_str}.json"
 
-# 如果有真實發電數據，才寫入資料庫
-if not d['is_night'] and d['current_kw'] > 0:
-    daily_chart_history[time_slot] = d['pv_power']
+if google_sheet:
+    # 讀取 Google Sheets 中今天的資料來畫圖
     try:
-        with open(history_file, "w") as f:
-            json.dump(daily_chart_history, f)
-    except: pass
+        records = google_sheet.get_all_records()
+        for row in records:
+            if str(row.get('日期')) == date_str or str(row.get('Date')) == date_str:
+                # 兼容中英文標題讀取
+                t_key = str(row.get('時間', row.get('Time')))
+                pv1 = float(row.get('PV1 陣列發電(kW)', row.get('PV1 (kW)', 0)))
+                pv2 = float(row.get('PV2 陣列發電(kW)', row.get('PV2 (kW)', 0)))
+                pv3 = float(row.get('PV3 陣列發電(kW)', row.get('PV3 (kW)', 0)))
+                daily_chart_history[t_key] = [pv1, pv2, pv3]
+        
+        # 寫入當前 15 分鐘的最新數據 (加入 d['batt_soc'])
+        if not d['is_night'] and d['current_kw'] > 0 and time_slot not in daily_chart_history:
+            new_row = [date_str, time_slot, d['pv_power'][0], d['pv_power'][1], d['pv_power'][2], d['today_ac'], d['batt_soc']]
+            google_sheet.append_row(new_row)
+            daily_chart_history[time_slot] = d['pv_power']
+    except Exception as e:
+        st.sidebar.error(f"Google 雲端寫入失敗: {e}")
+else:
+    # 備援機制：如果沒設定 Google 金鑰，用本地 JSON 繼續記錄
+    st.sidebar.warning("尚未偵測到 gcp_key.json，目前使用本地暫存模式")
+    if os.path.exists(history_file):
+        try:
+            with open(history_file, "r") as f: daily_chart_history = json.load(f)
+        except: pass
+    if not d['is_night'] and d['current_kw'] > 0 and time_slot not in daily_chart_history:
+        daily_chart_history[time_slot] = d['pv_power']
+        try:
+            with open(history_file, "w") as f: json.dump(daily_chart_history, f)
+        except: pass
 
 # ==========================================
 # 3. 頂端標題與時間
@@ -337,9 +376,10 @@ with col_bar:
 
 with col_line:
     st.markdown("<div class='chart-container'>", unsafe_allow_html=True)
-    st.markdown("<div style='color: #E2E8F0; font-size: 16px; font-weight: bold; margin-bottom: 10px;'>📈 太陽能陣列真實發電時序圖 (本地採集)</div>", unsafe_allow_html=True)
     
-    # 取出 06:00 到 18:00 的時間軸
+    chart_title = "📈 太陽能陣列真實發電時序圖 (Google 雲端同步中)" if google_sheet else "📈 太陽能陣列真實發電時序圖 (本地備援採集)"
+    st.markdown(f"<div style='color: #E2E8F0; font-size: 16px; font-weight: bold; margin-bottom: 10px;'>{chart_title}</div>", unsafe_allow_html=True)
+    
     times = pd.date_range("06:00", "18:00", freq="15min").strftime("%H:%M").tolist()
     current_time_str = now_tw.strftime("%H:%M")
     
@@ -351,13 +391,11 @@ with col_line:
     
     for t in times:
         if t <= current_time_str:
-            # 從本地資料庫撈取真實數值，如果還沒記錄到，就補 0.0
             recorded_power = daily_chart_history.get(t, [0.0, 0.0, 0.0])
             y1_data.append(recorded_power[0])
             y2_data.append(recorded_power[1])
             y3_data.append(recorded_power[2])
         else:
-            # 未來的時間放空
             y1_data.append(0.0)
             y2_data.append(0.0)
             y3_data.append(0.0)
