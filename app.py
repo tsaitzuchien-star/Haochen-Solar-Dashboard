@@ -12,7 +12,7 @@ import os
 # 1. 頁面基本設定與高階 CSS 樣式
 # ==========================================
 st.set_page_config(page_title="澔宸小窩 - 智慧能源戰情中心", layout="wide", initial_sidebar_state="collapsed")
-st_autorefresh(interval=300000, key="datarefresh") # 5分鐘自動刷新
+st_autorefresh(interval=900000, key="datarefresh") # 15分鐘安全刷新頻率
 
 st.markdown("""
 <style>
@@ -46,13 +46,12 @@ footer {visibility: hidden;}
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. Growatt SPH 數據精準抓取 (含本地快取記憶與台灣時區)
+# 2. Growatt SPH 數據精準抓取
 # ==========================================
 USER = "cc00035"
 PASS = "@@@00035"
 CACHE_FILE = "solar_cache.json"
 
-# 設定台灣時區 (UTC+8)
 TW_TZ = timezone(timedelta(hours=8))
 
 def load_cache():
@@ -81,40 +80,55 @@ def fetch_solar_data():
         plant_id = api.plant_list(user_id)['data'][0]['plantId']
         plant_info = api.plant_info(plant_id)
         
-        # 基礎 AC 端數據
         today_ac = float(plant_info.get('todayEnergy', 0))
         total_ac = float(plant_info.get('totalEnergy', 0))
         
         devices = api.device_list(plant_id)
-        sph_sn = next((d['deviceSn'] for d in devices if d['deviceType'] == 'sph'), None)
+        sph_device = next((d for d in devices if d['deviceType'] == 'sph'), {})
+        sph_sn = sph_device.get('deviceSn')
+        
         status = api.mix_system_status(sph_sn, plant_id) if sph_sn else None
         
-        # 處理本地快取
         cache_data = load_cache()
-        # 強制使用台灣時區的日期
-        current_date = datetime.now(TW_TZ).strftime("%Y-%m-%d")
+        now_time = datetime.now(TW_TZ)
+        current_date = now_time.strftime("%Y-%m-%d")
         last_date = cache_data.get('last_date', "")
         
-        if status is None or not isinstance(status, dict):
-            # 夜間模式：呼叫快取
-            if current_date != last_date:
-                pv_today = 0.0 # 過了午夜，自動歸零
-            else:
-                pv_today = cache_data.get('pv_today', today_ac)
-            pv_total = cache_data.get('pv_total', total_ac)
+        if status is None or not isinstance(status, dict) or status.get('ppv1') is None:
             
+            raw_pac = float(sph_device.get('pac', sph_device.get('power', 0)))
+            is_daytime = (6 <= now_time.hour <= 18)
+            
+            if raw_pac > 0 or is_daytime:
+                is_night = False
+                fallback_kw = raw_pac if raw_pac < 100 else raw_pac / 1000
+                batt_status = "⚠️ 伺服器限流中"
+                grid_status = "狀態未知 (限流中)"
+            else:
+                is_night = True
+                fallback_kw = 0.0
+                batt_status = "💤 待機/夜間"
+                grid_status = "市電待機"
+
+            if current_date != last_date:
+                pv_today = today_ac 
+            else:
+                pv_today = max(cache_data.get('pv_today', today_ac), today_ac)
+                
+            pv_total = cache_data.get('pv_total', total_ac)
             fallback_soc = int(plant_info.get('sphList', [{}])[0].get('capacity', '0%').replace('%', '')) if plant_info.get('sphList') else 0
             
             return {
-                "success": True, "is_night": True,
+                "success": True, "is_night": is_night,
                 "today_ac": today_ac, "pv_today": pv_today, "pv_total": pv_total,
-                "current_kw": 0.0, "pv_power": [0.0, 0.0, 0.0], "pv_volts": [0.0, 0.0, 0.0],
-                "batt_soc": fallback_soc, "batt_status": "待機/夜間", "batt_power": 0.0,
-                "load_power": 0.0, "grid_power": 0.0, "grid_status": "市電待機", "temp": 0.0,
+                "current_kw": fallback_kw, 
+                "pv_power": [fallback_kw, 0.0, 0.0], 
+                "pv_volts": [0.0, 0.0, 0.0],
+                "batt_soc": fallback_soc, "batt_status": batt_status, "batt_power": 0.0,
+                "load_power": 0.0, "grid_power": 0.0, "grid_status": grid_status, "temp": 0.0,
                 "vbat": 0.0, "vgrid": 0.0, "fgrid": 0.0, "veps": 0.0, "feps": 0.0
             }
         else:
-            # 白天模式：抓取真實 PV 數據並更新快取
             pv_today = float(status.get('epvToday', today_ac))
             pv_total = float(status.get('epvTotal', total_ac))
             
@@ -159,11 +173,33 @@ if not d.get("success"):
     st.stop()
 
 # ==========================================
-# 3. 頂端標題與時間 (強制顯示台灣時間)
+# 2.5 戰情室專屬：本地自動數據庫記錄器
 # ==========================================
-# 取得 UTC+8 台灣時間
 now_tw = datetime.now(TW_TZ)
+date_str = now_tw.strftime("%Y-%m-%d")
+# 將當前時間對齊到最近的 15 分鐘區間 (例如 09:38 -> 09:30)
+minute_snapped = (now_tw.minute // 15) * 15
+time_slot = now_tw.replace(minute=minute_snapped, second=0, microsecond=0).strftime("%H:%M")
+history_file = f"history_chart_{date_str}.json"
 
+daily_chart_history = {}
+if os.path.exists(history_file):
+    try:
+        with open(history_file, "r") as f:
+            daily_chart_history = json.load(f)
+    except: pass
+
+# 如果有真實發電數據，才寫入資料庫
+if not d['is_night'] and d['current_kw'] > 0:
+    daily_chart_history[time_slot] = d['pv_power']
+    try:
+        with open(history_file, "w") as f:
+            json.dump(daily_chart_history, f)
+    except: pass
+
+# ==========================================
+# 3. 頂端標題與時間
+# ==========================================
 st.markdown(f"""
 <div style="display: flex; justify-content: space-between; align-items: flex-end; padding-bottom: 10px; border-bottom: 1px solid #334155; margin-bottom: 20px;">
     <div>
@@ -178,7 +214,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 4. 老闆視角：三大核心指標 (Row 1)
+# 4. 老闆視角：三大核心指標
 # ==========================================
 def complete_battery_card(value, color, title, status_text, power_val):
     html = f"""
@@ -254,7 +290,7 @@ with col3:
 st.markdown("<div style='height: 15px;'></div>", unsafe_allow_html=True)
 
 # ==========================================
-# 5. 工程師視角：全能源流向四大天王 (Row 2)
+# 5. 工程師視角：全能源流向四大天王
 # ==========================================
 st.markdown("<div style='color: #E2E8F0; font-size: 18px; font-weight: bold; margin-bottom: 10px;'>⚡ 即時能源流向 (Power Flow)</div>", unsafe_allow_html=True)
 c1, c2, c3, c4 = st.columns(4)
@@ -272,7 +308,7 @@ c4.markdown(mini_card("⚡", "市電端輸入", d['grid_power'], "kW", "#38BDF8"
 st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
 
 # ==========================================
-# 6. 動態圖表區 (Row 3：左側長條圖，右側時序圖)
+# 6. 動態圖表區 (長條圖 & 時序圖 - 真實歷史版)
 # ==========================================
 col_bar, col_line = st.columns([1, 2.5])
 
@@ -301,33 +337,48 @@ with col_bar:
 
 with col_line:
     st.markdown("<div class='chart-container'>", unsafe_allow_html=True)
-    st.markdown("<div style='color: #E2E8F0; font-size: 16px; font-weight: bold; margin-bottom: 10px;'>📈 太陽能陣列出力模擬時序圖</div>", unsafe_allow_html=True)
+    st.markdown("<div style='color: #E2E8F0; font-size: 16px; font-weight: bold; margin-bottom: 10px;'>📈 太陽能陣列真實發電時序圖 (本地採集)</div>", unsafe_allow_html=True)
     
-    times = pd.date_range("06:00", "18:00", freq="15min").strftime("%H:%M")
+    # 取出 06:00 到 18:00 的時間軸
+    times = pd.date_range("06:00", "18:00", freq="15min").strftime("%H:%M").tolist()
+    current_time_str = now_tw.strftime("%H:%M")
+    
     fig_line = go.Figure()
     sys_names = ['PV1 陣列', 'PV2 陣列', 'PV3 陣列']
     sys_colors = ['#10B981', '#F59E0B', '#F97316']
-    bell = np.exp(-0.5 * np.linspace(-3, 3, len(times))**2)
+    
+    y1_data, y2_data, y3_data = [], [], []
+    
+    for t in times:
+        if t <= current_time_str:
+            # 從本地資料庫撈取真實數值，如果還沒記錄到，就補 0.0
+            recorded_power = daily_chart_history.get(t, [0.0, 0.0, 0.0])
+            y1_data.append(recorded_power[0])
+            y2_data.append(recorded_power[1])
+            y3_data.append(recorded_power[2])
+        else:
+            # 未來的時間放空
+            y1_data.append(0.0)
+            y2_data.append(0.0)
+            y3_data.append(0.0)
 
-    # 改用 go.Bar 繪製堆疊長條圖
-    for i in range(3):
-        y_data = bell * d['pv_power'][i] + np.random.uniform(0, 0.05, len(times))
-        if d['is_night']: y_data = np.zeros(len(times))
-        fig_line.add_trace(go.Bar(x=times, y=y_data, name=sys_names[i], marker_color=sys_colors[i]))
+    fig_line.add_trace(go.Bar(x=times, y=y1_data, name=sys_names[0], marker_color=sys_colors[0]))
+    fig_line.add_trace(go.Bar(x=times, y=y2_data, name=sys_names[1], marker_color=sys_colors[1]))
+    fig_line.add_trace(go.Bar(x=times, y=y3_data, name=sys_names[2], marker_color=sys_colors[2]))
 
     fig_line.update_layout(
-        barmode='stack', # 啟動堆疊模式
+        barmode='stack',
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", 
         font=dict(color="#94A3B8"), height=350, margin=dict(l=10, r=10, t=20, b=10), 
         legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center", traceorder="normal", font=dict(color="#FFFFFF")),
-        xaxis=dict(gridcolor="#334155", showgrid=False, tickangle=-45), # 隱藏 X 軸直格線，傾斜文字
+        xaxis=dict(gridcolor="#334155", showgrid=False, tickangle=-45), 
         yaxis=dict(gridcolor="#334155", showgrid=True)
     )
     st.plotly_chart(fig_line, width='stretch')
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ==========================================
-# 7. 系統核心運行參數 (Row 4：專業診斷區塊)
+# 7. 系統核心運行參數
 # ==========================================
 st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
 st.markdown("<div style='color: #E2E8F0; font-size: 18px; font-weight: bold; margin-bottom: 10px;'>⚙️ 系統核心運行參數 (System Diagnostics)</div>", unsafe_allow_html=True)
