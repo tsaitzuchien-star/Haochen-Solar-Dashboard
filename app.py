@@ -71,8 +71,8 @@ google_sheet = init_gsheets()
 # ==========================================
 # 2. Growatt SPH 數據精準抓取
 # ==========================================
-USER = "EENHVA001"
-PASS = "Lccnet4418"
+USER = "cc00035"
+PASS = "@@@00035"
 CACHE_FILE = "solar_cache.json"
 
 def load_cache():
