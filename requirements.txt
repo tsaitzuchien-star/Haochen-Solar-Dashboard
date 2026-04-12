@@ -4,3 +4,5 @@ numpy
 plotly
 growattServer
 streamlit-autorefresh
+gspread
+google-auth
