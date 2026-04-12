@@ -309,16 +309,19 @@ with col_line:
     sys_colors = ['#10B981', '#F59E0B', '#F97316']
     bell = np.exp(-0.5 * np.linspace(-3, 3, len(times))**2)
 
+    # 改用 go.Bar 繪製堆疊長條圖
     for i in range(3):
         y_data = bell * d['pv_power'][i] + np.random.uniform(0, 0.05, len(times))
         if d['is_night']: y_data = np.zeros(len(times))
-        fig_line.add_trace(go.Scatter(x=times, y=y_data, name=sys_names[i], mode='lines', line=dict(width=3, color=sys_colors[i]), stackgroup='one'))
+        fig_line.add_trace(go.Bar(x=times, y=y_data, name=sys_names[i], marker_color=sys_colors[i]))
 
     fig_line.update_layout(
+        barmode='stack', # 啟動堆疊模式
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", 
         font=dict(color="#94A3B8"), height=350, margin=dict(l=10, r=10, t=20, b=10), 
         legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center", traceorder="normal", font=dict(color="#FFFFFF")),
-        xaxis=dict(gridcolor="#334155", showgrid=True), yaxis=dict(gridcolor="#334155", showgrid=True)
+        xaxis=dict(gridcolor="#334155", showgrid=False, tickangle=-45), # 隱藏 X 軸直格線，傾斜文字
+        yaxis=dict(gridcolor="#334155", showgrid=True)
     )
     st.plotly_chart(fig_line, width='stretch')
     st.markdown("</div>", unsafe_allow_html=True)
