@@ -500,8 +500,9 @@ for (const f of flows) {
   // 方向箭頭：沿管線每約 0.5 m 一個圓錐，跟著電流流動並指向電流方向
   const arrowMat = new THREE.MeshStandardMaterial({ color: f.color, emissive: new THREE.Color(f.color), emissiveIntensity: 0.9, roughness: 0.4 });
   // 箭頭大小一致；短管線 (如逆變器→電池) 間距縮為約 0.25 m，才放得下兩個以上
-  const arrowGeo = new THREE.ConeGeometry(0.11, 0.26, 16);
-  const na = Math.max(1, Math.round(len / (len < 1.5 ? 0.25 : 0.5)));
+  // 短管線 (逆變器→電池) 箭頭放大，才看得清楚
+  const arrowGeo = len < 1.5 ? new THREE.ConeGeometry(0.17, 0.36, 16) : new THREE.ConeGeometry(0.11, 0.26, 16);
+  const na = Math.max(1, Math.round(len / (len < 1.5 ? 0.3 : 0.5)));
   f.arrows = [];
   for (let i = 0; i < na; i++) {
     const cone = new THREE.Mesh(arrowGeo, arrowMat);
@@ -551,6 +552,7 @@ function resize() {
 window.addEventListener('resize', resize); resize();
 
 const clock = new THREE.Clock();
+const ARROW_SPEED = 2.5;
 const tmp = new THREE.Vector3(), tan = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
 function tick() {
   const t = clock.getElapsedTime();
@@ -565,7 +567,7 @@ function tick() {
   }
   // 箭頭與光點同速沿管線移動，並轉向電流方向
   for (const f of flows) for (const a of f.arrows || []) {
-    let u = (a.phase + t * f.speed / f.len) % 1;
+    let u = (a.phase + t * f.speed * ARROW_SPEED / f.len) % 1;  // 箭頭比光點快，方向感更明顯
     if (f.rev) u = 1 - u;
     f.curve.getPointAt(u, tmp);
     a.m.position.copy(tmp);
