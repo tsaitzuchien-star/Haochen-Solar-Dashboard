@@ -207,8 +207,8 @@ function windowAt(w, h, pos, rotY = 0) {
   return g;
 }
 // 前牆 (+z)
-windowAt(1.5, 1.7, [-3.0, Y0 + 1.75, DP / 2]);
-windowAt(1.5, 1.7, [-1.1, Y0 + 1.75, DP / 2]);
+windowAt(1.5, 1.7, [-2.6, Y0 + 1.75, DP / 2]);
+windowAt(1.5, 1.7, [-0.8, Y0 + 1.75, DP / 2]);
 mesh(box(1.1, 2.3, 0.08), M.wood, [0.7, Y0 + 1.15, DP / 2 + 0.03]);
 mesh(new THREE.SphereGeometry(0.04, 12, 8), M.alu, [1.1, Y0 + 1.15, DP / 2 + 0.09]);
 // 側面 (+x) 木紋外牆 + 落地窗 + 山牆三角窗
@@ -219,6 +219,13 @@ triShape.moveTo(-1.3, 0); triShape.lineTo(1.3, 0); triShape.lineTo(0, 0.9); triS
 mesh(new THREE.ShapeGeometry(triShape), M.glass, [W / 2 + 0.02, TOP + 0.15, 0], [0, Math.PI / 2, 0], scene, false);
 // 後側窗
 windowAt(1.4, 1.5, [-W / 2 - 0.01, Y0 + 1.8, 0], -Math.PI / 2);
+
+// ---------- 配電箱 (家中用電由此進屋) ----------
+const PANEL = [-3.78, Y0 + 1.85, DP / 2 + 0.08];
+mesh(new RoundedBoxGeometry(0.46, 0.66, 0.14, 3, 0.03), std('#9CA3AF', 0.45, 0.5), PANEL);
+mesh(box(0.36, 0.008, 0.01), std('#6B7280', 0.6), [PANEL[0], PANEL[1] + 0.12, PANEL[2] + 0.075], null, scene, false);
+mesh(new THREE.SphereGeometry(0.02, 10, 8), std('#F97316', 0.3, 0, { emissive: new THREE.Color('#F97316'), emissiveIntensity: 2 }),
+     [PANEL[0] + 0.15, PANEL[1] + 0.24, PANEL[2] + 0.075], null, scene, false);
 
 // ---------- 逆變器與電池 ----------
 const INV = [2.7, Y0 + 1.75, DP / 2 + 0.14];
@@ -280,7 +287,7 @@ const flows = [
   { kw: D.pv, color: C.pv, rev: false,
     curve: poly([V(2.0, eaveY + 0.35, DP / 2 + 0.1), V(2.0, eaveY - 0.05, DP / 2 + OVER - 0.05), V(2.0, eaveY - 0.05, ZW), V(2.0, INV[1] + 0.75, ZW), V(INV[0], INV[1] + 0.75, ZW), V(INV[0], INV[1] + 0.41, ZW)]) },
   { kw: D.load, color: C.load, rev: false,
-    curve: poly([V(INV[0] - 0.36, INV[1], ZW), V(1.55, INV[1], ZW), V(1.55, Y0 + 1.6, ZW), V(1.3, Y0 + 1.6, ZW)]) },
+    curve: poly([V(INV[0] - 0.36, INV[1], ZW), V(1.7, INV[1], ZW), V(1.7, Y0 + 2.8, ZW), V(PANEL[0], Y0 + 2.8, ZW), V(PANEL[0], PANEL[1] + 0.33, ZW)]) },
   { kw: Math.abs(D.batt), color: C.bat, rev: D.batt < 0,
     curve: poly([V(INV[0] + 0.2, INV[1] - 0.41, ZW), V(INV[0] + 0.2, BAT[1] + 0.95, ZW), V(BAT[0], BAT[1] + 0.95, ZW), V(BAT[0], BAT[1] + 0.7, BAT[2])]) },
   { kw: Math.abs(D.grid), color: C.grid, rev: D.grid < 0,
@@ -303,8 +310,8 @@ for (const f of flows) {
   f.dots = [];
   if (!active) continue;
   f.len = len;
-  f.speed = 0.6 + Math.min(f.kw, 10) * 0.28;   // 每秒移動距離 (m)
-  const n = Math.max(3, Math.round(len / 0.42));
+  f.speed = 0.2 + Math.min(f.kw, 10) * 0.05;   // 每秒移動距離 (m)，緩慢流動較有質感
+  const n = Math.max(3, Math.round(len / 0.6));
   const sMat = new THREE.SpriteMaterial({ map: glowTex, color: f.color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
   const cMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(f.color).lerp(new THREE.Color('#ffffff'), 0.55) });
   for (let i = 0; i < n; i++) {
@@ -325,7 +332,7 @@ const battLabel = D.batt > 0.02 ? '電池充電' : (D.batt < -0.02 ? '電池放�
 const gridLabel = D.grid > 0.02 ? '電網購電' : (D.grid < -0.02 ? '賣電至電網' : '電網');
 const cards = [
   card('光伏', D.pv, C.pv, '', [0.4, TOP + RISE + 1.4, 1.6]),
-  card('載入 (家中負載)', D.load, C.load, '', [-2.2, Y0 - 0.1, DP / 2 + 1.6]),
+  card('載入 (家中負載)', D.load, C.load, '', [-5.0, Y0 + 0.1, DP / 2 + 1.2]),
   card(battLabel, Math.abs(D.batt), C.bat, `<span style="color:${C.bat};font-size:16px;margin-left:10px">${D.soc}%</span>`, [BAT[0] + 2.4, Y0 + 0.2, BAT[2] + 1.6]),
   card(gridLabel, Math.abs(D.grid), C.grid, '', [POLE[0], Y0 + 8.0, POLE[2]]),
 ];
