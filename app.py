@@ -40,6 +40,7 @@ header[data-testid="stHeader"] {background: transparent;}
 .chip {display:inline-block; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:600;}
 .grid2 {display:grid; grid-template-columns:1fr 1fr; gap:10px;}
 .grid3 {display:grid; grid-template-columns:repeat(3, 1fr); gap:10px;}
+@media (max-width: 640px) {.grid3 {grid-template-columns:1fr;}}
 .stTabs [data-baseweb="tab-list"] {gap: 6px;}
 .stTabs [data-baseweb="tab"] {background:#1E293B; border-radius:8px 8px 0 0; padding:8px 16px; color:#CBD5E1;}
 </style>
@@ -361,25 +362,48 @@ if ana is None:
                 unsafe_allow_html=True)
 else:
     c = ana["df"]
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=c["time"], y=c["pv_home"], name="供應家用", stackgroup="pv", line=dict(width=0), fillcolor="rgba(16,185,129,0.75)"))
-    fig.add_trace(go.Scatter(x=c["time"], y=c["pv_charge"], name="充進電池", stackgroup="pv", line=dict(width=0), fillcolor="rgba(167,139,250,0.7)"))
-    if ana["calibrated"]:
-        fig.add_trace(go.Scatter(x=c["time"], y=c["lost"], name="被限發（估計）", stackgroup="pv", line=dict(width=0),
-                                 fillcolor="rgba(245,158,11,0.35)", fillpattern=dict(shape="/", fgcolor="#F59E0B", size=6)))
-    fig.add_trace(go.Scatter(x=c["time"], y=c["load"], name="家中用電", line=dict(color=C_LOAD, width=1.6)))
-    fig.add_trace(go.Scatter(x=c["time"], y=c["soc"], name="電池 SOC", yaxis="y2", line=dict(color="#E2E8F0", width=1.2, dash="dot")))
-    fig.update_layout(**chart_layout,
-                      xaxis=dict(showgrid=False, tickformat="%H:%M"),
-                      yaxis=dict(gridcolor="#334155", title="kW", rangemode="tozero"),
-                      yaxis2=dict(overlaying="y", side="right", range=[0, 105], tickvals=[0, 25, 50, 75, 100], showgrid=False, title="SOC %"))
-    st.plotly_chart(fig, width="stretch", theme=None)
     full = ana["full_time"]
+    to_kwh = lambda col: float(c[col].sum() * 5 / 60)
+    parts = [("供應家用", to_kwh("pv_home"), "#10B981", ""), ("充進電池", to_kwh("pv_charge"), "#A78BFA", "")]
+    if ana["calibrated"]:
+        parts.append(("浪費掉（估計）", ana["lost_kwh"], "#F59E0B",
+                      "background-image:repeating-linear-gradient(45deg, rgba(0,0,0,0.25) 0 4px, transparent 4px 9px);"))
+    total = sum(v for _, v, _, _ in parts) or 1
+
+    # (1) 一條比例長條：今天的太陽能分到哪裡
+    segs = "".join(
+        f'<div style="flex:{v:.3f}; background:{col}; {pat} display:flex; align-items:center; justify-content:center; '
+        f'color:#0F172A; font-weight:700; font-size:13px; white-space:nowrap; overflow:hidden;">'
+        f'{v / total * 100:.0f}%</div>' for _, v, col, pat in parts if v > 0.05)
+    legend = "".join(
+        f'<div style="display:flex; align-items:center; gap:6px;"><span style="width:12px; height:12px; border-radius:3px; background:{col}; {pat}"></span>'
+        f'<span style="color:#CBD5E1;">{name}</span><b style="color:#F8FAFC;">{v:.1f} kWh</b></div>' for name, v, col, pat in parts)
+    st.markdown(f"""<div class="card">
+      <div style="display:flex; height:34px; border-radius:8px; overflow:hidden; gap:2px;">{segs}</div>
+      <div style="display:flex; flex-wrap:wrap; gap:8px 22px; margin-top:12px; font-size:14px;">{legend}</div>
+    </div>""", unsafe_allow_html=True)
+
+    # (2) 每小時長條圖：只留三種顏色，標出電池充滿時間
+    hourly = c.set_index("time")[["pv_home", "pv_charge", "lost"]].resample("1h").sum() * 5 / 60
+    hourly = hourly[(hourly.index.hour >= 5) & (hourly.index.hour <= 19)]
+    hx = hourly.index + pd.Timedelta(minutes=30)
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=hx, y=hourly["pv_home"], name="供應家用", marker_color="#10B981"))
+    fig.add_trace(go.Bar(x=hx, y=hourly["pv_charge"], name="充進電池", marker_color="#A78BFA"))
+    if ana["calibrated"]:
+        fig.add_trace(go.Bar(x=hx, y=hourly["lost"].where(hourly["lost"] >= 0.05), name="浪費掉（估計）", marker=dict(
+            color="rgba(245,158,11,0.35)", line=dict(color="#F59E0B", width=1), pattern=dict(shape="/", fgcolor="#F59E0B", size=6))))
+    if full is not None:
+        fig.add_vline(x=full, line=dict(color="#E2E8F0", width=1, dash="dot"))
+        fig.add_annotation(x=full, y=1, yref="paper", text=f"🔋 {full:%H:%M} 電池充滿", showarrow=False,
+                           xanchor="left", yanchor="top", font=dict(color="#E2E8F0", size=12), bgcolor="rgba(15,23,42,0.7)")
+    fig.update_layout(**{**chart_layout, "height": 300}, barmode="stack", bargap=0.15,
+                      xaxis=dict(showgrid=False, tickformat="%H時", dtick=2 * 3600000),
+                      yaxis=dict(gridcolor="#334155", title="每小時 kWh", rangemode="tozero"))
+    st.plotly_chart(fig, width="stretch", theme=None)
     st.markdown(f"""<div style="color:#94A3B8; font-size:13px; margin-top:-6px;">
-      電池首次充滿：<b style="color:#E2E8F0">{full:%H:%M}</b>　｜　今日賣電：<b style="color:#E2E8F0">{f('etoGridToday'):.1f} kWh</b>　｜
-      系統為零饋電設定，電池充滿後太陽能只會發到等於家中用電；斜線區為以晴天推估的損失，多雲時可能高估。</div>"""
-                if full is not None else
-                '<div style="color:#94A3B8; font-size:13px; margin-top:-6px;">電池今天尚未充滿。</div>', unsafe_allow_html=True)
+      每根長條是一小時的太陽能發電。電池充滿後，因為不能賣電，多出來的日照用不到（橘色斜線，以晴天推估，多雲時可能高估）。
+      今日賣電 {f('etoGridToday'):.1f} kWh。</div>""", unsafe_allow_html=True)
 
 # ==========================================
 # 8.5 三組太陽能板 (PV1 / PV2 / PV3)
