@@ -1,6 +1,8 @@
+import math
 import os
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import requests
@@ -11,41 +13,38 @@ from streamlit_autorefresh import st_autorefresh
 from power_flow import power_flow_html
 
 # ==========================================
-# 1. 頁面基本設定與高階 CSS 樣式
+# 1. 頁面設定與樣式
+#    全站顏色語意固定：綠=太陽能、橘=用電、紫=電池、藍=台電
 # ==========================================
-st.set_page_config(page_title="澔宸小窩 - 智慧能源戰情中心", layout="wide", initial_sidebar_state="collapsed")
-st_autorefresh(interval=300000, key="datarefresh")  # 5 分鐘刷新 (官方 API 資料約每 5 分鐘更新一次)
+st.set_page_config(page_title="澔宸小窩 - 智慧能源", layout="wide", initial_sidebar_state="collapsed")
+st_autorefresh(interval=300000, key="datarefresh")  # 5 分鐘刷新 (官方資料約每 5 分鐘更新一次)
+
+C_PV, C_LOAD, C_BAT, C_GRID = "#10B981", "#F97316", "#A78BFA", "#38BDF8"
 
 st.markdown("""
 <style>
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
 header[data-testid="stHeader"] {background: transparent;}
-.stApp {background-color: #0F172A; font-family: 'Segoe UI', Roboto, sans-serif;}
-
-.metric-card {
-    background: linear-gradient(145deg, #1E293B, #0F172A);
-    border-radius: 12px;
-    padding: 20px;
-    border: 1px solid #334155;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-    height: 100%;
-    min-height: 290px;
-    display: flex;
-    flex-direction: column;
-}
-.glow-text-green { color: #10B981; text-shadow: 0 0 15px rgba(16, 185, 129, 0.4); font-weight: bold; }
-.glow-text-orange { color: #F97316; text-shadow: 0 0 15px rgba(249, 115, 22, 0.4); font-weight: bold; }
-.glow-text-purple { color: #A78BFA; text-shadow: 0 0 15px rgba(139, 92, 246, 0.4); font-weight: bold; }
-.sub-text { color: #94A3B8; font-size: 14px; }
-.section-title { color: #E2E8F0; font-size: 18px; font-weight: bold; margin: 10px 0; }
+.stApp {background-color: #0F172A; font-family: 'Segoe UI', Roboto, 'Noto Sans TC', sans-serif;}
+.block-container {padding-top: 2.2rem; max-width: 1400px;}
+.card {background:#1E293B; border:1px solid #334155; border-radius:12px; padding:14px 16px;}
+.kpi-label {color:#94A3B8; font-size:13px;}
+.kpi-value {color:#F8FAFC; font-size:28px; font-weight:700; line-height:1.25;}
+.kpi-unit {color:#64748B; font-size:13px; font-weight:400; margin-left:3px;}
+.kpi-sub {color:#64748B; font-size:12px; margin-top:2px;}
+.section-title {color:#E2E8F0; font-size:17px; font-weight:700; margin:22px 0 10px;}
+.chip {display:inline-block; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:600;}
+.grid2 {display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+.stTabs [data-baseweb="tab-list"] {gap: 6px;}
+.stTabs [data-baseweb="tab"] {background:#1E293B; border-radius:8px 8px 0 0; padding:8px 16px; color:#CBD5E1;}
 </style>
 """, unsafe_allow_html=True)
 
 TW_TZ = timezone(timedelta(hours=8))
 
 # ==========================================
-# 2. Growatt 官方 OpenAPI (Token 驗證，不需帳號密碼)
+# 2. Growatt 官方 OpenAPI (Token 驗證)
 #    Token 請放在 Streamlit secrets 或環境變數 GROWATT_TOKEN，切勿寫進程式碼
 # ==========================================
 def get_secret(key, default=None):
@@ -57,10 +56,14 @@ def get_secret(key, default=None):
 
 TOKEN = get_secret("GROWATT_TOKEN")
 DEVICE_SN = get_secret("GROWATT_DEVICE_SN", "KQQ0N6200N")
-PLANT_ID = get_secret("GROWATT_PLANT_ID", "9932849")
 API_BASE = "https://openapi.growatt.com/"
 DEVICE_TYPE = "sph-s"
 CAPACITY_KWP = 10.68
+LAT, LON = 23.87, 120.85  # 南投
+
+# 溫度判定門檻 (一般參考值，可依原廠規格調整)
+INV_TEMP_LEVELS = [(60, "正常", "#2DD4BF"), (70, "偏高", "#F59E0B"), (math.inf, "過高", "#EF4444")]
+BAT_TEMP_LEVELS = [(10, "低溫", "#60A5FA"), (35, "正常", "#2DD4BF"), (45, "偏高", "#F59E0B"), (math.inf, "過高", "#EF4444")]
 
 if not TOKEN:
     st.error("⚠️ 尚未設定 GROWATT_TOKEN。請在 Streamlit Cloud → App settings → Secrets 加入：GROWATT_TOKEN = \"你的Token\"")
@@ -76,15 +79,6 @@ def api_v4(endpoint, **data):
     return res["data"]
 
 
-def api_v1(endpoint, **params):
-    r = requests.get(API_BASE + "v1/" + endpoint, headers={"token": TOKEN}, params=params, timeout=30)
-    r.raise_for_status()
-    res = r.json()
-    if res.get("error_code") != 0:
-        raise RuntimeError(f"{endpoint}: {res.get('error_msg')}")
-    return res["data"]
-
-
 @st.cache_data(ttl=300)
 def fetch_realtime():
     rows = api_v4("queryLastData", deviceSn=DEVICE_SN, deviceType=DEVICE_TYPE)[DEVICE_TYPE]
@@ -96,24 +90,17 @@ def fetch_realtime():
 @st.cache_data(ttl=600)
 def fetch_day_curve(day):
     rows = api_v4("queryHistoricalData", deviceSn=DEVICE_SN, deviceType=DEVICE_TYPE, date=day)["datas"] or []
+    g = lambda x, k: float(x.get(k) or 0)
     df = pd.DataFrame([{
         "time": datetime.fromtimestamp(x["calendar"] / 1000, TW_TZ).replace(tzinfo=None),
-        "pv": x.get("ppv", 0) / 1000,
-        "load": x.get("plocalLoadTotal", 0) / 1000,
-        "charge": x.get("pcharge1", 0) / 1000,
-        "discharge": x.get("pdischarge1", 0) / 1000,
-        "buy": x.get("pacToUserTotal", 0) / 1000,
-        "sell": x.get("pacToGridTotal", 0) / 1000,
-        "soc": x.get("soc", 0),
+        "pv": g(x, "ppv") / 1000, "load": g(x, "plocalLoadTotal") / 1000,
+        "charge": g(x, "pcharge1") / 1000, "discharge": g(x, "pdischarge1") / 1000,
+        "buy": g(x, "pacToUserTotal") / 1000, "sell": g(x, "pacToGridTotal") / 1000,
+        "soc": g(x, "soc"),
+        # 逆變器溫度在 temp1/temp2 (歷史資料的 invTemp 恆為 0)
+        "inv_temp": g(x, "temp1"), "inv_temp2": g(x, "temp2"), "bat_temp": g(x, "bmsBatteryTemp"),
     } for x in rows])
-    return df.sort_values("time") if not df.empty else df
-
-
-@st.cache_data(ttl=3600)
-def fetch_monthly(year):
-    d = api_v1("plant/energy", plant_id=PLANT_ID, time_unit="month",
-               start_date=f"{year}-01-01", end_date=f"{year}-12-31")
-    return pd.DataFrame([{"month": e["date"], "kwh": float(e["energy"])} for e in d.get("energys", [])])
+    return df.sort_values("time").reset_index(drop=True) if not df.empty else df
 
 
 @st.cache_resource
@@ -122,245 +109,316 @@ def last_good():
     return {}
 
 
+RETRY_COOLDOWN = timedelta(minutes=5)
+
+
 def with_fallback(key, fn, *args):
+    # 失敗後冷卻 5 分鐘再重試，避免每次刷新都打 API 而讓限流一直無法解除
     store = last_good()
+    failed_at = store.get(f"{key}:failed_at")
+    if failed_at and datetime.now(TW_TZ) - failed_at < RETRY_COOLDOWN:
+        if key in store:
+            return store[key]
+        raise RuntimeError(store[f"{key}:error"])
     try:
         store[key] = fn(*args)
+        store.pop(f"{key}:failed_at", None)
     except Exception as e:
+        store[f"{key}:failed_at"], store[f"{key}:error"] = datetime.now(TW_TZ), str(e)
         if key not in store:
             raise
-        st.toast(f"Growatt 暫時限流，顯示上一次資料 ({e})", icon="⏳")
+        st.toast("Growatt 暫時限流，顯示上一次資料", icon="⏳")
     return store[key]
 
 
+def api_error_text(e):
+    if "FREQUENTLY_ACCESS" in str(e):
+        return "Growatt 查詢次數暫時達到上限，約 5 分鐘後會自動恢復"
+    if "TOKEN_IS_INVALID" in str(e):
+        return "Token 無效，請到 Streamlit → Settings → Secrets 更新 GROWATT_TOKEN"
+    return f"資料讀取失敗: {e}"
+
+
+# ==========================================
+# 3. 分析：晴空模型估計「可發電量」，推算限發損失
+# ==========================================
+def sun_shape(times):
+    """各時間點的晴空日照形狀 (0~1)，以太陽高度角近似。"""
+    t = pd.to_datetime(pd.Series(times))
+    doy = t.dt.dayofyear.to_numpy()
+    hours = (t.dt.hour + t.dt.minute / 60).to_numpy()
+    decl = np.radians(23.44) * np.sin(2 * np.pi * (284 + doy) / 365)
+    b = 2 * np.pi * (doy - 81) / 364
+    eot = 9.87 * np.sin(2 * b) - 7.53 * np.cos(b) - 1.5 * np.sin(b)  # 分鐘
+    solar_time = hours + (4 * (LON - 120) + eot) / 60
+    ha = np.radians(15 * (solar_time - 12))
+    lat = np.radians(LAT)
+    sin_el = np.sin(lat) * np.sin(decl) + np.cos(lat) * np.cos(decl) * np.cos(ha)
+    return np.clip(sin_el, 0, None) ** 1.2
+
+
+def analyze_curve(curve):
+    """回傳限發判定、可發電量估計與今日損失。以晴天推估，多雲時會高估。"""
+    if curve.empty:
+        return None
+    c = curve.copy()
+    c["shape"] = sun_shape(c["time"])
+    hour = c["time"].dt.hour
+    c["limited"] = ((hour >= 8) & (hour < 16) & (c["soc"] >= 95) & (c["charge"] < 0.1)
+                    & (c["sell"] < 0.05) & (c["pv"] > 0.05))
+    # 用未限發、太陽夠高的時段校正系統可發功率
+    ref = c[~c["limited"] & (c["shape"] > 0.35) & (c["pv"] > 0.3)]
+    k = float(np.quantile(ref["pv"] / ref["shape"], 0.75)) if len(ref) >= 6 else np.nan
+    k = min(k, CAPACITY_KWP) if not np.isnan(k) else np.nan
+    c["potential"] = c["shape"] * k if not np.isnan(k) else c["pv"]
+    c["lost"] = np.where(c["limited"], (c["potential"] - c["pv"]).clip(lower=0), 0.0)
+    c["pv_home"] = np.minimum(c["pv"], c["load"])
+    c["pv_charge"] = np.clip(np.minimum(c["charge"], c["pv"] - c["pv_home"]), 0, None)
+    full = c[c["soc"] >= 97]["time"]
+    return {
+        "df": c,
+        "lost_kwh": float(c["lost"].sum() * 5 / 60),
+        "lost_now": float(c["lost"].iloc[-1]) if c["limited"].iloc[-1] else 0.0,
+        "full_time": full.min() if not full.empty else None,
+        "calibrated": not np.isnan(k),
+    }
+
+
+def temp_level(value, levels):
+    for limit, label, color in levels:
+        if value < limit:
+            return label, color
+    return levels[-1][1], levels[-1][2]
+
+
+def sparkline_svg(values, color, w=240, h=42):
+    v = [x for x in values if x > 0]
+    if len(v) < 2:
+        return ""
+    lo, hi = min(v), max(v)
+    span = max(hi - lo, 1.0)
+    pts = " ".join(f"{i * w / (len(v) - 1):.1f},{h - 4 - (x - lo) / span * (h - 8):.1f}" for i, x in enumerate(v))
+    return (f'<svg viewBox="0 0 {w} {h}" preserveAspectRatio="none" style="width:100%;height:{h}px;display:block;">'
+            f'<polyline points="{pts}" fill="none" stroke="{color}" stroke-width="2" stroke-linejoin="round"/></svg>')
+
+
+# ==========================================
+# 4. 取得資料
+# ==========================================
 try:
     s = with_fallback("realtime", fetch_realtime)
 except Exception as e:
-    st.error(f"⚠️ 連線異常: {e}（若為 FREQUENTLY_ACCESS，請等幾分鐘後重新整理）")
+    st.error(f"⚠️ {api_error_text(e)}")
     st.stop()
 
 now_tw = datetime.now(TW_TZ)
+curve_error = None
+try:
+    curve = with_fallback(f"curve-{now_tw:%Y-%m-%d}", fetch_day_curve, now_tw.strftime("%Y-%m-%d"))
+except Exception as e:
+    curve, curve_error = pd.DataFrame(), e
+ana = analyze_curve(curve)
+
+f = lambda k: float(s.get(k) or 0)
 last_update = datetime.fromtimestamp(s["calendar"] / 1000, TW_TZ)
 age_min = max(int((now_tw - last_update).total_seconds() // 60), 0)
 stale = age_min > 20
-if age_min < 1:
-    age_text = "剛剛"
-elif age_min < 60:
-    age_text = f"{age_min} 分鐘前"
-else:
-    age_text = f"{age_min // 60} 小時 {age_min % 60} 分鐘前"
-
-f = lambda k: float(s.get(k) or 0)
-pv_power = [f("ppv1") / 1000, f("ppv2") / 1000, f("ppv3") / 1000]
-pv_volts = [f("vpv1"), f("vpv2"), f("vpv3")]
+pv_kw, load_kw = f("ppv") / 1000, f("plocalLoadTotal") / 1000
 p_charge, p_discharge = f("pcharge1") / 1000, f("pdischarge1") / 1000
 p_buy, p_sell = f("pacToUserTotal") / 1000, f("pacToGridTotal") / 1000
-load_kw = f("plocalLoadTotal") / 1000
 soc = int(f("soc"))
+inv_temp = f("temp1") or f("invTemp")
+bat_temp = f("bmsBatteryTemp")
+is_limited = (pv_kw > 0.05 and soc >= 95 and p_charge < 0.1 and p_sell < 0.05
+              and 8 <= last_update.hour < 16)
 
-batt_status = "🔋 充電中" if p_charge > 0 else ("⚡ 放電中" if p_discharge > 0 else "💤 電池待機")
-batt_power = p_charge if p_charge > 0 else p_discharge
-if p_buy > 0:
-    grid_status = "🔌 向台電買電"
-elif p_sell > 0:
-    grid_status = "📤 賣電至電網"
+# ==========================================
+# 5. 頂部狀態列
+# ==========================================
+if age_min < 1:
+    age_text = "剛剛更新"
+elif age_min < 60:
+    age_text = f"{age_min} 分鐘前更新"
 else:
-    grid_status = "⚖️ 自給自足"
+    age_text = f"{age_min // 60} 小時 {age_min % 60} 分鐘前更新"
+dot_color, dot_text = ("#F59E0B", "資料延遲") if stale else ("#22C55E", "正常")
 
-# ==========================================
-# 3. 頂端標題與時間
-# ==========================================
-conn_color, conn_text = ("#F59E0B", "● 資料延遲") if stale else ("#10B981", "● 系統即時連線中")
 st.markdown(f"""
-<div style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 10px; padding-bottom: 10px; border-bottom: 1px solid #334155; margin-bottom: 20px;">
-    <div>
-        <div style="color: #38BDF8; font-size: 32px; font-weight: 800; letter-spacing: 1px;">澔宸小窩 智慧能源戰情中心</div>
-        <div style="color: #94A3B8; font-size: 14px; text-transform: uppercase; letter-spacing: 2px;">SPH 10000TL-HU Hybrid Microgrid Dashboard · {CAPACITY_KWP} kWp</div>
-    </div>
-    <div style="text-align: right;">
-        <div style="color: {conn_color}; font-size: 14px; font-weight: bold;">{conn_text}</div>
-        <div style="color: #F8FAFC; font-size: 20px; font-family: monospace;">資料時間 {last_update.strftime("%Y-%m-%d %H:%M")} <span style="color: {conn_color}; font-size: 15px;">({age_text})</span></div>
-        <div style="color: #64748B; font-size: 12px; font-family: monospace;">網頁更新 {now_tw.strftime("%H:%M:%S")} · 每 5 分鐘自動刷新</div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;
+     padding-bottom:12px; border-bottom:1px solid #334155; margin-bottom:16px;">
+  <div>
+    <div style="color:#F8FAFC; font-size:26px; font-weight:800;">澔宸小窩</div>
+    <div style="color:#64748B; font-size:12px; letter-spacing:1px;">SPH 10000TL-HU · {CAPACITY_KWP} kWp · 南投</div>
+  </div>
+  <div style="text-align:right;">
+    <span class="chip" style="background:{dot_color}22; color:{dot_color};">● {dot_text}</span>
+    <div style="color:#94A3B8; font-size:12px; margin-top:4px; font-family:monospace;">
+      資料 {last_update:%m/%d %H:%M}（{age_text}）· 網頁 {now_tw:%H:%M:%S}</div>
+  </div>
+</div>""", unsafe_allow_html=True)
 
 # ==========================================
-# 4. 三大核心指標
+# 6. 一句話狀態 + 用電建議
 # ==========================================
-col1, col2, col3 = st.columns([1.5, 1.5, 1])
+if stale:
+    status = f"⚠️ 已經 {age_text.replace('更新', '')}沒有收到新資料，請檢查採集器網路"
+elif is_limited:
+    status = "☀️ 電池已充滿，太陽能正被限制輸出 — 現在用電等於免費"
+elif pv_kw > 0.05 and p_buy > 0.05:
+    status = f"☀️ 太陽能 {pv_kw:.1f} kW 不夠用，部分向台電購電 {p_buy:.1f} kW"
+elif pv_kw > 0.05 and p_charge > 0.05:
+    status = f"☀️ 太陽能供電中，同時為電池充電 {p_charge:.1f} kW（電量 {soc}%）"
+elif pv_kw > 0.05:
+    status = f"☀️ 太陽能供電中（{pv_kw:.1f} kW）"
+elif p_discharge > 0.05:
+    status = f"🔋 電池供電中，剩餘 {soc}%，正在提供 {p_discharge:.1f} kW"
+elif p_buy > 0.05:
+    status = f"🔌 向台電購電中（{p_buy:.1f} kW）"
+else:
+    status = "💤 系統待機中"
 
-with col1:
-    st.markdown(f"""<div class="metric-card">
-        <div>
-            <div class="sub-text">🌞 今日太陽能總產出 (PV Yield)</div>
-            <div style="display:flex; align-items:baseline; margin-top:10px;">
-                <span class="glow-text-green" style="font-size: 70px; line-height: 1.1;">{f('epvToday'):.1f}</span>
-                <span style="color:#64748B; font-size:20px; margin-left:10px;">kWh</span>
-            </div>
-        </div>
-        <div style="margin-top:auto; border-top:1px dashed #334155; padding-top:15px; display:flex; justify-content:space-between;">
-            <div><div class="sub-text">今日每 kWp 發電</div><div style="color:#F8FAFC; font-size:24px;">{f('epvToday') / CAPACITY_KWP:.2f} <span style="font-size:14px; color:#64748B;">h</span></div></div>
-            <div style="text-align:right;"><div class="sub-text">建站總發電</div><div style="color:#F8FAFC; font-size:24px;">{f('epvTotal'):,.1f} <span style="font-size:14px; color:#64748B;">kWh</span></div></div>
-        </div>
-    </div>""", unsafe_allow_html=True)
+st.markdown(f'<div style="color:#F1F5F9; font-size:19px; font-weight:600; margin:2px 0 12px;">{status}</div>',
+            unsafe_allow_html=True)
 
-with col2:
-    st.markdown(f"""<div class="metric-card">
-        <div>
-            <div class="sub-text">🏠 家庭用電概況 (Local Load)</div>
-            <div style="display:flex; align-items:baseline; margin-top:10px;">
-                <span class="glow-text-orange" style="font-size: 70px; line-height: 1.1;">{load_kw:.2f}</span>
-                <span style="color:#64748B; font-size:20px; margin-left:10px;">kW</span>
-            </div>
-        </div>
-        <div style="margin-top:auto; border-top:1px dashed #334155; padding-top:15px; display:flex; justify-content:space-between;">
-            <div><div class="sub-text">今日用電 / 買電</div><div style="color:#F8FAFC; font-size:24px;">{f('elocalLoadToday'):.1f} / {f('etoUserToday'):.1f} <span style="font-size:14px; color:#64748B;">kWh</span></div></div>
-            <div style="text-align:right;"><div class="sub-text">市電狀態</div><div style="color:#38BDF8; font-size:20px;">{grid_status}</div></div>
-        </div>
-    </div>""", unsafe_allow_html=True)
-
-with col3:
-    st.markdown(f"""<div class="metric-card" style="align-items:center;">
-        <div class="sub-text">🔋 儲能電池 (SOC)</div>
-        <div style="position:relative; width:150px; height:150px; margin:15px auto; border-radius:50%;
-             background: conic-gradient(#8B5CF6 {soc * 3.6}deg, #1E293B 0deg); box-shadow: 0 0 25px rgba(139,92,246,0.35);">
-            <div style="position:absolute; inset:14px; border-radius:50%; background:#0F172A; display:flex; align-items:center; justify-content:center;">
-                <span class="glow-text-purple" style="font-size:40px;">{soc}%</span>
-            </div>
-        </div>
-        <div style="margin-top:auto; color:#E2E8F0; font-size:16px;">{batt_status} : <span style="color:#A78BFA; font-weight:bold;">{batt_power:.2f} kW</span></div>
-        <div class="sub-text" style="margin-top:6px;">今日充 {f('echarge1Today'):.1f} / 放 {f('edischarge1Today'):.1f} kWh</div>
+if is_limited and not stale:
+    spare = f"，估計還有約 <b>{ana['lost_now']:.1f} kW</b> 用不到" if ana and ana["lost_now"] >= 0.3 else ""
+    st.markdown(f"""<div class="card" style="border-color:#10B98166; background:linear-gradient(90deg,#064E3B66,#1E293B); margin-bottom:14px;">
+      <div style="color:#6EE7B7; font-weight:700; font-size:15px;">💡 現在很適合用電{spare}</div>
+      <div style="color:#CBD5E1; font-size:13px; margin-top:4px;">洗衣機、烘衣機、熱水器、電動車充電、冷氣預冷 —— 這段時間多用 1 度，就少浪費 1 度</div>
     </div>""", unsafe_allow_html=True)
 
 # ==========================================
-# 5. 即時能源流向
+# 7. 主畫面：3D 能源流向 | 今日數字 + 溫度
 # ==========================================
-st.markdown("<div class='section-title'>⚡ 即時能源流向 (Power Flow)</div>", unsafe_allow_html=True)
-is_night = f("ppv") < 50 and not (6 <= last_update.hour < 18)
-components.html(power_flow_html(
-    pv=f("ppv") / 1000, load=load_kw, batt=p_charge - p_discharge, soc=soc,
-    grid=p_buy - p_sell, night=is_night,
-), height=520)
+col_main, col_side = st.columns([1.55, 1], gap="medium")
 
-st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
+with col_main:
+    is_night = pv_kw < 0.05 and not (6 <= last_update.hour < 18)
+    components.html(power_flow_html(pv=pv_kw, load=load_kw, batt=p_charge - p_discharge, soc=soc,
+                                    grid=p_buy - p_sell, night=is_night), height=520)
+
+
+def kpi(label, value, unit, color, sub=""):
+    return f"""<div class="card" style="border-top:3px solid {color}; height:100%;">
+      <div class="kpi-label">{label}</div>
+      <div class="kpi-value">{value}<span class="kpi-unit">{unit}</span></div>
+      <div class="kpi-sub">{sub}</div></div>"""
+
+
+def temp_card(title, value, levels, series, unit_color):
+    if value <= 0:
+        return f'<div class="card"><div class="kpi-label">{title}</div><div class="kpi-value">—</div></div>'
+    label, color = temp_level(value, levels)
+    peak = ""
+    if series is not None and (series > 0).any():
+        i = series.idxmax()
+        peak = f"今日最高 {series.max():.1f}°C（{curve.loc[i, 'time']:%H:%M}）"
+    return f"""<div class="card" style="height:100%;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span class="kpi-label">{title}</span>
+        <span class="chip" style="background:{color}22; color:{color};">{label}</span></div>
+      <div class="kpi-value" style="color:{color};">{value:.1f}<span class="kpi-unit">°C</span></div>
+      {sparkline_svg(series.tolist() if series is not None else [], unit_color)}
+      <div class="kpi-sub">{peak}</div></div>"""
+
+
+with col_side:
+    self_rate = (1 - f("etoUserToday") / f("elocalLoadToday")) * 100 if f("elocalLoadToday") > 0 else 0
+    lost_text = f"{ana['lost_kwh']:.1f}" if ana and ana["calibrated"] else "—"
+    # 用 CSS grid 排版，手機上也維持兩欄
+    st.markdown('<div class="grid2">'
+                + kpi("☀️ 今日發電", f"{f('epvToday'):.1f}", "kWh", C_PV, f"{f('epvToday') / CAPACITY_KWP:.2f} kWh/kWp")
+                + kpi("🏠 今日用電", f"{f('elocalLoadToday'):.1f}", "kWh", C_LOAD, f"買電 {f('etoUserToday'):.1f} kWh")
+                + kpi("⚖️ 自給率", f"{self_rate:.0f}", "%", C_GRID, "不靠台電的用電比例")
+                + kpi("🗑️ 浪費掉", lost_text, "kWh", "#F59E0B", "電池滿後被限發（晴天推估）")
+                + "</div>", unsafe_allow_html=True)
+
+    st.markdown("<div class='section-title' style='margin-top:16px;'>🌡️ 設備溫度</div>", unsafe_allow_html=True)
+    st.markdown('<div class="grid2">'
+                + temp_card("逆變器", inv_temp, INV_TEMP_LEVELS, curve["inv_temp"] if not curve.empty else None, "#94A3B8")
+                + temp_card("電池", bat_temp, BAT_TEMP_LEVELS, curve["bat_temp"] if not curve.empty else None, C_BAT)
+                + "</div>", unsafe_allow_html=True)
 
 # ==========================================
-# 6. 今日能源曲線 (官方 5 分鐘資料) 與各陣列發電
+# 8. 今日：太陽能的電去了哪裡
 # ==========================================
+st.markdown("<div class='section-title'>📈 今天太陽能的電去了哪裡？</div>", unsafe_allow_html=True)
 chart_layout = dict(
     paper_bgcolor="#1E293B", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="#94A3B8"),
-    title_font=dict(color="#E2E8F0", size=16), title_x=0.02, title_y=0.96,
-    height=380, margin=dict(l=50, r=50, t=70, b=40),
-    legend=dict(orientation="h", y=1.0, yanchor="bottom", x=1, xanchor="right", font=dict(color="#FFFFFF")),
+    height=380, margin=dict(l=50, r=50, t=40, b=40), hovermode="x unified",
+    legend=dict(orientation="h", y=1.02, yanchor="bottom", x=0, traceorder="normal", font=dict(color="#E2E8F0")),
 )
-col_bar, col_line = st.columns([1, 2.5])
+if ana is None:
+    st.markdown(f'<div class="card" style="text-align:center; color:#94A3B8; padding:40px;">⏳ {api_error_text(curve_error) if curve_error else "今天還沒有資料"}</div>',
+                unsafe_allow_html=True)
+else:
+    c = ana["df"]
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=c["time"], y=c["pv_home"], name="供應家用", stackgroup="pv", line=dict(width=0), fillcolor="rgba(16,185,129,0.75)"))
+    fig.add_trace(go.Scatter(x=c["time"], y=c["pv_charge"], name="充進電池", stackgroup="pv", line=dict(width=0), fillcolor="rgba(167,139,250,0.7)"))
+    if ana["calibrated"]:
+        fig.add_trace(go.Scatter(x=c["time"], y=c["lost"], name="被限發（估計）", stackgroup="pv", line=dict(width=0),
+                                 fillcolor="rgba(245,158,11,0.35)", fillpattern=dict(shape="/", fgcolor="#F59E0B", size=6)))
+    fig.add_trace(go.Scatter(x=c["time"], y=c["load"], name="家中用電", line=dict(color=C_LOAD, width=1.6)))
+    fig.add_trace(go.Scatter(x=c["time"], y=c["soc"], name="電池 SOC", yaxis="y2", line=dict(color="#E2E8F0", width=1.2, dash="dot")))
+    fig.update_layout(**chart_layout,
+                      xaxis=dict(showgrid=False, tickformat="%H:%M"),
+                      yaxis=dict(gridcolor="#334155", title="kW", rangemode="tozero"),
+                      yaxis2=dict(overlaying="y", side="right", range=[0, 105], tickvals=[0, 25, 50, 75, 100], showgrid=False, title="SOC %"))
+    st.plotly_chart(fig, width="stretch", theme=None)
+    full = ana["full_time"]
+    st.markdown(f"""<div style="color:#94A3B8; font-size:13px; margin-top:-6px;">
+      電池首次充滿：<b style="color:#E2E8F0">{full:%H:%M}</b>　｜　今日賣電：<b style="color:#E2E8F0">{f('etoGridToday'):.1f} kWh</b>　｜
+      系統為零饋電設定，電池充滿後太陽能只會發到等於家中用電；斜線區為以晴天推估的損失，多雲時可能高估。</div>"""
+                if full is not None else
+                '<div style="color:#94A3B8; font-size:13px; margin-top:-6px;">電池今天尚未充滿。</div>', unsafe_allow_html=True)
 
-with col_bar:
-    fig_bar = go.Figure(go.Bar(
-        x=["PV1", "PV2", "PV3"], y=pv_power, marker_color=["#10B981", "#F59E0B", "#F97316"],
-        text=[f"{v:.2f}" for v in pv_power], textposition="outside", textfont=dict(color="#fff", size=14),
-    ))
-    fig_bar.update_layout(**chart_layout, title="📊 即時各陣列發電 (kW)",
-                          yaxis=dict(gridcolor="#334155", range=[0, max(max(pv_power) * 1.25, 1)]))
-    st.plotly_chart(fig_bar, use_container_width=True, theme=None)
+# ==========================================
+# 9. 分頁：設備與溫度 / 趨勢
+# ==========================================
+st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
+tab_dev, tab_trend = st.tabs(["🌡️ 溫度與設備", "📊 趨勢（即將推出）"])
 
-with col_line:
-    try:
-        curve = with_fallback("curve", fetch_day_curve, now_tw.strftime("%Y-%m-%d"))
-    except Exception as e:
-        curve = pd.DataFrame()
-        st.warning(f"今日曲線讀取失敗: {e}")
-    fig_line = go.Figure()
+with tab_dev:
     if not curve.empty:
-        fig_line.add_trace(go.Scatter(x=curve["time"], y=curve["pv"], name="太陽能", line=dict(color="#10B981", width=2), fill="tozeroy", fillcolor="rgba(16,185,129,0.15)"))
-        fig_line.add_trace(go.Scatter(x=curve["time"], y=curve["load"], name="負載", line=dict(color="#F97316", width=2)))
-        fig_line.add_trace(go.Scatter(x=curve["time"], y=curve["charge"] - curve["discharge"], name="電池 (+充/−放)", line=dict(color="#8B5CF6", width=1.5)))
-        fig_line.add_trace(go.Scatter(x=curve["time"], y=curve["buy"], name="買電", line=dict(color="#38BDF8", width=1.5, dash="dot")))
-        fig_line.add_trace(go.Scatter(x=curve["time"], y=curve["soc"], name="SOC %", yaxis="y2", line=dict(color="#E2E8F0", width=1, dash="dash")))
-    fig_line.update_layout(**chart_layout, title="📈 今日能源曲線 (每 5 分鐘)",
-                           xaxis=dict(showgrid=False, tickformat="%H:%M"),
-                           yaxis=dict(gridcolor="#334155", title="kW"),
-                           yaxis2=dict(overlaying="y", side="right", range=[0, 105], tickvals=[0, 25, 50, 75, 100], showgrid=False, title="SOC %"))
-    st.plotly_chart(fig_line, use_container_width=True, theme=None)
+        ft = go.Figure()
+        ft.add_hrect(y0=60, y1=70, fillcolor="#F59E0B", opacity=0.08, line_width=0)
+        ft.add_hrect(y0=70, y1=90, fillcolor="#EF4444", opacity=0.08, line_width=0)
+        ft.add_trace(go.Scatter(x=curve["time"], y=curve["inv_temp"].replace(0, np.nan), name="逆變器 (temp1)", line=dict(color="#E2E8F0", width=2)))
+        ft.add_trace(go.Scatter(x=curve["time"], y=curve["inv_temp2"].replace(0, np.nan), name="逆變器 (temp2)", line=dict(color="#94A3B8", width=1.3, dash="dot")))
+        ft.add_trace(go.Scatter(x=curve["time"], y=curve["bat_temp"].replace(0, np.nan), name="電池", line=dict(color=C_BAT, width=2)))
+        ft.update_layout(**{**chart_layout, "height": 320}, xaxis=dict(showgrid=False, tickformat="%H:%M"),
+                         yaxis=dict(gridcolor="#334155", title="°C", range=[15, 80]))
+        st.plotly_chart(ft, width="stretch", theme=None)
+        st.markdown('<div style="color:#94A3B8; font-size:13px;">' + "黃色區 60–70°C 偏高、紅色區 70°C 以上過高（逆變器）；電池（鋰鐵）10–35°C 為理想範圍。門檻為一般參考值，可依原廠規格調整。"
+                   "逆變器夜間放電時溫度也會上升，屬正常現象。" + "</div>", unsafe_allow_html=True)
 
-# ==========================================
-# 6.5 限發分析：電池充滿且不賣電時，PV 會被壓到只供負載
-# ==========================================
-if not curve.empty:
-    daylight = curve[(curve["time"].dt.hour >= 9) & (curve["time"].dt.hour < 15)]
-    # 電池近滿、無充電、無賣電，且 PV 幾乎等於負載 → 判定為限發
-    limited = daylight[(daylight["soc"] >= 95) & (daylight["charge"] < 0.1) & (daylight["sell"] < 0.05)
-                       & (daylight["pv"] > 0) & ((daylight["pv"] - daylight["load"]).abs() < 0.5)]
-    limited_hours = len(limited) * 5 / 60
-    first_full = curve[curve["soc"] >= 97]["time"].min()
-    st.markdown(f"""<div style="background:#1E293B; border-radius:8px; padding:15px; border-left:4px solid #F59E0B; margin-top:10px;">
-        <div style="color:#F59E0B; font-weight:bold; font-size:16px;">⚠️ 今日限發觀測</div>
-        <div style="color:#E2E8F0; font-size:14px; margin-top:6px;">
-        電池首次充滿：<b>{first_full.strftime('%H:%M') if pd.notna(first_full) else '尚未充滿'}</b> ｜
-        09–15 時受限發電時段：<b>{limited_hours:.1f} 小時</b> ｜ 今日賣電：<b>{f('etoGridToday'):.1f} kWh</b><br>
-        <span style="color:#94A3B8;">系統設定為零饋電，電池充滿後 PV 只會發到等於家中負載，其餘日照無法利用。</span>
-        </div></div>""", unsafe_allow_html=True)
+    def diag_card(title, color, rows):
+        rows_html = "".join(f'<div style="display:flex; justify-content:space-between; margin-bottom:7px; font-size:13px;">'
+                            f'<span style="color:#94A3B8;">{k}</span><span style="color:#F8FAFC; font-family:monospace;">{v}</span></div>' for k, v in rows)
+        return (f'<div class="card" style="border-top:3px solid {color}; height:100%;">'
+                f'<div style="color:{color}; font-weight:700; margin-bottom:10px;">{title}</div>{rows_html}</div>')
 
-# ==========================================
-# 7. 每月發電量
-# ==========================================
-st.markdown("<div class='section-title' style='margin-top:20px;'>🗓️ 每月發電量</div>", unsafe_allow_html=True)
-try:
-    years = range(2024, now_tw.year + 1)
-    monthly = pd.concat([with_fallback(f"monthly-{y}", fetch_monthly, y) for y in years], ignore_index=True)
-    monthly = monthly[monthly["kwh"] > 0]
-    monthly["kwh_per_kwp"] = monthly["kwh"] / CAPACITY_KWP
-    fig_m = go.Figure(go.Bar(x=monthly["month"], y=monthly["kwh"], marker_color="#10B981",
-                             customdata=monthly["kwh_per_kwp"],
-                             hovertemplate="%{x}<br>%{y:.0f} kWh<br>%{customdata:.0f} kWh/kWp<extra></extra>"))
-    fig_m.update_layout(**{**chart_layout, "height": 320}, title="每月 PV 發電 (kWh)",
-                        xaxis=dict(type="category", showgrid=False), yaxis=dict(gridcolor="#334155"))
-    st.plotly_chart(fig_m, use_container_width=True, theme=None)
-except Exception as e:
-    st.warning(f"月報讀取失敗: {e}")
-
-# ==========================================
-# 8. 系統核心運行參數
-# ==========================================
-st.markdown("<div class='section-title'>⚙️ 系統核心運行參數 (System Diagnostics)</div>", unsafe_allow_html=True)
-diag1, diag2, diag3, diag4 = st.columns(4)
-
-
-def diag_card(title, icon, color, rows):
-    rows_html = "".join([f'<div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:14px;"><span style="color:#94A3B8;">{k}</span><span style="color:#F8FAFC; font-weight:500; font-family:monospace;">{v}</span></div>' for k, v in rows])
-    return f"""<div style="background:#1E293B; border-radius:8px; padding:15px; border-top:3px solid {color}; border-left:1px solid #334155; border-right:1px solid #334155; border-bottom:1px solid #334155; box-shadow: 0 2px 10px rgba(0,0,0,0.2); height: 100%;">
-    <div style="color:{color}; font-size:16px; font-weight:bold; border-bottom:1px solid #334155; padding-bottom:8px; margin-bottom:12px;">{icon} {title}</div>
-    {rows_html}
-    </div>"""
-
-
-with diag1:
-    st.markdown(diag_card("太陽能陣列 (MPPT)", "☀️", "#10B981", [
-        (f"PV{i + 1} 電壓 / 功率", f"{pv_volts[i]:.1f} V / {pv_power[i] * 1000:.0f} W") for i in range(3)
+    d1, d2, d3 = st.columns(3)
+    d1.markdown(diag_card("☀️ 太陽能陣列 (MPPT)", C_PV, [
+        (f"PV{i} 電壓 / 功率", f"{f(f'vpv{i}'):.0f} V / {f(f'ppv{i}'):.0f} W") for i in (1, 2, 3)
     ]), unsafe_allow_html=True)
-
-with diag2:
-    st.markdown(diag_card("市電電網端 (Grid)", "⚡", "#38BDF8", [
+    d2.markdown(diag_card("🔋 電池", C_BAT, [
+        ("電量 / 電壓", f"{soc} % / {f('vbat'):.1f} V"),
+        ("今日充 / 放電", f"{f('echarge1Today'):.1f} / {f('edischarge1Today'):.1f} kWh"),
+        ("溫度", f"{bat_temp:.1f} °C"),
+    ]), unsafe_allow_html=True)
+    d3.markdown(diag_card("⚡ 市電 / 離網", C_GRID, [
         ("電網電壓 L1 / L2", f"{f('vac1'):.1f} / {f('vac2'):.1f} V"),
         ("電網頻率", f"{f('fac'):.2f} Hz"),
-        ("累計買電 / 賣電", f"{f('etoUserTotal'):.0f} / {f('etoGridTotal'):.0f} kWh"),
+        ("離網輸出", f"{f('upsVac1'):.0f} V / {f('upsPac1'):.0f} W"),
     ]), unsafe_allow_html=True)
 
-with diag3:
-    st.markdown(diag_card("離網備用端 (EPS)", "🏠", "#F59E0B", [
-        ("離網電壓", f"{f('upsVac1'):.1f} V"),
-        ("離網頻率", f"{f('upsFac'):.2f} Hz"),
-        ("離網輸出功率", f"{f('upsPac1'):.0f} W"),
-    ]), unsafe_allow_html=True)
-
-with diag4:
-    charged, discharged = f("echarge1Total"), f("edischarge1Total")
-    st.markdown(diag_card("主機與電池端 (System)", "🔋", "#8B5CF6", [
-        ("電池電壓 / 溫度", f"{f('vbat'):.1f} V / {f('bmsBatteryTemp'):.1f} °C"),
-        ("逆變器溫度", f"{f('invTemp'):.1f} °C"),
-        ("累計充 / 放電", f"{charged:,.0f} / {discharged:,.0f} kWh"),
-        ("累計放充比", f"{discharged / charged * 100:.0f} %" if charged else "-"),
-    ]), unsafe_allow_html=True)
+with tab_trend:
+    st.markdown("""<div class="card" style="color:#CBD5E1; line-height:1.8;">
+      <b>📊 趨勢分析即將推出（第二階段）</b><br>
+      Growatt 官方月報經驗證會少算約 3 成，且 5 分鐘明細只保留 3 個月。<br>
+      第二階段將每天自動保存逆變器的正確數據，用來呈現每日 / 每月發電、用電、限發損失，以及設備健康檢查。
+    </div>""", unsafe_allow_html=True)
 
 st.markdown("<div style='height: 40px;'></div>", unsafe_allow_html=True)
