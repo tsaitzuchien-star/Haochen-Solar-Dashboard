@@ -1,138 +1,382 @@
-"""2.5D 房屋能源流向動畫 (SVG + CSS)，以流動虛線表示電力方向與大小。"""
+"""3D 房屋能源流向 (Three.js 即時渲染)。
 
-# 屋頂平面: A=山牆頂點, B=屋脊另一端, D=屋簷前緣
-_A, _B, _D = (250, 150), (650, 112), (318, 252)
+光點沿管線流動表示電力方向，流速隨功率變化；可用滑鼠/手指拖曳旋轉視角。
+"""
+import json
 
+_TEMPLATE = r"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+html, body { margin:0; padding:0; background:transparent; overflow:hidden;
+  font-family:'Segoe UI',Roboto,'Noto Sans TC',sans-serif; }
+#wrap { position:relative; width:100%; height:500px; border-radius:14px; overflow:hidden;
+  border:1px solid #334155; background:__SKY__; }
+#wrap canvas { display:block; cursor:grab; }
+#wrap canvas:active { cursor:grabbing; }
+.stars { position:absolute; inset:0; pointer-events:none; background-image:
+  radial-gradient(1.2px 1.2px at 8% 12%, #fff, transparent), radial-gradient(1px 1px at 22% 30%, #cbd5e1, transparent),
+  radial-gradient(1.4px 1.4px at 37% 8%, #fff, transparent), radial-gradient(1px 1px at 55% 22%, #e2e8f0, transparent),
+  radial-gradient(1.2px 1.2px at 68% 6%, #fff, transparent), radial-gradient(1px 1px at 83% 18%, #cbd5e1, transparent),
+  radial-gradient(1.3px 1.3px at 93% 9%, #fff, transparent), radial-gradient(1px 1px at 47% 35%, #94a3b8, transparent);
+  opacity:__STARS__; }
+.card { position:absolute; left:0; top:0; padding:8px 14px; border-radius:12px; pointer-events:none;
+  background:rgba(15,23,42,0.62); border:1px solid rgba(148,163,184,0.28);
+  backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+  color:#F8FAFC; white-space:nowrap; box-shadow:0 6px 20px rgba(0,0,0,0.35); will-change:transform; }
+.card .v { font-size:20px; font-weight:700; letter-spacing:0.3px; }
+.card .v small { font-size:12px; font-weight:400; color:#CBD5E1; margin-left:2px; }
+.card .t { font-size:12px; color:#94A3B8; margin-top:1px; }
+.card .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+.hint { position:absolute; right:12px; bottom:10px; font-size:11px; color:rgba(226,232,240,0.55); pointer-events:none; }
+.fallback { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#94A3B8; }
+</style>
+<script type="importmap">{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+</head><body>
+<div id="wrap"><div class="stars"></div><div class="hint">拖曳可旋轉視角</div></div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
-def _roof(u, v):
-    return (_A[0] + u * (_B[0] - _A[0]) + v * (_D[0] - _A[0]),
-            _A[1] + u * (_B[1] - _A[1]) + v * (_D[1] - _A[1]))
+const D = __DATA__;
+const NIGHT = D.night;
+const wrap = document.getElementById('wrap');
 
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = NIGHT ? 1.0 : 1.05;
+wrap.prepend(renderer.domElement);
 
-def _poly(points):
-    return " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
+const scene = new THREE.Scene();
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+const ENV = NIGHT ? 0.12 : 0.75;
 
+const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 200);
+camera.position.set(12.5, 7.6, 14.8);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0.6, 2.0, 0.6);
+controls.enableDamping = true;
+controls.enablePan = false;
+controls.minDistance = 12;
+controls.maxDistance = 32;
+controls.maxPolarAngle = 1.38;
 
-def _panels():
-    svg = []
-    for i in range(4):
-        u0, u1 = 0.30 + i * 0.165, 0.30 + i * 0.165 + 0.15
-        v0, v1 = 0.12, 0.78
-        svg.append(f'<polygon points="{_poly([_roof(u0, v0), _roof(u1, v0), _roof(u1, v1), _roof(u0, v1)])}" class="panel"/>')
-        # 電池片格線
-        for k in range(1, 3):
-            u = u0 + (u1 - u0) * k / 3
-            svg.append(f'<line x1="{_roof(u, v0)[0]:.1f}" y1="{_roof(u, v0)[1]:.1f}" x2="{_roof(u, v1)[0]:.1f}" y2="{_roof(u, v1)[1]:.1f}" class="cell"/>')
-        for k in range(1, 6):
-            v = v0 + (v1 - v0) * k / 6
-            svg.append(f'<line x1="{_roof(u0, v)[0]:.1f}" y1="{_roof(u0, v)[1]:.1f}" x2="{_roof(u1, v)[0]:.1f}" y2="{_roof(u1, v)[1]:.1f}" class="cell"/>')
-    return "".join(svg)
+// ---------- 材質 ----------
+const std = (color, roughness = 0.8, metalness = 0, extra = {}) =>
+  new THREE.MeshStandardMaterial({ color, roughness, metalness, envMapIntensity: ENV, ...extra });
 
+function canvasTex(w, h, draw, repeat) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  if (repeat) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(...repeat); }
+  return t;
+}
 
-def _flow(path_d, kw, color, reverse=False):
-    """底部軌道 + 流動虛線。功率越大流速越快，近乎 0 時只顯示灰色軌道。"""
-    track = f'<path d="{path_d}" class="track"/>'
-    if abs(kw) < 0.02:
-        return track
-    dur = max(0.35, 2.4 - abs(kw) * 0.35)
-    direction = "reverse" if reverse else "normal"
-    return track + (f'<path d="{path_d}" class="flow" style="stroke:{color};'
-                    f'animation-duration:{dur:.2f}s;animation-direction:{direction};'
-                    f'filter:drop-shadow(0 0 4px {color});"/>')
+const panelTex = canvasTex(256, 416, (g, w, h) => {
+  g.fillStyle = '#0B1733'; g.fillRect(0, 0, w, h);
+  const cols = 6, rows = 10;
+  for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
+    const x = i * w / cols, y = j * h / rows;
+    const grd = g.createLinearGradient(x, y, x + w / cols, y + h / rows);
+    grd.addColorStop(0, '#16306A'); grd.addColorStop(1, '#0E2150');
+    g.fillStyle = grd; g.fillRect(x + 2, y + 2, w / cols - 4, h / rows - 4);
+  }
+  g.strokeStyle = 'rgba(180,200,240,0.35)'; g.lineWidth = 1;
+  for (let i = 1; i < 3; i++) { g.beginPath(); g.moveTo(i * w / 3, 0); g.lineTo(i * w / 3, h); g.stroke(); }
+});
+const woodTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#8A5A3B'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 16; i++) {
+    const x = i * w / 16;
+    g.fillStyle = i % 2 ? '#94633F' : '#7E5234'; g.fillRect(x, 0, w / 16 - 2, h);
+    g.fillStyle = 'rgba(40,20,10,0.55)'; g.fillRect(x + w / 16 - 2, 0, 2, h);
+    for (let k = 0; k < 6; k++) { g.fillStyle = 'rgba(60,30,15,0.15)'; g.fillRect(x + Math.random() * 12, Math.random() * h, 1, 30 + Math.random() * 60); }
+  }
+}, [2, 1]);
+const roofTex = canvasTex(256, 64, (g, w, h) => {
+  g.fillStyle = '#2E333B'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 16; i++) { g.fillStyle = 'rgba(255,255,255,0.06)'; g.fillRect(i * w / 16, 0, 2, h); }
+}, [4, 1]);
 
+const M = {
+  wall: std('#EEEAE3', 0.92),
+  wood: std('#FFFFFF', 0.75, 0, { map: woodTex }),
+  roof: std('#FFFFFF', 0.5, 0.45, { map: roofTex }),
+  trim: std('#22262D', 0.5, 0.4),
+  frame: std('#1C2026', 0.4, 0.6),
+  glass: NIGHT
+    ? std('#0E1822', 0.06, 0.9, { emissive: new THREE.Color('#FFC873'), emissiveIntensity: 1.7, envMapIntensity: 0.2 })
+    : std('#36597C', 0.04, 0.65, { emissive: new THREE.Color('#7FA9D1'), emissiveIntensity: 0.3, envMapIntensity: 1.6 }),
+  panel: std('#FFFFFF', 0.2, 0.55, { map: panelTex, envMapIntensity: NIGHT ? 0.2 : 1.5 }),
+  alu: std('#C9CED6', 0.35, 0.85),
+  white: std('#F5F6F8', 0.35, 0.05),
+  dark: std('#111827', 0.4, 0.2),
+  concrete: std('#CFCBC4', 0.95),
+  grass: std('#5E8C4A', 0.95),
+  path: std('#B8B2A8', 0.9),
+  trunk: std('#6B4A33', 0.9),
+  leaf: std('#4E7F3D', 0.85, 0, { flatShading: true }),
+  leaf2: std('#5F9447', 0.85, 0, { flatShading: true }),
+  pole: std('#8D8A84', 0.85),
+  track: std('#1F2937', 0.55, 0.3),
+};
 
-def _card(x, y, title, value, color, sub=""):
-    sub_html = f'<span style="color:{color};margin-left:8px;">{sub}</span>' if sub else ""
-    return (f'<div class="card" style="left:{x}%;top:{y}%;">'
-            f'<div class="val">{value:.2f}<small> kW</small>{sub_html}</div>'
-            f'<div class="ttl">{title}</div></div>')
+function mesh(geo, mat, pos, rot, parent = scene, cast = true) {
+  const m = new THREE.Mesh(geo, mat);
+  if (pos) m.position.set(...pos);
+  if (rot) m.rotation.set(...rot);
+  m.castShadow = cast; m.receiveShadow = true;
+  parent.add(m);
+  return m;
+}
+const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+
+// ---------- 地台與庭園 ----------
+const Y0 = 0.3;
+mesh(new THREE.CylinderGeometry(10.5, 10.8, 0.3, 96), M.concrete, [0, 0.15, 0], null, scene, false);
+mesh(new THREE.CylinderGeometry(10.2, 10.2, 0.04, 96), M.grass, [0, Y0 + 0.01, 0], null, scene, false);
+mesh(box(3.2, 0.05, 6.5), M.path, [6.6, Y0 + 0.03, 3.6], [0, -0.35, 0], scene, false);
+mesh(box(9.6, 0.06, 1.6), M.path, [0, Y0 + 0.04, 3.4], null, scene, false);
+
+function tree(x, z, s = 1) {
+  mesh(new THREE.CylinderGeometry(0.1 * s, 0.14 * s, 1.4 * s, 8), M.trunk, [x, Y0 + 0.7 * s, z]);
+  mesh(new THREE.IcosahedronGeometry(1.0 * s, 1), M.leaf, [x, Y0 + 1.9 * s, z]);
+  mesh(new THREE.IcosahedronGeometry(0.7 * s, 1), M.leaf2, [x + 0.4 * s, Y0 + 2.5 * s, z - 0.2 * s]);
+}
+tree(-6.4, 4.4, 0.95); tree(-4.8, -5.6, 1.3); tree(4.6, -6.0, 1.0); tree(8.4, -2.2, 0.85);
+for (const [x, z, s] of [[-3.6, 3.0, 0.45], [-2.4, 3.05, 0.38], [-1.0, 3.0, 0.42], [5.2, 2.0, 0.4]])
+  mesh(new THREE.IcosahedronGeometry(s, 1), M.leaf2, [x, Y0 + s * 0.8, z]);
+
+// ---------- 房屋主體 ----------
+const W = 8.4, H = 3.2, DP = 5.0, RISE = 1.75, OVER = 0.45;
+const TOP = Y0 + H;
+mesh(box(W, H, DP), M.wall, [0, Y0 + H / 2, 0]);
+mesh(box(W + 0.1, 0.25, DP + 0.1), M.trim, [0, Y0 + 0.12, 0]);
+
+// 山牆
+const gShape = new THREE.Shape();
+gShape.moveTo(-DP / 2, 0); gShape.lineTo(DP / 2, 0); gShape.lineTo(0, RISE); gShape.closePath();
+const gGeo = new THREE.ExtrudeGeometry(gShape, { depth: 0.3, bevelEnabled: false });
+for (const sx of [1, -1]) mesh(gGeo, M.wall, [sx > 0 ? W / 2 - 0.3 : -W / 2, TOP, 0], [0, Math.PI / 2, 0]);
+
+// 屋頂 (兩片斜板 + 屋脊)
+const slope = Math.atan(RISE / (DP / 2));
+const halfRun = DP / 2 + OVER;
+const L = halfRun / Math.cos(slope);
+const roofs = {};
+for (const s of [1, -1]) {
+  const g = new THREE.Group();
+  g.position.set(0, TOP + RISE - (halfRun / 2) * Math.tan(slope) + 0.12, s * halfRun / 2);
+  g.rotation.x = s * slope;
+  scene.add(g);
+  mesh(box(W + 0.9, 0.16, L), M.roof, [0, 0, 0], null, g);
+  mesh(box(W + 0.95, 0.22, 0.1), M.trim, [0, -0.02, s * L / 2], null, g);
+  roofs[s] = g;
+}
+mesh(box(W + 0.95, 0.14, 0.32), M.trim, [0, TOP + RISE + 0.22, 0]);
+
+// 太陽能板 (前坡 2 x 6)
+const PW = 1.02, PL = 1.6;
+for (let r = 0; r < 2; r++) for (let c = 0; c < 6; c++) {
+  const x = -2.25 + c * (PW + 0.06);
+  const z = -L / 2 + 0.25 + PL / 2 + r * (PL + 0.06);
+  mesh(box(PW + 0.04, 0.05, PL + 0.04), M.alu, [x, 0.11, z], null, roofs[1]);
+  const p = mesh(new THREE.PlaneGeometry(PW, PL), M.panel, [x, 0.14, z], [-Math.PI / 2, 0, 0], roofs[1]);
+  p.castShadow = false;
+}
+
+// 窗戶
+function windowAt(w, h, pos, rotY = 0) {
+  const g = new THREE.Group(); g.position.set(...pos); g.rotation.y = rotY; scene.add(g);
+  mesh(new THREE.PlaneGeometry(w, h), M.glass, [0, 0, 0.02], null, g, false);
+  const t = 0.07;
+  mesh(box(w + t * 2, t, 0.1), M.frame, [0, h / 2 + t / 2, 0.04], null, g);
+  mesh(box(w + t * 2, t, 0.1), M.frame, [0, -h / 2 - t / 2, 0.04], null, g);
+  mesh(box(t, h, 0.1), M.frame, [-w / 2 - t / 2, 0, 0.04], null, g);
+  mesh(box(t, h, 0.1), M.frame, [w / 2 + t / 2, 0, 0.04], null, g);
+  if (w > 1.6) mesh(box(0.05, h, 0.08), M.frame, [0, 0, 0.04], null, g);
+  return g;
+}
+// 前牆 (+z)
+windowAt(1.5, 1.7, [-3.0, Y0 + 1.75, DP / 2]);
+windowAt(1.5, 1.7, [-1.1, Y0 + 1.75, DP / 2]);
+mesh(box(1.1, 2.3, 0.08), M.wood, [0.7, Y0 + 1.15, DP / 2 + 0.03]);
+mesh(new THREE.SphereGeometry(0.04, 12, 8), M.alu, [1.1, Y0 + 1.15, DP / 2 + 0.09]);
+// 側面 (+x) 木紋外牆 + 落地窗 + 山牆三角窗
+mesh(box(0.08, H, 1.9), M.wood, [W / 2 + 0.04, Y0 + H / 2, -1.55]);
+windowAt(2.6, 2.6, [W / 2 + 0.01, Y0 + 1.4, 1.0], Math.PI / 2);
+const triShape = new THREE.Shape();
+triShape.moveTo(-1.3, 0); triShape.lineTo(1.3, 0); triShape.lineTo(0, 0.9); triShape.closePath();
+mesh(new THREE.ShapeGeometry(triShape), M.glass, [W / 2 + 0.02, TOP + 0.15, 0], [0, Math.PI / 2, 0], scene, false);
+// 後側窗
+windowAt(1.4, 1.5, [-W / 2 - 0.01, Y0 + 1.8, 0], -Math.PI / 2);
+
+// ---------- 逆變器與電池 ----------
+const INV = [2.7, Y0 + 1.75, DP / 2 + 0.14];
+mesh(new RoundedBoxGeometry(0.72, 0.82, 0.24, 4, 0.05), M.white, INV);
+mesh(new THREE.CircleGeometry(0.09, 24), M.dark, [INV[0], INV[1] + 0.05, INV[2] + 0.125], null, scene, false);
+mesh(new THREE.SphereGeometry(0.025, 12, 8), std('#22C55E', 0.3, 0, { emissive: new THREE.Color('#22C55E'), emissiveIntensity: 2.5 }),
+     [INV[0] + 0.24, INV[1] + 0.3, INV[2] + 0.125]);
+
+const BAT = [3.75, Y0 + 0.7, DP / 2 + 0.22];
+mesh(new RoundedBoxGeometry(0.8, 1.4, 0.38, 4, 0.05), M.white, BAT);
+for (let i = 1; i < 4; i++) mesh(box(0.78, 0.012, 0.01), std('#CBD5E1', 0.6), [BAT[0], BAT[1] - 0.7 + i * 0.35, BAT[2] + 0.19], null, scene, false);
+const socH = 1.1 * Math.max(D.soc, 3) / 100;
+mesh(box(0.06, 1.1, 0.01), std('#CBD5E1', 0.6), [BAT[0] - 0.28, BAT[1], BAT[2] + 0.195], null, scene, false);
+mesh(box(0.06, socH, 0.012), std('#A78BFA', 0.3, 0, { emissive: new THREE.Color('#8B5CF6'), emissiveIntensity: 1.6 }),
+     [BAT[0] - 0.28, BAT[1] - 0.55 + socH / 2, BAT[2] + 0.2], null, scene, false);
+
+// ---------- 電線桿 ----------
+const POLE = [-8.6, 0, 0.4];
+mesh(new THREE.CylinderGeometry(0.11, 0.15, 7.4, 12), M.pole, [POLE[0], Y0 + 3.7, POLE[2]]);
+mesh(box(1.8, 0.12, 0.12), M.pole, [POLE[0], Y0 + 6.9, POLE[2]], [0, 0.5, 0]);
+for (const dx of [-0.7, 0.7]) mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.18, 8), M.white, [POLE[0] + dx * Math.cos(0.5), Y0 + 7.05, POLE[2] - dx * Math.sin(0.5)]);
+const wire = new THREE.QuadraticBezierCurve3(new THREE.Vector3(POLE[0] + 0.6, Y0 + 7.0, POLE[2] - 0.35),
+  new THREE.Vector3(-6.4, Y0 + 4.9, 0.2), new THREE.Vector3(-W / 2 - 0.3, TOP + 0.9, 0));
+mesh(new THREE.TubeGeometry(wire, 40, 0.018, 6), M.dark, null, null, scene, false);
+
+// ---------- 光源 ----------
+if (!NIGHT) {
+  scene.add(new THREE.HemisphereLight('#DCEBFF', '#5B6B4E', 0.9));
+  const sun = new THREE.DirectionalLight('#FFF1DC', 3.0);
+  sun.position.set(9, 16, 10);
+  Object.assign(sun.shadow.camera, { left: -14, right: 14, top: 14, bottom: -14, near: 1, far: 50 });
+  sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0004; sun.shadow.radius = 4;
+  sun.castShadow = true; scene.add(sun);
+  const fill = new THREE.DirectionalLight('#BFD7FF', 0.5); fill.position.set(-10, 6, -4); scene.add(fill);
+} else {
+  scene.add(new THREE.HemisphereLight('#3B5BA9', '#0B1120', 0.45));
+  const moon = new THREE.DirectionalLight('#A9BFFF', 0.7);
+  moon.position.set(-8, 14, 9);
+  Object.assign(moon.shadow.camera, { left: -14, right: 14, top: 14, bottom: -14, near: 1, far: 50 });
+  moon.shadow.mapSize.set(1024, 1024); moon.shadow.radius = 6;
+  moon.castShadow = true; scene.add(moon);
+  // 室內燈光從窗戶灑出
+  for (const p of [[-3.0, Y0 + 1.6, DP / 2 + 0.8], [-1.1, Y0 + 1.6, DP / 2 + 0.8], [W / 2 + 0.9, Y0 + 1.4, 1.0], [0.7, Y0 + 2.6, DP / 2 + 0.5]]) {
+    const l = new THREE.PointLight('#FFC66E', 6, 7, 2); l.position.set(...p); scene.add(l);
+  }
+}
+
+// ---------- 能源流 ----------
+const C = { pv: '#10B981', load: '#F97316', bat: '#A78BFA', grid: '#38BDF8' };
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+const ZW = DP / 2 + 0.07;
+function poly(pts) {
+  const cp = new THREE.CurvePath();
+  for (let i = 0; i < pts.length - 1; i++) cp.add(new THREE.LineCurve3(pts[i], pts[i + 1]));
+  return cp;
+}
+const eaveY = TOP + RISE - halfRun * Math.tan(slope) + 0.05;
+const flows = [
+  { kw: D.pv, color: C.pv, rev: false,
+    curve: poly([V(2.0, eaveY + 0.35, DP / 2 + 0.1), V(2.0, eaveY - 0.05, DP / 2 + OVER - 0.05), V(2.0, eaveY - 0.05, ZW), V(2.0, INV[1] + 0.75, ZW), V(INV[0], INV[1] + 0.75, ZW), V(INV[0], INV[1] + 0.41, ZW)]) },
+  { kw: D.load, color: C.load, rev: false,
+    curve: poly([V(INV[0] - 0.36, INV[1], ZW), V(1.55, INV[1], ZW), V(1.55, Y0 + 1.6, ZW), V(1.3, Y0 + 1.6, ZW)]) },
+  { kw: Math.abs(D.batt), color: C.bat, rev: D.batt < 0,
+    curve: poly([V(INV[0] + 0.2, INV[1] - 0.41, ZW), V(INV[0] + 0.2, BAT[1] + 0.95, ZW), V(BAT[0], BAT[1] + 0.95, ZW), V(BAT[0], BAT[1] + 0.7, BAT[2])]) },
+  { kw: Math.abs(D.grid), color: C.grid, rev: D.grid < 0,
+    curve: poly([V(POLE[0], Y0 + 2.6, POLE[2]), V(POLE[0], Y0 + 0.08, POLE[2]), V(-W / 2 - 0.12, Y0 + 0.08, ZW), V(INV[0] - 0.2, Y0 + 0.08, ZW), V(INV[0] - 0.2, INV[1] - 0.41, ZW)]) },
+];
+
+const glowTex = canvasTex(64, 64, (g, w, h) => {
+  const r = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+  r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.25, 'rgba(255,255,255,0.75)');
+  r.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = r; g.fillRect(0, 0, w, h);
+});
+
+for (const f of flows) {
+  const active = f.kw >= 0.02;
+  const len = f.curve.getLength();
+  mesh(new THREE.TubeGeometry(f.curve, Math.ceil(len * 20), 0.045, 8), active
+    ? std(f.color, 0.45, 0.2, { emissive: new THREE.Color(f.color), emissiveIntensity: 0.25 })
+    : M.track, null, null, scene, false);
+  f.dots = [];
+  if (!active) continue;
+  f.len = len;
+  f.speed = 0.6 + Math.min(f.kw, 10) * 0.28;   // 每秒移動距離 (m)
+  const n = Math.max(3, Math.round(len / 0.42));
+  const sMat = new THREE.SpriteMaterial({ map: glowTex, color: f.color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
+  const cMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(f.color).lerp(new THREE.Color('#ffffff'), 0.55) });
+  for (let i = 0; i < n; i++) {
+    const s = new THREE.Sprite(sMat); s.scale.setScalar(0.42); scene.add(s);
+    const c = new THREE.Mesh(new THREE.SphereGeometry(0.055, 12, 8), cMat); scene.add(c);
+    f.dots.push({ s, c, phase: i / n });
+  }
+}
+
+// ---------- 標籤 ----------
+function card(label, kw, color, extra, anchor) {
+  const el = document.createElement('div'); el.className = 'card';
+  el.innerHTML = `<div class="v">${kw.toFixed(2)}<small>kW</small>${extra || ''}</div><div class="t"><span class="dot" style="background:${color};box-shadow:0 0 8px ${color}"></span>${label}</div>`;
+  wrap.appendChild(el);
+  return { el, anchor: V(...anchor) };
+}
+const battLabel = D.batt > 0.02 ? '電池充電' : (D.batt < -0.02 ? '電池放電' : '電池待機');
+const gridLabel = D.grid > 0.02 ? '電網購電' : (D.grid < -0.02 ? '賣電至電網' : '電網');
+const cards = [
+  card('光伏', D.pv, C.pv, '', [0.4, TOP + RISE + 1.4, 1.6]),
+  card('載入 (家中負載)', D.load, C.load, '', [-2.2, Y0 - 0.1, DP / 2 + 1.6]),
+  card(battLabel, Math.abs(D.batt), C.bat, `<span style="color:${C.bat};font-size:16px;margin-left:10px">${D.soc}%</span>`, [BAT[0] + 2.4, Y0 + 0.2, BAT[2] + 1.6]),
+  card(gridLabel, Math.abs(D.grid), C.grid, '', [POLE[0], Y0 + 8.0, POLE[2]]),
+];
+
+// ---------- 迴圈 ----------
+function resize() {
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  renderer.setSize(w, h); camera.aspect = w / h;
+  camera.fov = w < 600 ? 42 : 30;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize); resize();
+
+const clock = new THREE.Clock();
+const tmp = new THREE.Vector3();
+function tick() {
+  const t = clock.getElapsedTime();
+  for (const f of flows) for (const d of f.dots) {
+    let u = (d.phase + t * f.speed / f.len) % 1;
+    if (f.rev) u = 1 - u;
+    f.curve.getPointAt(u, tmp);
+    d.s.position.copy(tmp); d.c.position.copy(tmp);
+  }
+  controls.update();
+  renderer.render(scene, camera);
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  for (const c of cards) {
+    tmp.copy(c.anchor).project(camera);
+    const x = (tmp.x * 0.5 + 0.5) * w, y = (-tmp.y * 0.5 + 0.5) * h;
+    const cw = c.el.offsetWidth, ch = c.el.offsetHeight;
+    const cx = Math.min(Math.max(x - cw / 2, 8), w - cw - 8), cy = Math.min(Math.max(y - ch / 2, 8), h - ch - 8);
+    c.el.style.transform = `translate(${cx}px, ${cy}px)`;
+  }
+  requestAnimationFrame(tick);
+}
+tick();
+</script>
+<script>
+// 瀏覽器不支援 WebGL 時的提示
+setTimeout(() => { if (!document.querySelector('#wrap canvas')) {
+  const d = document.createElement('div'); d.className = 'fallback'; d.textContent = '3D 畫面載入失敗，請確認瀏覽器支援 WebGL';
+  document.getElementById('wrap').appendChild(d); } }, 6000);
+</script>
+</body></html>"""
 
 
 def power_flow_html(pv, load, batt, soc, grid, night=False):
     """pv/load: kW；batt: kW (+充電/−放電)；grid: kW (+買電/−賣電)。"""
-    sky = ("#0B1120", "#111827") if night else ("#1E3A5F", "#0F172A")
-    window = "#FCD34D" if night else "#FDE68A"
-    if night:
-        stars = "".join(f'<circle cx="{x}" cy="{y}" r="1.2" fill="#E2E8F0" opacity="0.7"/>'
-                        for x, y in [(60, 40), (140, 90), (330, 30), (420, 70), (520, 25), (720, 60), (600, 85), (880, 40), (40, 160)])
-        sky_body = stars + '<circle cx="110" cy="70" r="22" fill="#F1F5F9"/><circle cx="121" cy="62" r="20" fill="{0}"/>'.format(sky[0])
-    else:
-        sky_body = ('<circle cx="110" cy="70" r="60" fill="#FDE68A" opacity="0.12"/>'
-                    '<circle cx="110" cy="70" r="24" fill="#FBBF24" style="filter:drop-shadow(0 0 12px #FBBF24);"/>')
-    pv_c, load_c, bat_c, grid_c = "#10B981", "#F97316", "#A78BFA", "#38BDF8"
-
-    pv_path = f"M {_roof(0.63, 0.78)[0]:.0f} {_roof(0.63, 0.78)[1]:.0f} L 470 300"
-    load_path = "M 452 312 L 300 340 L 262 340"
-    bat_path = "M 480 324 L 480 372 L 552 372"
-    grid_path = "M 815 150 L 815 304 L 508 304"
-
-    batt_label = "電池充電" if batt > 0.02 else ("電池放電" if batt < -0.02 else "電池待機")
-    grid_label = "電網購電" if grid > 0.02 else ("賣電" if grid < -0.02 else "電網")
-
-    return f"""<!DOCTYPE html><html><head><meta charset="utf-8"><style>
-body {{ margin:0; background:transparent; font-family:'Segoe UI',Roboto,'Noto Sans TC',sans-serif; }}
-.wrap {{ position:relative; width:100%; max-width:960px; margin:0 auto; aspect-ratio: 900/470;
-        border-radius:14px; overflow:hidden; border:1px solid #334155;
-        background: radial-gradient(ellipse at 30% 0%, {sky[0]}, {sky[1]} 70%); }}
-svg {{ position:absolute; inset:0; width:100%; height:100%; }}
-.panel {{ fill:#1E3A8A; stroke:#93C5FD; stroke-width:1.2; }}
-.cell {{ stroke:#3B5BA9; stroke-width:0.6; }}
-.track {{ fill:none; stroke:#1F2937; stroke-width:5; stroke-linecap:round; stroke-linejoin:round; }}
-.flow {{ fill:none; stroke-width:4; stroke-linecap:round; stroke-linejoin:round; stroke-dasharray:6 12;
-        animation-name:dash; animation-timing-function:linear; animation-iteration-count:infinite; }}
-@keyframes dash {{ to {{ stroke-dashoffset:-36; }} }}
-@media (prefers-reduced-motion: reduce) {{ .flow {{ animation:none; stroke-dasharray:none; }} }}
-.card {{ position:absolute; transform:translate(-50%,-50%); padding:8px 14px; border-radius:10px;
-        background:rgba(15,23,42,0.72); border:1px solid rgba(148,163,184,0.25); backdrop-filter:blur(6px);
-        color:#F8FAFC; white-space:nowrap; box-shadow:0 4px 14px rgba(0,0,0,0.35); }}
-.val {{ font-size:clamp(14px,2.4vw,22px); font-weight:700; }}
-.val small {{ font-size:0.6em; font-weight:400; color:#CBD5E1; }}
-.ttl {{ font-size:clamp(10px,1.4vw,13px); color:#94A3B8; margin-top:2px; }}
-</style></head><body><div class="wrap">
-<svg viewBox="0 0 900 470" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="side" x1="0" x2="1"><stop offset="0" stop-color="#B9A588"/><stop offset="1" stop-color="#8F7C63"/></linearGradient>
-    <linearGradient id="front" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#E7DCC8"/><stop offset="1" stop-color="#C9B99D"/></linearGradient>
-    <linearGradient id="roofg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#475569"/><stop offset="1" stop-color="#334155"/></linearGradient>
-    <radialGradient id="glow"><stop offset="0" stop-color="{window}" stop-opacity="0.55"/><stop offset="1" stop-color="{window}" stop-opacity="0"/></radialGradient>
-  </defs>
-  {sky_body}
-  <ellipse cx="470" cy="420" rx="400" ry="38" fill="#000" opacity="0.35"/>
-  <!-- 側牆 -->
-  <polygon points="{_poly([(305, 250), (705, 212), (705, 372), (305, 412)])}" fill="url(#side)"/>
-  <!-- 山牆 -->
-  <polygon points="{_poly([(185, 232), (250, 150), (305, 250), (305, 412), (185, 388)])}" fill="url(#front)"/>
-  <polygon points="{_poly([(205, 262), (282, 276), (282, 400), (205, 384)])}" fill="{window}" opacity="0.85"/>
-  <line x1="243" y1="269" x2="243" y2="392" stroke="#7C6A50" stroke-width="3"/>
-  <line x1="205" y1="320" x2="282" y2="334" stroke="#7C6A50" stroke-width="3"/>
-  <ellipse cx="243" cy="330" rx="90" ry="70" fill="url(#glow)"/>
-  <!-- 側牆窗戶 -->
-  <polygon points="{_poly([(560, 250), (640, 243), (640, 300), (560, 307)])}" fill="{window}" opacity="0.7"/>
-  <!-- 屋頂 -->
-  <polygon points="{_poly([_A, _B, (722, 210), _D])}" fill="url(#roofg)" stroke="#1E293B" stroke-width="2"/>
-  <polygon points="{_poly([(175, 236), _A, (318, 252), (312, 258), (250, 160), (182, 242)])}" fill="#E2E8F0" opacity="0.9"/>
-  {_panels()}
-  <!-- 電線桿 -->
-  <line x1="815" y1="95" x2="815" y2="410" stroke="#64748B" stroke-width="7"/>
-  <line x1="785" y1="112" x2="845" y2="112" stroke="#64748B" stroke-width="5"/>
-  <path d="M 785 112 Q 740 160 705 230" fill="none" stroke="#475569" stroke-width="1.5"/>
-  <!-- 能源流 -->
-  {_flow(pv_path, pv, pv_c)}
-  {_flow(load_path, load, load_c)}
-  {_flow(bat_path, batt, bat_c, reverse=batt < 0)}
-  {_flow(grid_path, grid, grid_c, reverse=grid < 0)}
-  <!-- 逆變器 -->
-  <rect x="452" y="282" width="56" height="42" rx="5" fill="#F8FAFC" stroke="#CBD5E1"/>
-  <circle cx="480" cy="303" r="7" fill="#1E293B"/>
-  <circle cx="500" cy="290" r="2.5" fill="#22C55E"/>
-  <!-- 電池櫃 -->
-  <rect x="552" y="340" width="48" height="68" rx="5" fill="#F1F5F9" stroke="#CBD5E1"/>
-  <rect x="558" y="346" width="8" height="56" rx="2" fill="#CBD5E1"/>
-  <rect x="558" y="{346 + 56 * (1 - soc / 100):.1f}" width="8" height="{56 * soc / 100:.1f}" rx="2" fill="{bat_c}"/>
-  <circle cx="586" cy="356" r="2.5" fill="#64748B"/>
-</svg>
-{_card(70, 11, "光伏", pv, pv_c)}
-{_card(15, 52, "載入 (家中負載)", load, load_c)}
-{_card(80, 82, batt_label, abs(batt), bat_c, f"{soc}%")}
-{_card(91, 11, grid_label, abs(grid), grid_c)}
-</div></body></html>"""
+    data = {"pv": round(pv, 3), "load": round(load, 3), "batt": round(batt, 3),
+            "soc": int(soc), "grid": round(grid, 3), "night": bool(night)}
+    sky = ("linear-gradient(180deg,#070B18 0%,#111a33 55%,#1E293B 100%)" if night
+           else "linear-gradient(180deg,#5D8FC4 0%,#A9C7E3 55%,#D7E3EE 100%)")
+    return (_TEMPLATE.replace("__DATA__", json.dumps(data))
+            .replace("__SKY__", sky).replace("__STARS__", "1" if night else "0"))
