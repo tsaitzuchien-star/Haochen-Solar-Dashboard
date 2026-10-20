@@ -11,6 +11,7 @@ import streamlit.components.v1 as components
 from streamlit_autorefresh import st_autorefresh
 
 from power_flow import power_flow_html
+import pv_forecast
 
 # ==========================================
 # 1. 頁面設定與樣式
@@ -21,8 +22,8 @@ st_autorefresh(interval=300000, key="datarefresh")  # 5 分鐘刷新 (官方資�
 
 C_PV, C_LOAD, C_BAT, C_GRID = "#10B981", "#F97316", "#A78BFA", "#38BDF8"
 # 人字屋頂、正面朝東：東西兩坡各 12 片，由西到東每 2 列 8 片為一組 (顏色與 3D 屋頂外框一致)
-STRINGS = [("PV1", "西坡 8 片 · 下午較強", "#10B981"), ("PV2", "東西坡各 4 片 · 全天平均", "#2DD4BF"),
-           ("PV3", "東坡 8 片 · 上午較強", "#A3E635")]
+STRINGS = [("PV1", "西坡 8 片 · 下午較強", "#3B82F6"), ("PV2", "東西坡各 4 片 · 全天平均", "#14B8A6"),
+           ("PV3", "東坡 8 片 · 上午較強", "#F59E0B")]
 
 st.markdown("""
 <style>
@@ -40,6 +41,8 @@ header[data-testid="stHeader"] {background: transparent;}
 .chip {display:inline-block; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:600;}
 .grid2 {display:grid; grid-template-columns:1fr 1fr; gap:10px;}
 .grid3 {display:grid; grid-template-columns:repeat(3, 1fr); gap:10px;}
+@media (max-width: 640px) {.grid3 {grid-template-columns:1fr;}}
+[data-testid="stExpander"] summary, [data-testid="stExpander"] summary p {color:#CBD5E1 !important;}
 .stTabs [data-baseweb="tab-list"] {gap: 6px;}
 .stTabs [data-baseweb="tab"] {background:#1E293B; border-radius:8px 8px 0 0; padding:8px 16px; color:#CBD5E1;}
 </style>
@@ -361,25 +364,104 @@ if ana is None:
                 unsafe_allow_html=True)
 else:
     c = ana["df"]
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=c["time"], y=c["pv_home"], name="供應家用", stackgroup="pv", line=dict(width=0), fillcolor="rgba(16,185,129,0.75)"))
-    fig.add_trace(go.Scatter(x=c["time"], y=c["pv_charge"], name="充進電池", stackgroup="pv", line=dict(width=0), fillcolor="rgba(167,139,250,0.7)"))
-    if ana["calibrated"]:
-        fig.add_trace(go.Scatter(x=c["time"], y=c["lost"], name="被限發（估計）", stackgroup="pv", line=dict(width=0),
-                                 fillcolor="rgba(245,158,11,0.35)", fillpattern=dict(shape="/", fgcolor="#F59E0B", size=6)))
-    fig.add_trace(go.Scatter(x=c["time"], y=c["load"], name="家中用電", line=dict(color=C_LOAD, width=1.6)))
-    fig.add_trace(go.Scatter(x=c["time"], y=c["soc"], name="電池 SOC", yaxis="y2", line=dict(color="#E2E8F0", width=1.2, dash="dot")))
-    fig.update_layout(**chart_layout,
-                      xaxis=dict(showgrid=False, tickformat="%H:%M"),
-                      yaxis=dict(gridcolor="#334155", title="kW", rangemode="tozero"),
-                      yaxis2=dict(overlaying="y", side="right", range=[0, 105], tickvals=[0, 25, 50, 75, 100], showgrid=False, title="SOC %"))
-    st.plotly_chart(fig, width="stretch", theme=None)
     full = ana["full_time"]
+    to_kwh = lambda col: float(c[col].sum() * 5 / 60)
+    parts = [("供應家用", to_kwh("pv_home"), "#10B981", ""), ("充進電池", to_kwh("pv_charge"), "#A78BFA", "")]
+    if ana["calibrated"]:
+        parts.append(("浪費掉（估計）", ana["lost_kwh"], "#F59E0B",
+                      "background-image:repeating-linear-gradient(45deg, rgba(0,0,0,0.25) 0 4px, transparent 4px 9px);"))
+    total = sum(v for _, v, _, _ in parts) or 1
+
+    # (1) 一條比例長條：今天的太陽能分到哪裡
+    segs = "".join(
+        f'<div style="flex:{v:.3f}; background:{col}; {pat} display:flex; align-items:center; justify-content:center; '
+        f'color:#0F172A; font-weight:700; font-size:13px; white-space:nowrap; overflow:hidden;">'
+        f'{v / total * 100:.0f}%</div>' for _, v, col, pat in parts if v > 0.05)
+    legend = "".join(
+        f'<div style="display:flex; align-items:center; gap:6px;"><span style="width:12px; height:12px; border-radius:3px; background:{col}; {pat}"></span>'
+        f'<span style="color:#CBD5E1;">{name}</span><b style="color:#F8FAFC;">{v:.1f} kWh</b></div>' for name, v, col, pat in parts)
+    st.markdown(f"""<div class="card">
+      <div style="display:flex; height:34px; border-radius:8px; overflow:hidden; gap:2px;">{segs}</div>
+      <div style="display:flex; flex-wrap:wrap; gap:8px 22px; margin-top:12px; font-size:14px;">{legend}</div>
+    </div>""", unsafe_allow_html=True)
+
+    # (2) 每小時長條圖：只留三種顏色，標出電池充滿時間
+    hourly = c.set_index("time")[["pv_home", "pv_charge", "lost"]].resample("1h").sum() * 5 / 60
+    hourly = hourly[(hourly.index.hour >= 5) & (hourly.index.hour <= 19)]
+    hx = hourly.index + pd.Timedelta(minutes=30)
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=hx, y=hourly["pv_home"], name="供應家用", marker_color="#10B981"))
+    fig.add_trace(go.Bar(x=hx, y=hourly["pv_charge"], name="充進電池", marker_color="#A78BFA"))
+    if ana["calibrated"]:
+        fig.add_trace(go.Bar(x=hx, y=hourly["lost"].where(hourly["lost"] >= 0.05), name="浪費掉（估計）", marker=dict(
+            color="rgba(245,158,11,0.35)", line=dict(color="#F59E0B", width=1), pattern=dict(shape="/", fgcolor="#F59E0B", size=6))))
+    if full is not None:
+        fig.add_vline(x=full, line=dict(color="#E2E8F0", width=1, dash="dot"))
+        fig.add_annotation(x=full, y=1, yref="paper", text=f"🔋 {full:%H:%M} 電池充滿", showarrow=False,
+                           xanchor="left", yanchor="top", font=dict(color="#E2E8F0", size=12), bgcolor="rgba(15,23,42,0.7)")
+    fig.update_layout(**{**chart_layout, "height": 300}, barmode="stack", bargap=0.15,
+                      xaxis=dict(showgrid=False, tickformat="%H時", dtick=2 * 3600000),
+                      yaxis=dict(gridcolor="#334155", title="每小時 kWh", rangemode="tozero"))
+    st.plotly_chart(fig, width="stretch", theme=None)
     st.markdown(f"""<div style="color:#94A3B8; font-size:13px; margin-top:-6px;">
-      電池首次充滿：<b style="color:#E2E8F0">{full:%H:%M}</b>　｜　今日賣電：<b style="color:#E2E8F0">{f('etoGridToday'):.1f} kWh</b>　｜
-      系統為零饋電設定，電池充滿後太陽能只會發到等於家中用電；斜線區為以晴天推估的損失，多雲時可能高估。</div>"""
-                if full is not None else
-                '<div style="color:#94A3B8; font-size:13px; margin-top:-6px;">電池今天尚未充滿。</div>', unsafe_allow_html=True)
+      每根長條是一小時的太陽能發電。電池充滿後，因為不能賣電，多出來的日照用不到（橘色斜線，以晴天推估，多雲時可能高估）。
+      今日賣電 {f('etoGridToday'):.1f} kWh。</div>""", unsafe_allow_html=True)
+
+# ==========================================
+# 8.2 明天發電預測 (Open-Meteo ECMWF 短波輻射)
+# ==========================================
+@st.cache_data(ttl=3600)
+def fetch_pv_forecast():
+    return pv_forecast.forecast()
+
+
+st.markdown("<div class='section-title'>🌤️ 明天發電預測</div>", unsafe_allow_html=True)
+try:
+    fc_hourly, fc_days = with_fallback("pv_forecast", fetch_pv_forecast)
+    tomorrow = (now_tw + timedelta(days=1)).date()
+    fd = fc_days.get(tomorrow)
+except Exception as e:
+    fd = None
+    st.markdown(f'<div class="card" style="color:#94A3B8;">⏳ 天氣預報暫時讀不到（{e}），稍後會自動重試。</div>', unsafe_allow_html=True)
+
+if fd:
+    sky = "☀️ 晴" if fd["cloud"] < 30 else ("⛅ 多雲" if fd["cloud"] < 70 else "☁️ 陰")
+    rain = f"，預估降雨 {fd['rain']:.0f} mm" if fd["rain"] >= 1 else ""
+    full_txt = f"約 <b>{fd['full_at']:%H:%M}</b> 充滿" if fd["full_at"] is not None else "<b>不會充滿</b>"
+    hrs = fd["best_hours"]
+    best = (f"💡 明天 <b>{hrs[0]}:00–{hrs[-1] + 1}:00</b> 太陽能用不完，適合安排洗衣、烘衣、熱水器、電動車充電"
+            if hrs else "明天預估太陽能大多會被家用與電池用完，沒有明顯浪費的時段")
+    strings_txt = "　".join(f'<span style="color:{c}">{n}</span> {fd[n]:.1f}' for n, _, c in STRINGS)
+    st.markdown(f"""<div class="card">
+      <div style="display:flex; flex-wrap:wrap; gap:16px 36px; align-items:flex-end;">
+        <div><div class="kpi-label">預估可發電量</div><div class="kpi-value" style="color:{C_PV};">{fd['pv']:.0f}<span class="kpi-unit">kWh</span></div>
+          <div class="kpi-sub">{sky}{rain} · 日照 {fd['ghi']:.1f} kWh/m²</div></div>
+        <div><div class="kpi-label">電池</div><div style="color:#F1F5F9; font-size:20px; margin-top:4px;">{full_txt}</div>
+          <div class="kpi-sub">以早上 7 點電量 74% 估算</div></div>
+        <div><div class="kpi-label">預估浪費</div><div class="kpi-value" style="color:#F59E0B;">{fd['lost']:.0f}<span class="kpi-unit">kWh</span></div>
+          <div class="kpi-sub">家用 {fd['home']:.0f} · 充電 {fd['charge']:.0f} kWh</div></div>
+        <div><div class="kpi-label">三組預估（kWh）</div><div style="color:#CBD5E1; font-size:14px; margin-top:8px;">{strings_txt}</div></div>
+      </div>
+      <div style="margin-top:12px; padding-top:10px; border-top:1px solid #334155; color:#E2E8F0; font-size:14px;">{best}</div>
+    </div>""", unsafe_allow_html=True)
+
+    t = fc_hourly[fc_hourly["time"].dt.date == tomorrow]
+    t = t[(t["time"].dt.hour >= 6) & (t["time"].dt.hour <= 19)]
+    tx = t["time"] - pd.Timedelta(minutes=30)
+    ff = go.Figure()
+    ff.add_trace(go.Bar(x=tx, y=t["pv_home"], name="供應家用", marker_color="#10B981"))
+    ff.add_trace(go.Bar(x=tx, y=t["pv_charge"], name="充進電池", marker_color="#A78BFA"))
+    ff.add_trace(go.Bar(x=tx, y=t["lost"].where(t["lost"] >= 0.05), name="浪費掉", marker=dict(
+        color="rgba(245,158,11,0.35)", line=dict(color="#F59E0B", width=1), pattern=dict(shape="/", fgcolor="#F59E0B", size=6))))
+    ff.add_trace(go.Scatter(x=tx, y=t["ghi"], name="短波輻射 W/m²", yaxis="y2", line=dict(color="#FDE68A", width=1.5, dash="dot")))
+    ff.update_layout(**{**chart_layout, "height": 280, "margin": dict(l=50, r=50, t=40, b=40)}, barmode="stack", bargap=0.15,
+                     xaxis=dict(showgrid=False, tickformat="%H時", dtick=2 * 3600000),
+                     yaxis=dict(gridcolor="#334155", title="預估 kWh", rangemode="tozero"),
+                     yaxis2=dict(overlaying="y", side="right", showgrid=False, title="W/m²", rangemode="tozero"))
+    st.plotly_chart(ff, width="stretch", theme=None)
+    st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:-6px;">資料來源：Open-Meteo ECMWF 逐時短波輻射預報（與中創需量預測同源），'
+                "換算到東西坡板面後估算三組發電；電池與用電依本站實測平均推估。依 7–10 月實測校正，逐時誤差中位數約 10%；午後雷陣雨或雲量多的日子誤差可能達 30% 以上。</div>",
+                unsafe_allow_html=True)
 
 # ==========================================
 # 8.5 三組太陽能板 (PV1 / PV2 / PV3)
@@ -405,15 +487,52 @@ for i, (name, where, color) in enumerate(STRINGS):
 st.markdown(f'<div class="grid3">{cards_html}</div>', unsafe_allow_html=True)
 
 if not curve.empty and curve[["pv1", "pv2", "pv3"]].to_numpy().sum() > 0:
-    fs = go.Figure()
+    # 每小時三組堆疊長條：總高度 = 該小時總發電，顏色看出各組占比
+    hs = curve.set_index("time")[["pv1", "pv2", "pv3"]].resample("1h").sum() * 5 / 60
+    hs = hs[(hs.index.hour >= 5) & (hs.index.hour <= 19)]
+    hx = hs.index + pd.Timedelta(minutes=30)
+    fh = go.Figure()
     for i, (name, where, color) in enumerate(STRINGS):
-        fs.add_trace(go.Scatter(x=curve["time"], y=curve[f"pv{i + 1}"], name=f"{name}（{where}）", line=dict(color=color, width=2)))
-    fs.update_layout(**{**chart_layout, "height": 300}, xaxis=dict(showgrid=False, tickformat="%H:%M"),
-                     yaxis=dict(gridcolor="#334155", title="kW", rangemode="tozero"))
-    st.plotly_chart(fs, width="stretch", theme=None)
-st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:-6px;">屋頂為人字型、正面朝東，三組容量相同（各 8 片、約 3.56 kWp）但朝向不同：'
-            "<b style='color:#A3E635'>PV3 在東坡</b>，上午日照直射發電較多；<b style='color:#10B981'>PV1 在西坡</b>，下午較多；"
-            "<b style='color:#2DD4BF'>PV2 東西坡各半</b>，全天較平均。正午前後三組會接近。"
+        fh.add_trace(go.Bar(x=hx, y=hs[f"pv{i + 1}"], name=f"{name} {['西坡', '屋脊兩側', '東坡'][i]}",
+                            marker=dict(color=color, line=dict(color="#1E293B", width=1)),
+                            hovertemplate=f"{name}：%{{y:.2f}} kWh<extra></extra>"))
+    fh.update_layout(**{**chart_layout, "height": 300, "margin": dict(l=50, r=20, t=70, b=40)}, barmode="stack", bargap=0.15,
+                     title=dict(text="每小時發電（三組堆疊）", font=dict(color="#E2E8F0", size=15), x=0.01, y=0.97),
+                     xaxis=dict(showgrid=False, tickformat="%H時", dtick=2 * 3600000),
+                     yaxis=dict(gridcolor="#334155", title="kWh", rangemode="tozero"))
+    st.plotly_chart(fh, width="stretch", theme=None)
+
+    # 每組一條橫向長條，切成上午 / 下午，直接看出朝向造成的差異
+    noon = curve["time"].dt.hour < 12
+    halves = [(float(curve.loc[noon, f"pv{i}"].sum() * 5 / 60), float(curve.loc[~noon, f"pv{i}"].sum() * 5 / 60)) for i in (1, 2, 3)]
+    vmax = max(am + pm for am, pm in halves) or 1
+    rows = ""
+    for (name, where, color), (am, pm) in zip(STRINGS, halves):
+        tot = am + pm
+        am_pct = am / tot * 100 if tot > 0 else 0
+        width = tot / vmax * 100
+        rows += f"""<div style="display:grid; grid-template-columns:120px 1fr; gap:10px; align-items:center; margin:10px 0;">
+          <div><div style="color:{color}; font-weight:700;">{name}</div><div class="kpi-sub">{where.split(" · ")[0]}</div></div>
+          <div>
+            <div style="display:flex; width:{width:.1f}%; height:26px; border-radius:6px; overflow:hidden; gap:2px;">
+              <div style="flex:{am:.3f}; background:#E2E8F0; color:#1F2937; font-size:12px; font-weight:700; display:flex; align-items:center; padding-left:8px; white-space:nowrap; overflow:hidden;">上午 {am:.1f}</div>
+              <div style="flex:{pm:.3f}; background:#64748B; color:#F8FAFC; font-size:12px; font-weight:700; display:flex; align-items:center; padding-left:8px; white-space:nowrap; overflow:hidden;">下午 {pm:.1f}</div>
+            </div>
+            <div class="kpi-sub" style="margin-top:3px;">共 {tot:.1f} kWh · 上午占 {am_pct:.0f}%</div>
+          </div></div>"""
+    full_t = ana["full_time"] if ana else None
+    curtail_note = (f'<div style="color:#FBBF24; font-size:12px; margin-top:4px;">⚠️ 電池在 {full_t:%H:%M} 充滿後三組一起被限發，'
+                    "下午的數字會偏低；要比較朝向差異，請看電池未充滿的日子。</div>") if full_t is not None and full_t.hour < 15 else ""
+    st.markdown(f"""<div class="card" style="margin-top:10px;">
+      <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px;">
+        <span style="color:#E2E8F0; font-weight:700;">上午 vs 下午發電（kWh）</span>
+        <span style="font-size:12px; color:#94A3B8;"><span style="display:inline-block; width:10px; height:10px; background:#E2E8F0; border-radius:2px;"></span> 上午（12 點前）
+        　<span style="display:inline-block; width:10px; height:10px; background:#64748B; border-radius:2px;"></span> 下午</span></div>
+      {rows}{curtail_note}</div>""", unsafe_allow_html=True)
+
+st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:10px;">屋頂為人字型、正面朝東，三組容量相同（各 8 片、約 3.56 kWp）但朝向不同：'
+            "<b style='color:#F59E0B'>PV3 在東坡</b>，上午日照直射發電較多；<b style='color:#3B82F6'>PV1 在西坡</b>，下午較多；"
+            "<b style='color:#14B8A6'>PV2 東西坡各半</b>，全天較平均。正午前後三組會接近。"
             "若同一時段某組長期明顯低於往常，再檢查是否有遮蔭、落葉或髒污。電池充滿限發時三組會一起被壓低。</div>",
             unsafe_allow_html=True)
 
