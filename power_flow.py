@@ -59,14 +59,14 @@ const ENV = NIGHT ? 0.12 : 0.75;
 
 const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 200);
 // 依設備配置調整預設視角，讓設備正面朝向鏡頭
-const CAM = { front: [12.5, 7.6, 14.8], side: [17.5, 7.4, 8.5], yard: [15.0, 7.6, 12.8] }[D.layout || 'front'];
+const CAM = { front: [15.5, 10.5, 18.5], side: [20.5, 10.0, 10.0], yard: [17.5, 10.2, 15.5] }[D.layout || 'front'];
 camera.position.set(...CAM);
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0.6, 2.0, 0.6);
+controls.target.set(0.6, 3.4, 0.6);
 controls.enableDamping = true;
 controls.enablePan = false;
-controls.minDistance = 12;
-controls.maxDistance = 32;
+controls.minDistance = 14;
+controls.maxDistance = 40;
 controls.maxPolarAngle = 1.38;
 
 // ---------- 材質 ----------
@@ -154,15 +154,17 @@ function tree(x, z, s = 1) {
   mesh(new THREE.IcosahedronGeometry(1.0 * s, 1), M.leaf, [x, Y0 + 1.9 * s, z]);
   mesh(new THREE.IcosahedronGeometry(0.7 * s, 1), M.leaf2, [x + 0.4 * s, Y0 + 2.5 * s, z - 0.2 * s]);
 }
-tree(-6.4, 4.4, 0.95); tree(-4.8, -5.6, 1.3); tree(-1.6, -7.2, 0.95); tree(8.4, -2.2, 0.85);
+tree(-6.6, 4.4, 1.1); tree(-5.0, -5.8, 1.5); tree(-1.6, -7.4, 1.1); tree(8.4, -2.4, 1.0);
 for (const [x, z, s] of [[-3.6, 3.0, 0.45], [-2.4, 3.05, 0.38], [-1.0, 3.0, 0.42], [5.2, 2.0, 0.4]])
   mesh(new THREE.IcosahedronGeometry(s, 1), M.leaf2, [x, Y0 + s * 0.8, z]);
 
-// ---------- 房屋主體 ----------
-const W = 8.4, H = 3.2, DP = 5.0, RISE = 1.75, OVER = 0.45;
+// ---------- 房屋主體 (兩層樓) ----------
+const W = 8.4, FL = 3.1, H = FL * 2, DP = 5.0, RISE = 1.75, OVER = 0.45;
 const TOP = Y0 + H;
+const F2 = Y0 + FL;  // 二樓樓板高度
 mesh(box(W, H, DP), M.wall, [0, Y0 + H / 2, 0]);
 mesh(box(W + 0.1, 0.25, DP + 0.1), M.trim, [0, Y0 + 0.12, 0]);
+mesh(box(W + 0.12, 0.16, DP + 0.12), M.trim, [0, F2, 0]);  // 樓層飾帶
 
 // 山牆
 const gShape = new THREE.Shape();
@@ -216,11 +218,21 @@ mesh(new THREE.SphereGeometry(0.04, 12, 8), M.alu, [1.1, Y0 + 1.15, DP / 2 + 0.0
 // 側面 (+x) 木紋外牆 + 落地窗 + 山牆三角窗
 mesh(box(0.08, H, 1.9), M.wood, [W / 2 + 0.04, Y0 + H / 2, -1.55]);
 windowAt(2.6, 2.6, [W / 2 + 0.01, Y0 + 1.4, 1.0], Math.PI / 2);
+windowAt(1.8, 1.4, [W / 2 + 0.01, F2 + 1.5, 1.0], Math.PI / 2);
+// 二樓正面：玻璃欄杆陽台 + 落地窗，右側窗
+windowAt(2.6, 2.3, [-1.6, F2 + 1.3, DP / 2]);
+windowAt(1.4, 1.4, [2.3, F2 + 1.55, DP / 2]);
+const railGlass = std('#BFD9EE', 0.05, 0.1, { transparent: true, opacity: NIGHT ? 0.18 : 0.35, envMapIntensity: 1.2 });
+mesh(box(3.6, 0.18, 1.2), M.white, [-1.6, F2, DP / 2 + 0.6]);
+mesh(box(3.6, 1.0, 0.03), railGlass, [-1.6, F2 + 0.6, DP / 2 + 1.18], null, scene, false);
+for (const sx of [-1, 1]) mesh(box(0.03, 1.0, 1.18), railGlass, [-1.6 + sx * 1.785, F2 + 0.6, DP / 2 + 0.6], null, scene, false);
+mesh(box(3.64, 0.05, 0.07), M.trim, [-1.6, F2 + 1.12, DP / 2 + 1.18]);
 const triShape = new THREE.Shape();
 triShape.moveTo(-1.3, 0); triShape.lineTo(1.3, 0); triShape.lineTo(0, 0.9); triShape.closePath();
 mesh(new THREE.ShapeGeometry(triShape), M.glass, [W / 2 + 0.02, TOP + 0.15, 0], [0, Math.PI / 2, 0], scene, false);
 // 後側窗
 windowAt(1.4, 1.5, [-W / 2 - 0.01, Y0 + 1.8, 0], -Math.PI / 2);
+windowAt(1.4, 1.5, [-W / 2 - 0.01, F2 + 1.5, 0], -Math.PI / 2);
 
 // ---------- 設備配置 ----------
 // layout: front=設備在正面 / side=集中在右側牆 / yard=側院獨立設備區 (配電箱在牆上，以地下管線連接)
@@ -282,7 +294,7 @@ let P;  // 管線與標籤位置
 if (LAYOUT === 'front') {
   // 正面只留門窗；逆變器與電池在右側牆 (電池往後隔約 1 m，以 L 形線連接)；
   // 配電盤在後牆靠右側轉角，台電由右後方電線桿架空接入後牆。管線分層避免交叉：
-  // 太陽能沿窗戶上方 (Y0+2.88，避開屋簷陰影) 進逆變器，家用電沿門框高度 (Y0+2.35) 繞過後側轉角，從側邊接入配電盤
+  // 太陽能沿二樓牆頂走到逆變器正上方，再垂直往下進逆變器，家用電沿門框高度 (Y0+2.35) 繞過後側轉角，從側邊接入配電盤
   const S = frame([W / 2, 0, 0], Math.PI / 2);
   const B = frame([0, 0, -DP / 2], Math.PI);
   addInverter(S, 0.95, Y0 + 2.2); addBattery(S, 2.05, Y0 + 0.7);
@@ -292,8 +304,8 @@ if (LAYOUT === 'front') {
   const wire = sagWire(V(pole[0] - 0.6, Y0 + 7.0, pole[2] + 0.35), service, 1.2);
   const ZB = -DP / 2 - 0.07;  // 後牆外側
   P = {
-    pv: poly([V(3.9, eaveY + 0.35, DP / 2 + 0.1), V(3.9, eaveY - 0.05, DP / 2 + OVER - 0.05), V(3.9, Y0 + 2.88, ZW), V(XW, Y0 + 2.88, ZW),
-              at(S, 0.95, Y0 + 2.88, 0.07), at(S, 0.95, Y0 + 2.61, 0.07)]),
+    pv: poly([V(3.9, eaveY + 0.35, DP / 2 + 0.1), V(3.9, eaveY - 0.05, DP / 2 + OVER - 0.05), V(3.9, TOP - 0.3, ZW), V(XW, TOP - 0.3, ZW),
+              at(S, 0.95, TOP - 0.3, 0.07), at(S, 0.95, Y0 + 2.61, 0.07)]),
     load: poly([at(S, 1.31, Y0 + 2.35, 0.07), V(XW, Y0 + 2.35, ZB), V(3.45, Y0 + 2.35, ZB), V(3.45, Y0 + 1.75, ZB), V(3.25, Y0 + 1.75, ZB)]),
     bat: poly([at(S, 0.95, Y0 + 1.79, 0.07), at(S, 0.95, Y0 + 1.62, 0.07), at(S, 2.05, Y0 + 1.62, 0.07), at(S, 2.05, Y0 + 1.4, 0.2)]),
     grid: chain(wire, poly([service, at(B, -3.0, Y0 + 2.08, 0.07)])),
@@ -356,7 +368,8 @@ if (!NIGHT) {
   moon.shadow.mapSize.set(1024, 1024); moon.shadow.radius = 6;
   moon.castShadow = true; scene.add(moon);
   // 室內燈光從窗戶灑出
-  for (const p of [[-3.0, Y0 + 1.6, DP / 2 + 0.8], [-1.1, Y0 + 1.6, DP / 2 + 0.8], [W / 2 + 0.9, Y0 + 1.4, 1.0], [0.7, Y0 + 2.6, DP / 2 + 0.5]]) {
+  for (const p of [[-3.0, Y0 + 1.6, DP / 2 + 0.8], [-1.1, Y0 + 1.6, DP / 2 + 0.8], [W / 2 + 0.9, Y0 + 1.4, 1.0], [0.7, Y0 + 2.6, DP / 2 + 0.5],
+                   [-1.6, F2 + 1.4, DP / 2 + 1.6], [2.3, F2 + 1.5, DP / 2 + 0.8]]) {
     const l = new THREE.PointLight('#FFC66E', 6, 7, 2); l.position.set(...p); scene.add(l);
   }
 }
