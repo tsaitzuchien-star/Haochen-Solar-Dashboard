@@ -280,15 +280,20 @@ const pvDrop = [V(3.4, eaveY + 0.35, DP / 2 + 0.1), V(3.4, eaveY - 0.05, DP / 2 
 let P;  // 管線與標籤位置
 
 if (LAYOUT === 'front') {
+  // 逆變器與電池在正面；配電盤在右側牆 (木紋段)，台電由電線桿架空接入側牆頂後下到配電盤
   const F = frame([0, 0, DP / 2], 0);
-  addPanel(F, -3.78, Y0 + 1.85); addInverter(F, 2.7, Y0 + 1.75); addBattery(F, 3.75, Y0 + 0.7);
-  const pole = [-8.6, 0, 0.4]; addPole(pole);
-  sagWire(V(pole[0] + 0.6, Y0 + 7.0, pole[2] - 0.35), V(-W / 2 - 0.3, TOP + 0.9, 0), 1.0);
+  const S = frame([W / 2, 0, 0], Math.PI / 2);
+  addInverter(F, 2.7, Y0 + 1.75); addBattery(F, 3.75, Y0 + 0.7);
+  addPanel(S, 1.2, Y0 + 1.6);
+  const pole = [8.8, 0, -3.8]; addPole(pole);
+  const service = at(S, 1.2, Y0 + 3.05, 0.07);
+  const wire = sagWire(V(pole[0] - 0.6, Y0 + 7.0, pole[2] + 0.35), service, 1.2);
   P = {
     pv: poly([V(2.0, eaveY + 0.35, DP / 2 + 0.1), V(2.0, eaveY - 0.05, DP / 2 + OVER - 0.05), V(2.0, eaveY - 0.05, ZW), V(2.0, Y0 + 2.5, ZW), V(2.7, Y0 + 2.5, ZW), V(2.7, Y0 + 2.16, ZW)]),
-    load: poly([V(2.34, Y0 + 1.75, ZW), V(1.7, Y0 + 1.75, ZW), V(1.7, Y0 + 2.8, ZW), V(-3.78, Y0 + 2.8, ZW), V(-3.78, Y0 + 2.18, ZW)]),
+    load: poly([V(3.06, Y0 + 1.95, ZW), V(3.3, Y0 + 1.95, ZW), V(3.3, Y0 + 2.95, ZW), V(XW, Y0 + 2.95, ZW),
+                at(S, 1.2, Y0 + 2.95, 0.07), at(S, 1.2, Y0 + 1.93, 0.07)]),
     bat: poly([V(2.9, Y0 + 1.34, ZW), V(2.9, Y0 + 1.65, ZW), V(3.75, Y0 + 1.65, ZW), V(3.75, Y0 + 1.4, DP / 2 + 0.22)]),
-    grid: poly([V(pole[0], Y0 + 2.6, pole[2]), V(pole[0], Y0 + 0.08, pole[2]), V(-W / 2 - 0.12, Y0 + 0.08, ZW), V(2.5, Y0 + 0.08, ZW), V(2.5, Y0 + 1.34, ZW)]),
+    grid: chain(wire, poly([service, at(S, 1.2, Y0 + 2.6, 0.07), at(S, 1.45, Y0 + 2.6, 0.07), at(S, 1.45, Y0 + 1.93, 0.07)])),
     batCard: [6.15, Y0 + 0.2, DP / 2 + 1.8], gridCard: [pole[0], Y0 + 8.0, pole[2]],
   };
 } else if (LAYOUT === 'side') {
