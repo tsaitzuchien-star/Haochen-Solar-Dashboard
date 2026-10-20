@@ -269,10 +269,38 @@ function addPanel(g, x, y) {  // 配電盤 (淺色、約 70 x 95 cm，夜間也�
   mesh(new THREE.SphereGeometry(0.028, 10, 8), glowMat('#22C55E', 2.5), [x - 0.22, y + 0.34, 0.2], null, g, false);
   mesh(new THREE.SphereGeometry(0.028, 10, 8), glowMat('#F97316', D.load > 0.02 ? 2.5 : 0.2), [x - 0.12, y + 0.34, 0.2], null, g, false);
 }
+// 逆變器：仿 Growatt SPH 直立機型 (白色機身、GROWATT 標誌、黑色橢圓面板 + 藍色 LCD、下方檢修蓋板)
+const INV_W = 0.62, INV_H = 1.05, INV_D = 0.24;
+const invFaceTex = canvasTex(372, 630, (g, w, h) => {
+  g.clearRect(0, 0, w, h);
+  g.font = 'bold 38px Arial, sans-serif'; g.textBaseline = 'alphabetic';
+  g.fillStyle = '#6DBE45'; g.fillText('G', 34, 92);
+  g.fillStyle = '#4B5563'; g.fillText('ROWATT', 34 + g.measureText('G').width, 92);
+  const cx = w / 2, cy = h * 0.44, rw = 96, rh = 44;  // 橢圓面板
+  g.fillStyle = '#0B0F14'; g.strokeStyle = '#9CA3AF'; g.lineWidth = 3;
+  g.beginPath(); g.roundRect(cx - rw, cy - rh, rw * 2, rh * 2, rh); g.fill(); g.stroke();
+  g.strokeStyle = '#C7CCD3'; g.lineWidth = 2;  // 檢修蓋板分隔線
+  g.beginPath(); g.moveTo(0, h * 0.62); g.lineTo(w, h * 0.62); g.stroke();
+  g.fillStyle = '#F9FAFB'; g.strokeStyle = '#9CA3AF'; g.lineWidth = 2;
+  for (const [sx, sy] of [[0.24, 0.645], [0.76, 0.645], [0.04, 0.72], [0.96, 0.72], [0.04, 0.9], [0.96, 0.9], [0.24, 0.975], [0.76, 0.975]]) {
+    g.beginPath(); g.arc(sx * w, sy * h, 7, 0, Math.PI * 2); g.fill(); g.stroke();
+  }
+});
+const invFaceMat = new THREE.MeshStandardMaterial({ map: invFaceTex, transparent: true, roughness: 0.4, envMapIntensity: ENV });
 function addInverter(g, x, y) {
-  mesh(new RoundedBoxGeometry(0.72, 0.82, 0.24, 4, 0.05), M.white, [x, y, 0.14], null, g);
-  mesh(new THREE.CircleGeometry(0.09, 24), M.dark, [x, y + 0.05, 0.265], null, g, false);
-  mesh(new THREE.SphereGeometry(0.025, 12, 8), glowMat('#22C55E', 2.5), [x + 0.24, y + 0.3, 0.265], null, g);
+  const zf = 0.02 + INV_D;  // 正面位置
+  mesh(new RoundedBoxGeometry(INV_W, INV_H, INV_D, 4, 0.05), M.white, [x, y, 0.02 + INV_D / 2], null, g);
+  mesh(new THREE.PlaneGeometry(INV_W, INV_H), invFaceMat, [x, y, zf + 0.002], null, g, false);
+  // 藍色 LCD 與三顆指示燈 (夜間會發光)
+  const cy = y + INV_H * (0.5 - 0.44);
+  mesh(new THREE.PlaneGeometry(0.17, 0.105), glowMat('#4F7FD0', NIGHT ? 1.4 : 0.5), [x - 0.035, cy, zf + 0.004], null, g, false);
+  ['#22C55E', '#22C55E', '#EF4444'].forEach((c, i) =>
+    mesh(new THREE.SphereGeometry(0.009, 8, 6), glowMat(c, i < 2 ? 3 : 0.4), [x + 0.105, cy + 0.035 - i * 0.03, zf + 0.006], null, g, false));
+  // 頂部掛架、左側直流開關、底部接線端子
+  mesh(box(INV_W * 0.82, 0.05, 0.05), M.alu, [x, y + INV_H / 2 + 0.02, 0.05], null, g);
+  mesh(box(0.035, 0.1, 0.06), M.dark, [x - INV_W / 2 - 0.015, y - 0.12, 0.14], null, g);
+  for (const dx of [-0.22, -0.11, -0.02, 0.07, 0.16, 0.23])
+    mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.05, 10), M.dark, [x + dx, y - INV_H / 2 - 0.02, 0.14], null, g);
 }
 function addBattery(g, x, y) {  // y 為電池中心高度
   mesh(new RoundedBoxGeometry(0.8, 1.4, 0.38, 4, 0.05), M.white, [x, y, 0.22], null, g);
@@ -325,9 +353,9 @@ if (LAYOUT === 'front') {
   const wire = sagWire(V(pole[0] - 0.6, Y0 + 7.0, pole[2] + 0.35), service, 1.0);
   P = {
     pv: poly([V(3.9, eaveY + 0.35, DP / 2 + 0.1), V(3.9, eaveY - 0.05, DP / 2 + OVER - 0.05), V(3.9, TOP - 0.3, ZW), V(XW, TOP - 0.3, ZW),
-              at(S, 0.6, TOP - 0.3, 0.07), at(S, 0.6, Y0 + 2.91, 0.07)]),
-    load: poly([at(S, 0.96, Y0 + 2.5, 0.07), at(S, 2.45, Y0 + 2.5, 0.07)]),
-    bat: poly([at(S, 0.6, Y0 + 2.09, 0.1), at(S, 0.6, Y0 + 1.4, 0.1)]),
+              at(S, 0.6, TOP - 0.3, 0.07), at(S, 0.6, Y0 + 2.5 + INV_H / 2 + 0.05, 0.07)]),
+    load: poly([at(S, 0.6 + INV_W / 2, Y0 + 2.5, 0.07), at(S, 2.45, Y0 + 2.5, 0.07)]),
+    bat: poly([at(S, 0.6, Y0 + 2.5 - INV_H / 2 - 0.05, 0.14), at(S, 0.6, Y0 + 1.4, 0.14)]),
     grid: chain(wire, poly([service, at(S, 2.8, Y0 + 2.98, 0.07)])),
     batCard: [7.6, Y0 + 0.2, 1.2], gridCard: [pole[0], Y0 + 8.0, pole[2]],
   };
