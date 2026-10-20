@@ -62,7 +62,7 @@ const ENV = NIGHT ? 0.12 : 0.75;
 
 const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 200);
 // 依設備配置調整預設視角，讓設備正面朝向鏡頭
-const CAM = { front: [23.5, 19.0, 19.0], door: [15.5, 10.5, 18.5], side: [20.5, 10.0, 10.0], yard: [17.5, 10.2, 15.5] }[D.layout || 'front'];
+const CAM = { front: [25.0, 12.5, 19.5], door: [15.5, 10.5, 18.5], side: [20.5, 10.0, 10.0], yard: [17.5, 10.2, 15.5] }[D.layout || 'front'];
 camera.position.set(...CAM);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(1.0, 3.4, -0.3);
@@ -121,7 +121,7 @@ const M = {
   glass: NIGHT
     ? std('#0E1822', 0.06, 0.9, { emissive: new THREE.Color('#FFC873'), emissiveIntensity: 1.7, envMapIntensity: 0.2 })
     : std('#36597C', 0.04, 0.65, { emissive: new THREE.Color('#7FA9D1'), emissiveIntensity: 0.3, envMapIntensity: 1.6 }),
-  panel: std('#C8D4F0', 0.55, 0.0, { map: panelTex, envMapIntensity: NIGHT ? 0.2 : 0.35 }),  // 降低反光，白天也看得出電池片
+  panel: std('#FFFFFF', 0.2, 0.55, { map: panelTex, envMapIntensity: NIGHT ? 0.2 : 1.5 }),
   alu: std('#C9CED6', 0.35, 0.85),
   white: std('#F5F6F8', 0.35, 0.05),
   dark: std('#111827', 0.4, 0.2),
@@ -357,26 +357,28 @@ const pvDrop = [V(3.4, eaveY + 0.35, DP / 2 + 0.1), V(3.4, eaveY - 0.05, DP / 2 
 let P;  // 管線與標籤位置
 
 if (LAYOUT === 'front') {
-  // 正面只留門窗；右側牆後段 (木紋) 由前往後：逆變器 (電池在正下方) → 約 2 m 後為配電盤。
+  // 正面只留門窗；右側牆後段 (木紋) 中央由前往後：逆變器 (電池在正下方) → 約 2 m 後為配電盤。
   // 太陽能沿二樓牆頂走到逆變器正上方後垂直往下；家用電由逆變器水平直達配電盤；台電由右後方電線桿架空接到二樓牆面再下到配電盤
   const S = frame([W / 2, 0, 0], Math.PI / 2);
-  addInverter(S, 0.6, Y0 + 2.5); addBattery(S, 0.6, Y0 + 0.7);
-  addPanel(S, 2.8, Y0 + 2.5);
+  // 設備組置中於木紋牆：IX = 逆變器/電池、PX = 配電盤 (牆面局部座標，往後為正)
+  const WOOD_C = DP / 4 - 0.3, IX = WOOD_C - 1.1, PX = WOOD_C + 1.1, LX = WOOD_C;
+  addInverter(S, IX, Y0 + 2.5); addBattery(S, IX, Y0 + 0.7);
+  addPanel(S, PX, Y0 + 2.5);
   const pole = [8.6, 0, -6.6]; addPole(pole);
-  const service = at(S, 2.8, Y0 + 3.9, 0.07);
+  const service = at(S, PX, Y0 + 3.9, 0.07);
   if (NIGHT) {  // 設備區壁燈：照亮逆變器、電池與配電盤
-    mesh(box(0.3, 0.08, 0.14), M.trim, at(S, 1.7, Y0 + 3.45, 0.07).toArray());
-    mesh(box(0.26, 0.02, 0.1), glowMat('#FFE7B0', 3), at(S, 1.7, Y0 + 3.4, 0.08).toArray(), null, scene, false);
-    const lamp = new THREE.PointLight('#FFE2A8', 9, 6, 2); lamp.position.copy(at(S, 1.7, Y0 + 3.2, 0.8)); scene.add(lamp);
+    mesh(box(0.3, 0.08, 0.14), M.trim, at(S, LX, Y0 + 3.45, 0.07).toArray());
+    mesh(box(0.26, 0.02, 0.1), glowMat('#FFE7B0', 3), at(S, LX, Y0 + 3.4, 0.08).toArray(), null, scene, false);
+    const lamp = new THREE.PointLight('#FFE2A8', 9, 6, 2); lamp.position.copy(at(S, LX, Y0 + 3.2, 0.8)); scene.add(lamp);
   }
   const wire = sagWire(V(pole[0] - 0.6, Y0 + 7.0, pole[2] + 0.35), service, 1.0);
   P = {
     pv: poly([V(3.9, eaveY + 0.35, DP / 2 + 0.1), V(3.9, eaveY - 0.05, DP / 2 + OVER - 0.05), V(3.9, TOP - 0.3, ZW), V(XW, TOP - 0.3, ZW),
-              at(S, 0.6, TOP - 0.3, 0.07), at(S, 0.6, Y0 + 2.5 + INV_H / 2 + 0.05, 0.07)]),
-    load: poly([at(S, 0.6 + INV_W / 2, Y0 + 2.5, 0.07), at(S, 2.45, Y0 + 2.5, 0.07)]),
-    bat: poly([at(S, 0.6, Y0 + 2.5 - INV_H / 2 - 0.05, 0.14), at(S, 0.6, Y0 + 1.4, 0.14)]),
-    grid: chain(wire, poly([service, at(S, 2.8, Y0 + 2.98, 0.07)])),
-    batCard: [7.6, Y0 + 0.2, 1.2], gridCard: [pole[0], Y0 + 8.0, pole[2]],
+              at(S, IX, TOP - 0.3, 0.07), at(S, IX, Y0 + 2.5 + INV_H / 2 + 0.05, 0.07)]),
+    load: poly([at(S, IX + INV_W / 2, Y0 + 2.5, 0.07), at(S, PX - 0.35, Y0 + 2.5, 0.07)]),
+    bat: poly([at(S, IX, Y0 + 2.5 - INV_H / 2 - 0.05, 0.14), at(S, IX, Y0 + 1.4, 0.14)]),
+    grid: chain(wire, poly([service, at(S, PX, Y0 + 2.98, 0.07)])),
+    batCard: [7.6, Y0 + 0.2, -0.6], gridCard: [pole[0], Y0 + 8.0, pole[2]],
   };
 } else if (LAYOUT === 'door') {
   // 與 front 相同，但配電盤在正面大門右手邊；家用電從逆變器沿落地窗上緣繞到正面，台電走地下管線進配電盤底部
