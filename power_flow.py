@@ -262,10 +262,12 @@ const at = (g, x, y, z) => g.localToWorld(V(x, y, z));
 const glowMat = (c, i) => std(c, 0.3, 0, { emissive: new THREE.Color(c), emissiveIntensity: i });
 
 // 各設備以「牆面座標」建立：x 沿牆、y 向上、z 朝外
-function addPanel(g, x, y) {
-  mesh(new RoundedBoxGeometry(0.46, 0.66, 0.14, 3, 0.03), std('#9CA3AF', 0.45, 0.5), [x, y, 0.08], null, g);
-  mesh(box(0.36, 0.008, 0.01), std('#6B7280', 0.6), [x, y + 0.12, 0.155], null, g, false);
-  mesh(new THREE.SphereGeometry(0.02, 10, 8), glowMat('#F97316', 2), [x + 0.15, y + 0.24, 0.155], null, g, false);
+function addPanel(g, x, y) {  // 配電盤 (淺色、約 70 x 95 cm，夜間也看得見)
+  mesh(new RoundedBoxGeometry(0.7, 0.95, 0.18, 3, 0.04), std('#E5E7EB', 0.4, 0.15), [x, y, 0.1], null, g);
+  mesh(box(0.6, 0.01, 0.01), std('#9CA3AF', 0.6), [x, y + 0.2, 0.195], null, g, false);
+  mesh(box(0.01, 0.6, 0.01), std('#9CA3AF', 0.6), [x + 0.2, y - 0.1, 0.195], null, g, false);
+  mesh(new THREE.SphereGeometry(0.028, 10, 8), glowMat('#22C55E', 2.5), [x - 0.22, y + 0.34, 0.2], null, g, false);
+  mesh(new THREE.SphereGeometry(0.028, 10, 8), glowMat('#F97316', D.load > 0.02 ? 2.5 : 0.2), [x - 0.12, y + 0.34, 0.2], null, g, false);
 }
 function addInverter(g, x, y) {
   mesh(new RoundedBoxGeometry(0.72, 0.82, 0.24, 4, 0.05), M.white, [x, y, 0.14], null, g);
@@ -315,13 +317,18 @@ if (LAYOUT === 'front') {
   addPanel(S, 2.8, Y0 + 2.5);
   const pole = [8.6, 0, -6.6]; addPole(pole);
   const service = at(S, 2.8, Y0 + 3.9, 0.07);
+  if (NIGHT) {  // 設備區壁燈：照亮逆變器、電池與配電盤
+    mesh(box(0.3, 0.08, 0.14), M.trim, at(S, 1.7, Y0 + 3.45, 0.07).toArray());
+    mesh(box(0.26, 0.02, 0.1), glowMat('#FFE7B0', 3), at(S, 1.7, Y0 + 3.4, 0.08).toArray(), null, scene, false);
+    const lamp = new THREE.PointLight('#FFE2A8', 9, 6, 2); lamp.position.copy(at(S, 1.7, Y0 + 3.2, 0.8)); scene.add(lamp);
+  }
   const wire = sagWire(V(pole[0] - 0.6, Y0 + 7.0, pole[2] + 0.35), service, 1.0);
   P = {
     pv: poly([V(3.9, eaveY + 0.35, DP / 2 + 0.1), V(3.9, eaveY - 0.05, DP / 2 + OVER - 0.05), V(3.9, TOP - 0.3, ZW), V(XW, TOP - 0.3, ZW),
               at(S, 0.6, TOP - 0.3, 0.07), at(S, 0.6, Y0 + 2.91, 0.07)]),
-    load: poly([at(S, 0.96, Y0 + 2.5, 0.07), at(S, 2.57, Y0 + 2.5, 0.07)]),
+    load: poly([at(S, 0.96, Y0 + 2.5, 0.07), at(S, 2.45, Y0 + 2.5, 0.07)]),
     bat: poly([at(S, 0.6, Y0 + 2.09, 0.1), at(S, 0.6, Y0 + 1.4, 0.1)]),
-    grid: chain(wire, poly([service, at(S, 2.8, Y0 + 2.83, 0.07)])),
+    grid: chain(wire, poly([service, at(S, 2.8, Y0 + 2.98, 0.07)])),
     batCard: [7.6, Y0 + 0.2, 1.2], gridCard: [pole[0], Y0 + 8.0, pole[2]],
   };
 } else if (LAYOUT === 'door') {
