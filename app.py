@@ -138,7 +138,14 @@ except Exception as e:
 
 now_tw = datetime.now(TW_TZ)
 last_update = datetime.fromtimestamp(s["calendar"] / 1000, TW_TZ)
-stale = now_tw - last_update > timedelta(minutes=20)
+age_min = max(int((now_tw - last_update).total_seconds() // 60), 0)
+stale = age_min > 20
+if age_min < 1:
+    age_text = "剛剛"
+elif age_min < 60:
+    age_text = f"{age_min} 分鐘前"
+else:
+    age_text = f"{age_min // 60} 小時 {age_min % 60} 分鐘前"
 
 f = lambda k: float(s.get(k) or 0)
 pv_power = [f("ppv1") / 1000, f("ppv2") / 1000, f("ppv3") / 1000]
@@ -169,7 +176,8 @@ st.markdown(f"""
     </div>
     <div style="text-align: right;">
         <div style="color: {conn_color}; font-size: 14px; font-weight: bold;">{conn_text}</div>
-        <div style="color: #F8FAFC; font-size: 20px; font-family: monospace;">資料時間 {last_update.strftime("%Y-%m-%d %H:%M")}</div>
+        <div style="color: #F8FAFC; font-size: 20px; font-family: monospace;">資料時間 {last_update.strftime("%Y-%m-%d %H:%M")} <span style="color: {conn_color}; font-size: 15px;">({age_text})</span></div>
+        <div style="color: #64748B; font-size: 12px; font-family: monospace;">網頁更新 {now_tw.strftime("%H:%M:%S")} · 每 5 分鐘自動刷新</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
