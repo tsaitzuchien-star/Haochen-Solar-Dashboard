@@ -59,7 +59,7 @@ const ENV = NIGHT ? 0.12 : 0.75;
 
 const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 200);
 // 依設備配置調整預設視角，讓設備正面朝向鏡頭
-const CAM = { front: [15.5, 10.5, 18.5], side: [20.5, 10.0, 10.0], yard: [17.5, 10.2, 15.5] }[D.layout || 'front'];
+const CAM = { front: [15.5, 10.5, 18.5], door: [15.5, 10.5, 18.5], side: [20.5, 10.0, 10.0], yard: [17.5, 10.2, 15.5] }[D.layout || 'front'];
 camera.position.set(...CAM);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0.6, 3.4, 0.6);
@@ -309,6 +309,23 @@ if (LAYOUT === 'front') {
     load: poly([at(S, 1.31, Y0 + 2.5, 0.07), V(XW, Y0 + 2.5, ZB), V(3.25, Y0 + 2.5, ZB)]),
     bat: poly([at(S, 0.95, Y0 + 2.09, 0.1), at(S, 0.95, Y0 + 1.4, 0.1)]),
     grid: chain(wire, poly([service, at(B, -3.0, Y0 + 2.83, 0.07)])),
+    batCard: [7.0, Y0 + 0.2, 0.6], gridCard: [pole[0], Y0 + 8.0, pole[2]],
+  };
+} else if (LAYOUT === 'door') {
+  // 與 front 相同，但配電盤在正面大門右手邊；家用電從逆變器沿落地窗上緣繞到正面，台電走地下管線進配電盤底部
+  const S = frame([W / 2, 0, 0], Math.PI / 2);
+  const F = frame([0, 0, DP / 2], 0);
+  addInverter(S, 0.95, Y0 + 2.5); addBattery(S, 0.95, Y0 + 0.7);
+  addPanel(F, 1.9, Y0 + 1.85);
+  const pole = [7.6, 0, -6.4]; addPole(pole);
+  const g0 = Y0 + 0.08;
+  P = {
+    pv: poly([V(3.9, eaveY + 0.35, DP / 2 + 0.1), V(3.9, eaveY - 0.05, DP / 2 + OVER - 0.05), V(3.9, TOP - 0.3, ZW), V(XW, TOP - 0.3, ZW),
+              at(S, 0.95, TOP - 0.3, 0.07), at(S, 0.95, Y0 + 2.91, 0.07)]),
+    load: poly([at(S, 0.59, Y0 + 2.5, 0.07), at(S, 0.4, Y0 + 2.5, 0.07), at(S, 0.4, Y0 + 2.92, 0.07), V(XW, Y0 + 2.92, ZW),
+                V(1.9, Y0 + 2.92, ZW), V(1.9, Y0 + 2.18, ZW)]),
+    bat: poly([at(S, 0.95, Y0 + 2.09, 0.1), at(S, 0.95, Y0 + 1.4, 0.1)]),
+    grid: poly([V(pole[0], Y0 + 2.6, pole[2]), V(pole[0], g0, pole[2]), V(W / 2 + 0.7, g0, ZW + 0.5), V(1.9, g0, ZW + 0.5), V(1.9, g0, ZW), V(1.9, Y0 + 1.52, ZW)]),
     batCard: [7.0, Y0 + 0.2, 0.6], gridCard: [pole[0], Y0 + 8.0, pole[2]],
   };
 } else if (LAYOUT === 'side') {
