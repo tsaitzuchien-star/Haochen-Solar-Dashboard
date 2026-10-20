@@ -107,6 +107,16 @@ const woodTex = canvasTex(256, 256, (g, w, h) => {
     for (let k = 0; k < 6; k++) { g.fillStyle = 'rgba(60,30,15,0.15)'; g.fillRect(x + Math.random() * 12, Math.random() * h, 1, 30 + Math.random() * 60); }
   }
 }, [2, 1]);
+// 側牆炭灰木條 (讓橘色等能量管線更醒目)
+const slatTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#3A3F47'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 16; i++) {
+    const x = i * w / 16;
+    g.fillStyle = i % 2 ? '#434952' : '#373C44'; g.fillRect(x, 0, w / 16 - 2, h);
+    g.fillStyle = 'rgba(10,12,16,0.6)'; g.fillRect(x + w / 16 - 2, 0, 2, h);
+    for (let k = 0; k < 6; k++) { g.fillStyle = 'rgba(255,255,255,0.04)'; g.fillRect(x + Math.random() * 12, Math.random() * h, 1, 30 + Math.random() * 60); }
+  }
+}, [2, 1]);
 const roofTex = canvasTex(256, 64, (g, w, h) => {
   g.fillStyle = '#2E333B'; g.fillRect(0, 0, w, h);
   for (let i = 0; i < 16; i++) { g.fillStyle = 'rgba(255,255,255,0.06)'; g.fillRect(i * w / 16, 0, 2, h); }
@@ -115,6 +125,7 @@ const roofTex = canvasTex(256, 64, (g, w, h) => {
 const M = {
   wall: std('#EEEAE3', 0.92),
   wood: std('#FFFFFF', 0.75, 0, { map: woodTex }),
+  slat: std('#FFFFFF', 0.7, 0.05, { map: slatTex }),
   roof: std('#FFFFFF', 0.5, 0.45, { map: roofTex }),
   trim: std('#22262D', 0.5, 0.4),
   frame: std('#1C2026', 0.4, 0.6),
@@ -252,7 +263,7 @@ windowAt(1.5, 1.7, [-0.8, Y0 + 1.75, DP / 2]);
 mesh(box(1.1, 2.3, 0.08), M.wood, [0.7, Y0 + 1.15, DP / 2 + 0.03]);
 mesh(new THREE.SphereGeometry(0.04, 12, 8), M.alu, [1.1, Y0 + 1.15, DP / 2 + 0.09]);
 // 側面 (+x) 木紋外牆 + 落地窗 + 山牆三角窗
-mesh(box(0.08, H, DP / 2 + 0.6), M.wood, [W / 2 + 0.04, Y0 + H / 2, -DP / 4 + 0.3]);
+mesh(box(0.08, H, DP / 2 + 0.6), M.slat, [W / 2 + 0.04, Y0 + H / 2, -DP / 4 + 0.3]);
 windowAt(2.6, 2.6, [W / 2 + 0.01, Y0 + 1.4, 3.0], Math.PI / 2);
 windowAt(2.0, 1.4, [W / 2 + 0.01, F2 + 1.5, 3.0], Math.PI / 2);
 // 二樓正面：玻璃欄杆陽台 + 落地窗，右側窗
