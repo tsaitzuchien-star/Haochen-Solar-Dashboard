@@ -280,22 +280,25 @@ const pvDrop = [V(3.4, eaveY + 0.35, DP / 2 + 0.1), V(3.4, eaveY - 0.05, DP / 2 
 let P;  // 管線與標籤位置
 
 if (LAYOUT === 'front') {
-  // 配電盤在正面；逆變器與電池在右側牆 (木紋段)。管線分層避免交叉：
-  // 太陽能沿側牆最上緣 (Y0+3.1) 進逆變器，家用電沿下一層 (Y0+2.9) 繞到正面配電盤，台電由左側地下管線進配電盤
-  const F = frame([0, 0, DP / 2], 0);
+  // 正面只留門窗；逆變器與電池在右側牆 (電池往後隔約 1 m，以 L 形線連接)；
+  // 配電盤在後牆靠右側轉角，台電由右後方電線桿架空接入後牆。管線分層避免交叉：
+  // 太陽能沿側牆最上緣 (Y0+3.1) 進逆變器，家用電沿下一層 (Y0+2.9) 繞過後側轉角到配電盤
   const S = frame([W / 2, 0, 0], Math.PI / 2);
-  addPanel(F, 2.7, Y0 + 1.75);
-  addInverter(S, 1.5, Y0 + 2.15); addBattery(S, 1.5, Y0 + 0.7);
-  const pole = [-8.6, 0, 0.4]; addPole(pole);
-  sagWire(V(pole[0] + 0.6, Y0 + 7.0, pole[2] - 0.35), V(-W / 2 - 0.3, TOP + 0.9, 0), 1.0);
+  const B = frame([0, 0, -DP / 2], Math.PI);
+  addInverter(S, 0.95, Y0 + 2.2); addBattery(S, 2.05, Y0 + 0.7);
+  addPanel(B, -3.0, Y0 + 1.75);
+  const pole = [7.6, 0, -6.4]; addPole(pole);
+  const service = at(B, -3.0, Y0 + 3.05, 0.07);
+  const wire = sagWire(V(pole[0] - 0.6, Y0 + 7.0, pole[2] + 0.35), service, 1.2);
+  const ZB = -DP / 2 - 0.07;  // 後牆外側
   P = {
     pv: poly([V(3.9, eaveY + 0.35, DP / 2 + 0.1), V(3.9, eaveY - 0.05, DP / 2 + OVER - 0.05), V(3.9, Y0 + 3.1, ZW), V(XW, Y0 + 3.1, ZW),
-              at(S, 1.5, Y0 + 3.1, 0.07), at(S, 1.5, Y0 + 2.56, 0.07)]),
-    load: poly([at(S, 1.14, Y0 + 2.15, 0.07), at(S, 0.95, Y0 + 2.15, 0.07), at(S, 0.95, Y0 + 2.9, 0.07), V(XW, Y0 + 2.9, ZW),
-                V(2.7, Y0 + 2.9, ZW), V(2.7, Y0 + 2.08, ZW)]),
-    bat: poly([at(S, 1.7, Y0 + 1.74, 0.1), at(S, 1.7, Y0 + 1.4, 0.15)]),
-    grid: poly([V(pole[0], Y0 + 2.6, pole[2]), V(pole[0], Y0 + 0.08, pole[2]), V(-W / 2 - 0.12, Y0 + 0.08, ZW), V(2.7, Y0 + 0.08, ZW), V(2.7, Y0 + 1.42, ZW)]),
-    batCard: [6.6, Y0 + 0.2, 1.4], gridCard: [pole[0], Y0 + 8.0, pole[2]],
+              at(S, 0.95, Y0 + 3.1, 0.07), at(S, 0.95, Y0 + 2.61, 0.07)]),
+    load: poly([at(S, 1.31, Y0 + 2.4, 0.07), at(S, 1.5, Y0 + 2.4, 0.07), at(S, 1.5, Y0 + 2.9, 0.07), V(XW, Y0 + 2.9, ZB),
+                V(3.0, Y0 + 2.9, ZB), V(3.0, Y0 + 2.08, ZB)]),
+    bat: poly([at(S, 0.95, Y0 + 1.79, 0.07), at(S, 0.95, Y0 + 1.62, 0.07), at(S, 2.05, Y0 + 1.62, 0.07), at(S, 2.05, Y0 + 1.4, 0.2)]),
+    grid: chain(wire, poly([service, at(B, -3.0, Y0 + 2.08, 0.07)])),
+    batCard: [7.0, Y0 + 0.2, 0.6], gridCard: [pole[0], Y0 + 8.0, pole[2]],
   };
 } else if (LAYOUT === 'side') {
   // 右側牆 (木紋段)：配電箱、逆變器、下方電池；台電由電線桿架空接入牆頂，再沿管線下到配電箱
