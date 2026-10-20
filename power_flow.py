@@ -292,12 +292,12 @@ const pvDrop = [V(3.4, eaveY + 0.35, DP / 2 + 0.1), V(3.4, eaveY - 0.05, DP / 2 
 let P;  // 管線與標籤位置
 
 if (LAYOUT === 'front') {
-  // 正面只留門窗；逆變器與電池在右側牆 (電池往後隔約 1 m，以 L 形線連接)；
+  // 正面只留門窗；逆變器與電池在右側牆 (電池在正下方，隔約 0.7 m)；
   // 配電盤在後牆靠右側轉角，台電由右後方電線桿架空接入後牆。管線分層避免交叉：
   // 太陽能沿二樓牆頂走到逆變器正上方，再垂直往下進逆變器，家用電沿門框高度 (Y0+2.35) 繞過後側轉角，從側邊接入配電盤
   const S = frame([W / 2, 0, 0], Math.PI / 2);
   const B = frame([0, 0, -DP / 2], Math.PI);
-  addInverter(S, 0.95, Y0 + 2.2); addBattery(S, 2.05, Y0 + 0.7);
+  addInverter(S, 0.95, Y0 + 2.5); addBattery(S, 0.95, Y0 + 0.7);  // 電池在逆變器正下方，間隔約 0.7 m
   addPanel(B, -3.0, Y0 + 1.75);
   const pole = [7.6, 0, -6.4]; addPole(pole);
   const service = at(B, -3.0, Y0 + 3.05, 0.07);
@@ -305,9 +305,9 @@ if (LAYOUT === 'front') {
   const ZB = -DP / 2 - 0.07;  // 後牆外側
   P = {
     pv: poly([V(3.9, eaveY + 0.35, DP / 2 + 0.1), V(3.9, eaveY - 0.05, DP / 2 + OVER - 0.05), V(3.9, TOP - 0.3, ZW), V(XW, TOP - 0.3, ZW),
-              at(S, 0.95, TOP - 0.3, 0.07), at(S, 0.95, Y0 + 2.61, 0.07)]),
-    load: poly([at(S, 1.31, Y0 + 2.35, 0.07), V(XW, Y0 + 2.35, ZB), V(3.45, Y0 + 2.35, ZB), V(3.45, Y0 + 1.75, ZB), V(3.25, Y0 + 1.75, ZB)]),
-    bat: poly([at(S, 0.95, Y0 + 1.79, 0.07), at(S, 0.95, Y0 + 1.62, 0.07), at(S, 2.05, Y0 + 1.62, 0.07), at(S, 2.05, Y0 + 1.4, 0.2)]),
+              at(S, 0.95, TOP - 0.3, 0.07), at(S, 0.95, Y0 + 2.91, 0.07)]),
+    load: poly([at(S, 1.31, Y0 + 2.5, 0.07), at(S, 1.6, Y0 + 2.5, 0.07), at(S, 1.6, Y0 + 2.35, 0.07), V(XW, Y0 + 2.35, ZB), V(3.45, Y0 + 2.35, ZB), V(3.45, Y0 + 1.75, ZB), V(3.25, Y0 + 1.75, ZB)]),
+    bat: poly([at(S, 0.95, Y0 + 2.09, 0.1), at(S, 0.95, Y0 + 1.4, 0.1)]),
     grid: chain(wire, poly([service, at(B, -3.0, Y0 + 2.08, 0.07)])),
     batCard: [7.0, Y0 + 0.2, 0.6], gridCard: [pole[0], Y0 + 8.0, pole[2]],
   };
