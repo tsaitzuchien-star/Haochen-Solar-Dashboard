@@ -154,7 +154,7 @@ function tree(x, z, s = 1) {
   mesh(new THREE.IcosahedronGeometry(1.0 * s, 1), M.leaf, [x, Y0 + 1.9 * s, z]);
   mesh(new THREE.IcosahedronGeometry(0.7 * s, 1), M.leaf2, [x + 0.4 * s, Y0 + 2.5 * s, z - 0.2 * s]);
 }
-tree(-6.4, 4.4, 0.95); tree(-4.8, -5.6, 1.3); tree(4.6, -6.0, 1.0); tree(8.4, -2.2, 0.85);
+tree(-6.4, 4.4, 0.95); tree(-4.8, -5.6, 1.3); tree(-1.6, -7.2, 0.95); tree(8.4, -2.2, 0.85);
 for (const [x, z, s] of [[-3.6, 3.0, 0.45], [-2.4, 3.05, 0.38], [-1.0, 3.0, 0.42], [5.2, 2.0, 0.4]])
   mesh(new THREE.IcosahedronGeometry(s, 1), M.leaf2, [x, Y0 + s * 0.8, z]);
 
@@ -282,7 +282,7 @@ let P;  // 管線與標籤位置
 if (LAYOUT === 'front') {
   // 正面只留門窗；逆變器與電池在右側牆 (電池往後隔約 1 m，以 L 形線連接)；
   // 配電盤在後牆靠右側轉角，台電由右後方電線桿架空接入後牆。管線分層避免交叉：
-  // 太陽能沿側牆最上緣 (Y0+3.1) 進逆變器，家用電沿下一層 (Y0+2.9) 繞過後側轉角到配電盤
+  // 太陽能沿側牆最上緣 (Y0+3.1) 進逆變器，家用電沿門框高度 (Y0+2.35) 繞過後側轉角，從側邊接入配電盤
   const S = frame([W / 2, 0, 0], Math.PI / 2);
   const B = frame([0, 0, -DP / 2], Math.PI);
   addInverter(S, 0.95, Y0 + 2.2); addBattery(S, 2.05, Y0 + 0.7);
@@ -294,8 +294,7 @@ if (LAYOUT === 'front') {
   P = {
     pv: poly([V(3.9, eaveY + 0.35, DP / 2 + 0.1), V(3.9, eaveY - 0.05, DP / 2 + OVER - 0.05), V(3.9, Y0 + 3.1, ZW), V(XW, Y0 + 3.1, ZW),
               at(S, 0.95, Y0 + 3.1, 0.07), at(S, 0.95, Y0 + 2.61, 0.07)]),
-    load: poly([at(S, 1.31, Y0 + 2.4, 0.07), at(S, 1.5, Y0 + 2.4, 0.07), at(S, 1.5, Y0 + 2.9, 0.07), V(XW, Y0 + 2.9, ZB),
-                V(3.0, Y0 + 2.9, ZB), V(3.0, Y0 + 2.08, ZB)]),
+    load: poly([at(S, 1.31, Y0 + 2.35, 0.07), V(XW, Y0 + 2.35, ZB), V(3.45, Y0 + 2.35, ZB), V(3.45, Y0 + 1.75, ZB), V(3.25, Y0 + 1.75, ZB)]),
     bat: poly([at(S, 0.95, Y0 + 1.79, 0.07), at(S, 0.95, Y0 + 1.62, 0.07), at(S, 2.05, Y0 + 1.62, 0.07), at(S, 2.05, Y0 + 1.4, 0.2)]),
     grid: chain(wire, poly([service, at(B, -3.0, Y0 + 2.08, 0.07)])),
     batCard: [7.0, Y0 + 0.2, 0.6], gridCard: [pole[0], Y0 + 8.0, pole[2]],
