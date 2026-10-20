@@ -205,7 +205,7 @@ mesh(box(W + 0.95, 0.14, 0.32), M.trim, [0, TOP + RISE + 0.22, 0]);
 // 太陽能板：人字屋頂兩坡各 12 片 (沿屋脊 4 片 [2+2，中間走道] x 往屋簷 3 片)。正面 (+z) 朝東。
 // 由西到東共 6 列，每 2 列一組：PV1 = 西坡下方 2 列；PV2 = 緊鄰屋脊的兩列 (東、西坡各一)；PV3 = 東坡下方 2 列
 const PW = 1.12, PL = 1.9, GAP = 0.05, ALONG = 4, AISLE = 0.45;  // 直式長板，長邊順坡
-const STRING_COLORS = ['#10B981', '#2DD4BF', '#A3E635'];
+const STRING_COLORS = ['#3B82F6', '#14B8A6', '#F59E0B'];  // PV1 藍、PV2 青綠、PV3 金黃
 // 沿屋脊 4 排分成 2 + 2，中間留支架走道
 const xs = [-1.5, -0.5, 0.5, 1.5].map(i => i * (PW + GAP) + Math.sign(i) * AISLE / 2);
 const ridgeZ = -L / 2 + 0.2;  // 屋面局部座標：靠屋脊端

@@ -21,8 +21,8 @@ st_autorefresh(interval=300000, key="datarefresh")  # 5 分鐘刷新 (官方資�
 
 C_PV, C_LOAD, C_BAT, C_GRID = "#10B981", "#F97316", "#A78BFA", "#38BDF8"
 # 人字屋頂、正面朝東：東西兩坡各 12 片，由西到東每 2 列 8 片為一組 (顏色與 3D 屋頂外框一致)
-STRINGS = [("PV1", "西坡 8 片 · 下午較強", "#10B981"), ("PV2", "東西坡各 4 片 · 全天平均", "#2DD4BF"),
-           ("PV3", "東坡 8 片 · 上午較強", "#A3E635")]
+STRINGS = [("PV1", "西坡 8 片 · 下午較強", "#3B82F6"), ("PV2", "東西坡各 4 片 · 全天平均", "#14B8A6"),
+           ("PV3", "東坡 8 片 · 上午較強", "#F59E0B")]
 
 st.markdown("""
 <style>
@@ -430,6 +430,21 @@ for i, (name, where, color) in enumerate(STRINGS):
 st.markdown(f'<div class="grid3">{cards_html}</div>', unsafe_allow_html=True)
 
 if not curve.empty and curve[["pv1", "pv2", "pv3"]].to_numpy().sum() > 0:
+    # 每小時三組堆疊長條：總高度 = 該小時總發電，顏色看出各組占比
+    hs = curve.set_index("time")[["pv1", "pv2", "pv3"]].resample("1h").sum() * 5 / 60
+    hs = hs[(hs.index.hour >= 5) & (hs.index.hour <= 19)]
+    hx = hs.index + pd.Timedelta(minutes=30)
+    fh = go.Figure()
+    for i, (name, where, color) in enumerate(STRINGS):
+        fh.add_trace(go.Bar(x=hx, y=hs[f"pv{i + 1}"], name=f"{name} {['西坡', '屋脊兩側', '東坡'][i]}",
+                            marker=dict(color=color, line=dict(color="#1E293B", width=1)),
+                            hovertemplate=f"{name}：%{{y:.2f}} kWh<extra></extra>"))
+    fh.update_layout(**{**chart_layout, "height": 300, "margin": dict(l=50, r=20, t=70, b=40)}, barmode="stack", bargap=0.15,
+                     title=dict(text="每小時發電（三組堆疊）", font=dict(color="#E2E8F0", size=15), x=0.01, y=0.97),
+                     xaxis=dict(showgrid=False, tickformat="%H時", dtick=2 * 3600000),
+                     yaxis=dict(gridcolor="#334155", title="kWh", rangemode="tozero"))
+    st.plotly_chart(fh, width="stretch", theme=None)
+
     # 每組一條橫向長條，切成上午 / 下午，直接看出朝向造成的差異
     noon = curve["time"].dt.hour < 12
     halves = [(float(curve.loc[noon, f"pv{i}"].sum() * 5 / 60), float(curve.loc[~noon, f"pv{i}"].sum() * 5 / 60)) for i in (1, 2, 3)]
@@ -443,8 +458,8 @@ if not curve.empty and curve[["pv1", "pv2", "pv3"]].to_numpy().sum() > 0:
           <div><div style="color:{color}; font-weight:700;">{name}</div><div class="kpi-sub">{where.split(" · ")[0]}</div></div>
           <div>
             <div style="display:flex; width:{width:.1f}%; height:26px; border-radius:6px; overflow:hidden; gap:2px;">
-              <div style="flex:{am:.3f}; background:#FBBF24; color:#1F2937; font-size:12px; font-weight:700; display:flex; align-items:center; padding-left:8px; white-space:nowrap; overflow:hidden;">上午 {am:.1f}</div>
-              <div style="flex:{pm:.3f}; background:#F97316; color:#1F2937; font-size:12px; font-weight:700; display:flex; align-items:center; padding-left:8px; white-space:nowrap; overflow:hidden;">下午 {pm:.1f}</div>
+              <div style="flex:{am:.3f}; background:#E2E8F0; color:#1F2937; font-size:12px; font-weight:700; display:flex; align-items:center; padding-left:8px; white-space:nowrap; overflow:hidden;">上午 {am:.1f}</div>
+              <div style="flex:{pm:.3f}; background:#64748B; color:#F8FAFC; font-size:12px; font-weight:700; display:flex; align-items:center; padding-left:8px; white-space:nowrap; overflow:hidden;">下午 {pm:.1f}</div>
             </div>
             <div class="kpi-sub" style="margin-top:3px;">共 {tot:.1f} kWh · 上午占 {am_pct:.0f}%</div>
           </div></div>"""
@@ -454,21 +469,13 @@ if not curve.empty and curve[["pv1", "pv2", "pv3"]].to_numpy().sum() > 0:
     st.markdown(f"""<div class="card" style="margin-top:10px;">
       <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px;">
         <span style="color:#E2E8F0; font-weight:700;">上午 vs 下午發電（kWh）</span>
-        <span style="font-size:12px; color:#94A3B8;"><span style="display:inline-block; width:10px; height:10px; background:#FBBF24; border-radius:2px;"></span> 上午（12 點前）
-        　<span style="display:inline-block; width:10px; height:10px; background:#F97316; border-radius:2px;"></span> 下午</span></div>
+        <span style="font-size:12px; color:#94A3B8;"><span style="display:inline-block; width:10px; height:10px; background:#E2E8F0; border-radius:2px;"></span> 上午（12 點前）
+        　<span style="display:inline-block; width:10px; height:10px; background:#64748B; border-radius:2px;"></span> 下午</span></div>
       {rows}{curtail_note}</div>""", unsafe_allow_html=True)
 
-    with st.expander("📈 查看三組詳細曲線"):
-        fs = go.Figure()
-        for i, (name, where, color) in enumerate(STRINGS):
-            fs.add_trace(go.Scatter(x=curve["time"], y=curve[f"pv{i + 1}"], name=f"{name}（{where}）",
-                                    line=dict(color=color, width=2, dash=["solid", "dot", "dash"][i])))
-        fs.update_layout(**{**chart_layout, "height": 300}, xaxis=dict(showgrid=False, tickformat="%H:%M"),
-                         yaxis=dict(gridcolor="#334155", title="kW", rangemode="tozero"))
-        st.plotly_chart(fs, width="stretch", theme=None)
-st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:-6px;">屋頂為人字型、正面朝東，三組容量相同（各 8 片、約 3.56 kWp）但朝向不同：'
-            "<b style='color:#A3E635'>PV3 在東坡</b>，上午日照直射發電較多；<b style='color:#10B981'>PV1 在西坡</b>，下午較多；"
-            "<b style='color:#2DD4BF'>PV2 東西坡各半</b>，全天較平均。正午前後三組會接近。"
+st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:10px;">屋頂為人字型、正面朝東，三組容量相同（各 8 片、約 3.56 kWp）但朝向不同：'
+            "<b style='color:#F59E0B'>PV3 在東坡</b>，上午日照直射發電較多；<b style='color:#3B82F6'>PV1 在西坡</b>，下午較多；"
+            "<b style='color:#14B8A6'>PV2 東西坡各半</b>，全天較平均。正午前後三組會接近。"
             "若同一時段某組長期明顯低於往常，再檢查是否有遮蔭、落葉或髒污。電池充滿限發時三組會一起被壓低。</div>",
             unsafe_allow_html=True)
 
