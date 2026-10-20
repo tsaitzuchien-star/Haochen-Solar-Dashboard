@@ -25,6 +25,9 @@ html, body { margin:0; padding:0; background:transparent; overflow:hidden;
 .card .v { font-size:20px; font-weight:700; letter-spacing:0.3px; }
 .card .v small { font-size:12px; font-weight:400; color:#CBD5E1; margin-left:2px; }
 .card .t { font-size:12px; color:#94A3B8; margin-top:1px; }
+.card .strings { display:flex; gap:10px; margin-top:5px; padding-top:5px; border-top:1px solid rgba(148,163,184,0.25); font-size:11px; color:#94A3B8; }
+.card .strings i { display:inline-block; width:7px; height:7px; border-radius:2px; margin-right:4px; }
+.card .strings b { color:#F1F5F9; font-weight:600; }
 .card .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; vertical-align:middle; }
 .hint { position:absolute; right:12px; bottom:10px; font-size:11px; color:rgba(226,232,240,0.55); pointer-events:none; }
 .fallback { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#94A3B8; }
@@ -59,14 +62,14 @@ const ENV = NIGHT ? 0.12 : 0.75;
 
 const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 200);
 // 依設備配置調整預設視角，讓設備正面朝向鏡頭
-const CAM = { front: [15.5, 10.5, 18.5], side: [20.5, 10.0, 10.0], yard: [17.5, 10.2, 15.5] }[D.layout || 'front'];
+const CAM = { front: [22.0, 11.0, 15.5], door: [15.5, 10.5, 18.5], side: [20.5, 10.0, 10.0], yard: [17.5, 10.2, 15.5] }[D.layout || 'front'];
 camera.position.set(...CAM);
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0.6, 3.4, 0.6);
+controls.target.set(1.0, 3.4, -0.3);
 controls.enableDamping = true;
 controls.enablePan = false;
-controls.minDistance = 14;
-controls.maxDistance = 40;
+controls.minDistance = 16;
+controls.maxDistance = 45;
 controls.maxPolarAngle = 1.38;
 
 // ---------- 材質 ----------
@@ -144,22 +147,22 @@ const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
 
 // ---------- 地台與庭園 ----------
 const Y0 = 0.3;
-mesh(new THREE.CylinderGeometry(10.5, 10.8, 0.3, 96), M.concrete, [0, 0.15, 0], null, scene, false);
-mesh(new THREE.CylinderGeometry(10.2, 10.2, 0.04, 96), M.grass, [0, Y0 + 0.01, 0], null, scene, false);
-mesh(box(3.2, 0.05, 6.5), M.path, [6.6, Y0 + 0.03, 3.6], [0, -0.35, 0], scene, false);
-mesh(box(9.6, 0.06, 1.6), M.path, [0, Y0 + 0.04, 3.4], null, scene, false);
+mesh(new THREE.CylinderGeometry(11.8, 12.1, 0.3, 96), M.concrete, [0, 0.15, 0], null, scene, false);
+mesh(new THREE.CylinderGeometry(11.5, 11.5, 0.04, 96), M.grass, [0, Y0 + 0.01, 0], null, scene, false);
+mesh(box(3.2, 0.05, 6.5), M.path, [6.8, Y0 + 0.03, 6.4], [0, -0.35, 0], scene, false);
+mesh(box(9.6, 0.06, 1.6), M.path, [0, Y0 + 0.04, 4.9], null, scene, false);
 
 function tree(x, z, s = 1) {
   mesh(new THREE.CylinderGeometry(0.1 * s, 0.14 * s, 1.4 * s, 8), M.trunk, [x, Y0 + 0.7 * s, z]);
   mesh(new THREE.IcosahedronGeometry(1.0 * s, 1), M.leaf, [x, Y0 + 1.9 * s, z]);
   mesh(new THREE.IcosahedronGeometry(0.7 * s, 1), M.leaf2, [x + 0.4 * s, Y0 + 2.5 * s, z - 0.2 * s]);
 }
-tree(-6.6, 4.4, 1.1); tree(-5.0, -5.8, 1.5); tree(-1.6, -7.4, 1.1); tree(8.4, -2.4, 1.0);
-for (const [x, z, s] of [[-3.6, 3.0, 0.45], [-2.4, 3.05, 0.38], [-1.0, 3.0, 0.42], [5.2, 2.0, 0.4]])
+tree(-7.2, 5.6, 1.1); tree(-6.0, -6.8, 1.5); tree(-1.6, -8.6, 1.1); tree(9.6, -4.6, 1.0); tree(-8.6, 1.2, 0.8);
+for (const [x, z, s] of [[-3.6, 4.5, 0.45], [-2.4, 4.55, 0.38], [-1.0, 4.5, 0.42], [5.2, 3.6, 0.4]])
   mesh(new THREE.IcosahedronGeometry(s, 1), M.leaf2, [x, Y0 + s * 0.8, z]);
 
 // ---------- 房屋主體 (兩層樓) ----------
-const W = 8.4, FL = 3.1, H = FL * 2, DP = 5.0, RISE = 1.75, OVER = 0.45;
+const W = 8.4, FL = 3.1, H = FL * 2, DP = 8.0, RISE = 2.7, OVER = 0.45;
 const TOP = Y0 + H;
 const F2 = Y0 + FL;  // 二樓樓板高度
 mesh(box(W, H, DP), M.wall, [0, Y0 + H / 2, 0]);
@@ -188,14 +191,28 @@ for (const s of [1, -1]) {
 }
 mesh(box(W + 0.95, 0.14, 0.32), M.trim, [0, TOP + RISE + 0.22, 0]);
 
-// 太陽能板 (前坡 2 x 6)
-const PW = 1.02, PL = 1.6;
-for (let r = 0; r < 2; r++) for (let c = 0; c < 6; c++) {
-  const x = -2.25 + c * (PW + 0.06);
-  const z = -L / 2 + 0.25 + PL / 2 + r * (PL + 0.06);
-  mesh(box(PW + 0.04, 0.05, PL + 0.04), M.alu, [x, 0.11, z], null, roofs[1]);
+// 太陽能板 (前坡 4 排 x 6 列 = 24 片)；由左至右每 2 列 8 片為一組：PV1 / PV2 / PV3
+const PW = 1.0, PL = 1.2, GAP = 0.05, ROWS = 4, COLS = 6;
+const STRING_COLORS = ['#10B981', '#2DD4BF', '#A3E635'];
+const x0 = -((COLS - 1) * (PW + GAP)) / 2 - 0.3;
+const z0 = -((ROWS - 1) * (PL + GAP)) / 2;
+for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+  const x = x0 + c * (PW + GAP);
+  const z = z0 + r * (PL + GAP);
+  mesh(box(PW + 0.03, 0.05, PL + 0.03), M.alu, [x, 0.11, z], null, roofs[1]);
   const p = mesh(new THREE.PlaneGeometry(PW, PL), M.panel, [x, 0.14, z], [-Math.PI / 2, 0, 0], roofs[1]);
   p.castShadow = false;
+}
+// 每組外框以顏色區分
+for (let g = 0; g < 3; g++) {
+  const xa = x0 + 2 * g * (PW + GAP) - PW / 2 - 0.04, xb = xa + 2 * PW + GAP + 0.08;
+  const za = z0 - PL / 2 - 0.04, zb = z0 + (ROWS - 1) * (PL + GAP) + PL / 2 + 0.04;
+  const m = std(STRING_COLORS[g], 0.4, 0, { emissive: new THREE.Color(STRING_COLORS[g]), emissiveIntensity: NIGHT ? 0.5 : 0.9 });
+  const t = 0.035;
+  mesh(box(xb - xa, 0.02, t), m, [(xa + xb) / 2, 0.165, za], null, roofs[1], false);
+  mesh(box(xb - xa, 0.02, t), m, [(xa + xb) / 2, 0.165, zb], null, roofs[1], false);
+  mesh(box(t, 0.02, zb - za), m, [xa, 0.165, (za + zb) / 2], null, roofs[1], false);
+  mesh(box(t, 0.02, zb - za), m, [xb, 0.165, (za + zb) / 2], null, roofs[1], false);
 }
 
 // 窗戶
@@ -216,9 +233,9 @@ windowAt(1.5, 1.7, [-0.8, Y0 + 1.75, DP / 2]);
 mesh(box(1.1, 2.3, 0.08), M.wood, [0.7, Y0 + 1.15, DP / 2 + 0.03]);
 mesh(new THREE.SphereGeometry(0.04, 12, 8), M.alu, [1.1, Y0 + 1.15, DP / 2 + 0.09]);
 // 側面 (+x) 木紋外牆 + 落地窗 + 山牆三角窗
-mesh(box(0.08, H, 1.9), M.wood, [W / 2 + 0.04, Y0 + H / 2, -1.55]);
-windowAt(2.6, 2.6, [W / 2 + 0.01, Y0 + 1.4, 1.0], Math.PI / 2);
-windowAt(1.8, 1.4, [W / 2 + 0.01, F2 + 1.5, 1.0], Math.PI / 2);
+mesh(box(0.08, H, 4.2), M.wood, [W / 2 + 0.04, Y0 + H / 2, -DP / 2 + 2.1]);
+windowAt(2.6, 2.6, [W / 2 + 0.01, Y0 + 1.4, 2.1], Math.PI / 2);
+windowAt(2.0, 1.4, [W / 2 + 0.01, F2 + 1.5, 2.1], Math.PI / 2);
 // 二樓正面：玻璃欄杆陽台 + 落地窗，右側窗
 windowAt(2.6, 2.3, [-1.6, F2 + 1.3, DP / 2]);
 windowAt(1.4, 1.4, [2.3, F2 + 1.55, DP / 2]);
@@ -228,11 +245,10 @@ mesh(box(3.6, 1.0, 0.03), railGlass, [-1.6, F2 + 0.6, DP / 2 + 1.18], null, scen
 for (const sx of [-1, 1]) mesh(box(0.03, 1.0, 1.18), railGlass, [-1.6 + sx * 1.785, F2 + 0.6, DP / 2 + 0.6], null, scene, false);
 mesh(box(3.64, 0.05, 0.07), M.trim, [-1.6, F2 + 1.12, DP / 2 + 1.18]);
 const triShape = new THREE.Shape();
-triShape.moveTo(-1.3, 0); triShape.lineTo(1.3, 0); triShape.lineTo(0, 0.9); triShape.closePath();
+triShape.moveTo(-2.0, 0); triShape.lineTo(2.0, 0); triShape.lineTo(0, 1.4); triShape.closePath();
 mesh(new THREE.ShapeGeometry(triShape), M.glass, [W / 2 + 0.02, TOP + 0.15, 0], [0, Math.PI / 2, 0], scene, false);
 // 後側窗
-windowAt(1.4, 1.5, [-W / 2 - 0.01, Y0 + 1.8, 0], -Math.PI / 2);
-windowAt(1.4, 1.5, [-W / 2 - 0.01, F2 + 1.5, 0], -Math.PI / 2);
+for (const z of [-2, 2]) { windowAt(1.4, 1.5, [-W / 2 - 0.01, Y0 + 1.8, z], -Math.PI / 2); windowAt(1.4, 1.5, [-W / 2 - 0.01, F2 + 1.5, z], -Math.PI / 2); }
 
 // ---------- 設備配置 ----------
 // layout: front=設備在正面 / side=集中在右側牆 / yard=側院獨立設備區 (配電箱在牆上，以地下管線連接)
@@ -246,10 +262,12 @@ const at = (g, x, y, z) => g.localToWorld(V(x, y, z));
 const glowMat = (c, i) => std(c, 0.3, 0, { emissive: new THREE.Color(c), emissiveIntensity: i });
 
 // 各設備以「牆面座標」建立：x 沿牆、y 向上、z 朝外
-function addPanel(g, x, y) {
-  mesh(new RoundedBoxGeometry(0.46, 0.66, 0.14, 3, 0.03), std('#9CA3AF', 0.45, 0.5), [x, y, 0.08], null, g);
-  mesh(box(0.36, 0.008, 0.01), std('#6B7280', 0.6), [x, y + 0.12, 0.155], null, g, false);
-  mesh(new THREE.SphereGeometry(0.02, 10, 8), glowMat('#F97316', 2), [x + 0.15, y + 0.24, 0.155], null, g, false);
+function addPanel(g, x, y) {  // 配電盤 (淺色、約 70 x 95 cm，夜間也看得見)
+  mesh(new RoundedBoxGeometry(0.7, 0.95, 0.18, 3, 0.04), std('#E5E7EB', 0.4, 0.15), [x, y, 0.1], null, g);
+  mesh(box(0.6, 0.01, 0.01), std('#9CA3AF', 0.6), [x, y + 0.2, 0.195], null, g, false);
+  mesh(box(0.01, 0.6, 0.01), std('#9CA3AF', 0.6), [x + 0.2, y - 0.1, 0.195], null, g, false);
+  mesh(new THREE.SphereGeometry(0.028, 10, 8), glowMat('#22C55E', 2.5), [x - 0.22, y + 0.34, 0.2], null, g, false);
+  mesh(new THREE.SphereGeometry(0.028, 10, 8), glowMat('#F97316', D.load > 0.02 ? 2.5 : 0.2), [x - 0.12, y + 0.34, 0.2], null, g, false);
 }
 function addInverter(g, x, y) {
   mesh(new RoundedBoxGeometry(0.72, 0.82, 0.24, 4, 0.05), M.white, [x, y, 0.14], null, g);
@@ -292,23 +310,42 @@ const pvDrop = [V(3.4, eaveY + 0.35, DP / 2 + 0.1), V(3.4, eaveY - 0.05, DP / 2 
 let P;  // 管線與標籤位置
 
 if (LAYOUT === 'front') {
-  // 正面只留門窗；逆變器與電池在右側牆 (電池在正下方，隔約 0.7 m)；
-  // 配電盤在後牆靠右側轉角，台電由右後方電線桿架空接入後牆。管線分層避免交叉：
-  // 太陽能沿二樓牆頂走到逆變器正上方，再垂直往下進逆變器；家用電從逆變器水平繞過後側轉角，直接接入同高的配電盤
+  // 正面只留門窗；右側牆後段 (木紋) 由前往後：逆變器 (電池在正下方) → 約 2 m 後為配電盤。
+  // 太陽能沿二樓牆頂走到逆變器正上方後垂直往下；家用電由逆變器水平直達配電盤；台電由右後方電線桿架空接到二樓牆面再下到配電盤
   const S = frame([W / 2, 0, 0], Math.PI / 2);
-  const B = frame([0, 0, -DP / 2], Math.PI);
-  addInverter(S, 0.95, Y0 + 2.5); addBattery(S, 0.95, Y0 + 0.7);  // 電池在逆變器正下方，間隔約 0.7 m
-  addPanel(B, -3.0, Y0 + 2.5);  // 與家用電管線同高，線可水平直接接入
+  addInverter(S, 0.6, Y0 + 2.5); addBattery(S, 0.6, Y0 + 0.7);
+  addPanel(S, 2.8, Y0 + 2.5);
+  const pole = [8.6, 0, -6.6]; addPole(pole);
+  const service = at(S, 2.8, Y0 + 3.9, 0.07);
+  if (NIGHT) {  // 設備區壁燈：照亮逆變器、電池與配電盤
+    mesh(box(0.3, 0.08, 0.14), M.trim, at(S, 1.7, Y0 + 3.45, 0.07).toArray());
+    mesh(box(0.26, 0.02, 0.1), glowMat('#FFE7B0', 3), at(S, 1.7, Y0 + 3.4, 0.08).toArray(), null, scene, false);
+    const lamp = new THREE.PointLight('#FFE2A8', 9, 6, 2); lamp.position.copy(at(S, 1.7, Y0 + 3.2, 0.8)); scene.add(lamp);
+  }
+  const wire = sagWire(V(pole[0] - 0.6, Y0 + 7.0, pole[2] + 0.35), service, 1.0);
+  P = {
+    pv: poly([V(3.9, eaveY + 0.35, DP / 2 + 0.1), V(3.9, eaveY - 0.05, DP / 2 + OVER - 0.05), V(3.9, TOP - 0.3, ZW), V(XW, TOP - 0.3, ZW),
+              at(S, 0.6, TOP - 0.3, 0.07), at(S, 0.6, Y0 + 2.91, 0.07)]),
+    load: poly([at(S, 0.96, Y0 + 2.5, 0.07), at(S, 2.45, Y0 + 2.5, 0.07)]),
+    bat: poly([at(S, 0.6, Y0 + 2.09, 0.1), at(S, 0.6, Y0 + 1.4, 0.1)]),
+    grid: chain(wire, poly([service, at(S, 2.8, Y0 + 2.98, 0.07)])),
+    batCard: [7.6, Y0 + 0.2, 1.2], gridCard: [pole[0], Y0 + 8.0, pole[2]],
+  };
+} else if (LAYOUT === 'door') {
+  // 與 front 相同，但配電盤在正面大門右手邊；家用電從逆變器沿落地窗上緣繞到正面，台電走地下管線進配電盤底部
+  const S = frame([W / 2, 0, 0], Math.PI / 2);
+  const F = frame([0, 0, DP / 2], 0);
+  addInverter(S, 0.95, Y0 + 2.5); addBattery(S, 0.95, Y0 + 0.7);
+  addPanel(F, 1.9, Y0 + 1.85);
   const pole = [7.6, 0, -6.4]; addPole(pole);
-  const service = at(B, -3.0, Y0 + 3.05, 0.07);
-  const wire = sagWire(V(pole[0] - 0.6, Y0 + 7.0, pole[2] + 0.35), service, 1.2);
-  const ZB = -DP / 2 - 0.07;  // 後牆外側
+  const g0 = Y0 + 0.08;
   P = {
     pv: poly([V(3.9, eaveY + 0.35, DP / 2 + 0.1), V(3.9, eaveY - 0.05, DP / 2 + OVER - 0.05), V(3.9, TOP - 0.3, ZW), V(XW, TOP - 0.3, ZW),
               at(S, 0.95, TOP - 0.3, 0.07), at(S, 0.95, Y0 + 2.91, 0.07)]),
-    load: poly([at(S, 1.31, Y0 + 2.5, 0.07), V(XW, Y0 + 2.5, ZB), V(3.25, Y0 + 2.5, ZB)]),
+    load: poly([at(S, 0.59, Y0 + 2.5, 0.07), at(S, 0.4, Y0 + 2.5, 0.07), at(S, 0.4, Y0 + 2.92, 0.07), V(XW, Y0 + 2.92, ZW),
+                V(1.9, Y0 + 2.92, ZW), V(1.9, Y0 + 2.18, ZW)]),
     bat: poly([at(S, 0.95, Y0 + 2.09, 0.1), at(S, 0.95, Y0 + 1.4, 0.1)]),
-    grid: chain(wire, poly([service, at(B, -3.0, Y0 + 2.83, 0.07)])),
+    grid: poly([V(pole[0], Y0 + 2.6, pole[2]), V(pole[0], g0, pole[2]), V(W / 2 + 0.7, g0, ZW + 0.5), V(1.9, g0, ZW + 0.5), V(1.9, g0, ZW), V(1.9, Y0 + 1.52, ZW)]),
     batCard: [7.0, Y0 + 0.2, 0.6], gridCard: [pole[0], Y0 + 8.0, pole[2]],
   };
 } else if (LAYOUT === 'side') {
@@ -368,7 +405,7 @@ if (!NIGHT) {
   moon.shadow.mapSize.set(1024, 1024); moon.shadow.radius = 6;
   moon.castShadow = true; scene.add(moon);
   // 室內燈光從窗戶灑出
-  for (const p of [[-3.0, Y0 + 1.6, DP / 2 + 0.8], [-1.1, Y0 + 1.6, DP / 2 + 0.8], [W / 2 + 0.9, Y0 + 1.4, 1.0], [0.7, Y0 + 2.6, DP / 2 + 0.5],
+  for (const p of [[-3.0, Y0 + 1.6, DP / 2 + 0.8], [-1.1, Y0 + 1.6, DP / 2 + 0.8], [W / 2 + 0.9, Y0 + 1.4, 2.1], [0.7, Y0 + 2.6, DP / 2 + 0.5],
                    [-1.6, F2 + 1.4, DP / 2 + 1.6], [2.3, F2 + 1.5, DP / 2 + 0.8]]) {
     const l = new THREE.PointLight('#FFC66E', 6, 7, 2); l.position.set(...p); scene.add(l);
   }
@@ -411,16 +448,19 @@ for (const f of flows) {
 }
 
 // ---------- 標籤 ----------
-function card(label, kw, color, extra, anchor) {
+function card(label, kw, color, extra, anchor, foot = '') {
   const el = document.createElement('div'); el.className = 'card';
-  el.innerHTML = `<div class="v">${kw.toFixed(2)}<small>kW</small>${extra || ''}</div><div class="t"><span class="dot" style="background:${color};box-shadow:0 0 8px ${color}"></span>${label}</div>`;
+  el.innerHTML = `<div class="v">${kw.toFixed(2)}<small>kW</small>${extra || ''}</div><div class="t"><span class="dot" style="background:${color};box-shadow:0 0 8px ${color}"></span>${label}</div>${foot}`;
   wrap.appendChild(el);
   return { el, anchor: V(...anchor) };
 }
+// 光伏卡片下方列出三組功率，顏色對應屋頂外框
+const stringRows = (D.strings || []).length ? '<div class="strings">' + D.strings.map((kw, i) =>
+  `<span><i style="background:${STRING_COLORS[i]}"></i>PV${i + 1} <b>${kw.toFixed(2)}</b></span>`).join('') + '</div>' : '';
 const battLabel = D.batt > 0.02 ? '電池充電' : (D.batt < -0.02 ? '電池放電' : '電池待機');
 const gridLabel = D.grid > 0.02 ? '電網購電' : (D.grid < -0.02 ? '賣電至電網' : '電網');
 const cards = [
-  card('光伏', D.pv, C.pv, '', [0.4, TOP + RISE + 1.4, 1.6]),
+  card('光伏', D.pv, C.pv, '', [0.4, TOP + RISE + 1.4, 1.6], stringRows),
   card('載入 (家中負載)', D.load, C.load, '', [-5.0, Y0 + 0.1, DP / 2 + 1.2]),
   card(battLabel, Math.abs(D.batt), C.bat, `<span style="color:${C.bat};font-size:16px;margin-left:10px">${D.soc}%</span>`, P.batCard),
   card(gridLabel, Math.abs(D.grid), C.grid, '', P.gridCard),
@@ -468,10 +508,11 @@ setTimeout(() => { if (!document.querySelector('#wrap canvas')) {
 </body></html>"""
 
 
-def power_flow_html(pv, load, batt, soc, grid, night=False, layout="front"):
-    """pv/load: kW；batt: kW (+充電/−放電)；grid: kW (+買電/−賣電)。"""
+def power_flow_html(pv, load, batt, soc, grid, night=False, layout="front", strings=None):
+    """pv/load: kW；batt: kW (+充電/−放電)；grid: kW (+買電/−賣電)；strings: [PV1, PV2, PV3] kW。"""
     data = {"pv": round(pv, 3), "load": round(load, 3), "batt": round(batt, 3),
-            "soc": int(soc), "grid": round(grid, 3), "night": bool(night), "layout": layout}
+            "soc": int(soc), "grid": round(grid, 3), "night": bool(night), "layout": layout,
+            "strings": [round(x, 3) for x in strings] if strings else []}
     sky = ("linear-gradient(180deg,#070B18 0%,#111a33 55%,#1E293B 100%)" if night
            else "linear-gradient(180deg,#5D8FC4 0%,#A9C7E3 55%,#D7E3EE 100%)")
     return (_TEMPLATE.replace("__DATA__", json.dumps(data))
