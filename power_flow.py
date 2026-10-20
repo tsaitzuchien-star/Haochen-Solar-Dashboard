@@ -25,6 +25,9 @@ html, body { margin:0; padding:0; background:transparent; overflow:hidden;
 .card .v { font-size:20px; font-weight:700; letter-spacing:0.3px; }
 .card .v small { font-size:12px; font-weight:400; color:#CBD5E1; margin-left:2px; }
 .card .t { font-size:12px; color:#94A3B8; margin-top:1px; }
+.card .strings { display:flex; gap:10px; margin-top:5px; padding-top:5px; border-top:1px solid rgba(148,163,184,0.25); font-size:11px; color:#94A3B8; }
+.card .strings i { display:inline-block; width:7px; height:7px; border-radius:2px; margin-right:4px; }
+.card .strings b { color:#F1F5F9; font-weight:600; }
 .card .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; vertical-align:middle; }
 .hint { position:absolute; right:12px; bottom:10px; font-size:11px; color:rgba(226,232,240,0.55); pointer-events:none; }
 .fallback { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#94A3B8; }
@@ -188,15 +191,28 @@ for (const s of [1, -1]) {
 }
 mesh(box(W + 0.95, 0.14, 0.32), M.trim, [0, TOP + RISE + 0.22, 0]);
 
-// 太陽能板 (前坡 2 x 6)
-const PW = 1.02, PL = 1.6, ROWS = 3;
-const z0 = -(ROWS * PL + (ROWS - 1) * 0.06) / 2 + PL / 2;
-for (let r = 0; r < ROWS; r++) for (let c = 0; c < 6; c++) {
-  const x = -2.25 + c * (PW + 0.06);
-  const z = z0 + r * (PL + 0.06);
-  mesh(box(PW + 0.04, 0.05, PL + 0.04), M.alu, [x, 0.11, z], null, roofs[1]);
+// 太陽能板 (前坡 4 排 x 6 列 = 24 片)；由左至右每 2 列 8 片為一組：PV1 / PV2 / PV3
+const PW = 1.0, PL = 1.2, GAP = 0.05, ROWS = 4, COLS = 6;
+const STRING_COLORS = ['#10B981', '#2DD4BF', '#A3E635'];
+const x0 = -((COLS - 1) * (PW + GAP)) / 2 - 0.3;
+const z0 = -((ROWS - 1) * (PL + GAP)) / 2;
+for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+  const x = x0 + c * (PW + GAP);
+  const z = z0 + r * (PL + GAP);
+  mesh(box(PW + 0.03, 0.05, PL + 0.03), M.alu, [x, 0.11, z], null, roofs[1]);
   const p = mesh(new THREE.PlaneGeometry(PW, PL), M.panel, [x, 0.14, z], [-Math.PI / 2, 0, 0], roofs[1]);
   p.castShadow = false;
+}
+// 每組外框以顏色區分
+for (let g = 0; g < 3; g++) {
+  const xa = x0 + 2 * g * (PW + GAP) - PW / 2 - 0.04, xb = xa + 2 * PW + GAP + 0.08;
+  const za = z0 - PL / 2 - 0.04, zb = z0 + (ROWS - 1) * (PL + GAP) + PL / 2 + 0.04;
+  const m = std(STRING_COLORS[g], 0.4, 0, { emissive: new THREE.Color(STRING_COLORS[g]), emissiveIntensity: NIGHT ? 0.5 : 0.9 });
+  const t = 0.035;
+  mesh(box(xb - xa, 0.02, t), m, [(xa + xb) / 2, 0.165, za], null, roofs[1], false);
+  mesh(box(xb - xa, 0.02, t), m, [(xa + xb) / 2, 0.165, zb], null, roofs[1], false);
+  mesh(box(t, 0.02, zb - za), m, [xa, 0.165, (za + zb) / 2], null, roofs[1], false);
+  mesh(box(t, 0.02, zb - za), m, [xb, 0.165, (za + zb) / 2], null, roofs[1], false);
 }
 
 // 窗戶
@@ -425,16 +441,19 @@ for (const f of flows) {
 }
 
 // ---------- 標籤 ----------
-function card(label, kw, color, extra, anchor) {
+function card(label, kw, color, extra, anchor, foot = '') {
   const el = document.createElement('div'); el.className = 'card';
-  el.innerHTML = `<div class="v">${kw.toFixed(2)}<small>kW</small>${extra || ''}</div><div class="t"><span class="dot" style="background:${color};box-shadow:0 0 8px ${color}"></span>${label}</div>`;
+  el.innerHTML = `<div class="v">${kw.toFixed(2)}<small>kW</small>${extra || ''}</div><div class="t"><span class="dot" style="background:${color};box-shadow:0 0 8px ${color}"></span>${label}</div>${foot}`;
   wrap.appendChild(el);
   return { el, anchor: V(...anchor) };
 }
+// 光伏卡片下方列出三組功率，顏色對應屋頂外框
+const stringRows = (D.strings || []).length ? '<div class="strings">' + D.strings.map((kw, i) =>
+  `<span><i style="background:${STRING_COLORS[i]}"></i>PV${i + 1} <b>${kw.toFixed(2)}</b></span>`).join('') + '</div>' : '';
 const battLabel = D.batt > 0.02 ? '電池充電' : (D.batt < -0.02 ? '電池放電' : '電池待機');
 const gridLabel = D.grid > 0.02 ? '電網購電' : (D.grid < -0.02 ? '賣電至電網' : '電網');
 const cards = [
-  card('光伏', D.pv, C.pv, '', [0.4, TOP + RISE + 1.4, 1.6]),
+  card('光伏', D.pv, C.pv, '', [0.4, TOP + RISE + 1.4, 1.6], stringRows),
   card('載入 (家中負載)', D.load, C.load, '', [-5.0, Y0 + 0.1, DP / 2 + 1.2]),
   card(battLabel, Math.abs(D.batt), C.bat, `<span style="color:${C.bat};font-size:16px;margin-left:10px">${D.soc}%</span>`, P.batCard),
   card(gridLabel, Math.abs(D.grid), C.grid, '', P.gridCard),
@@ -482,10 +501,11 @@ setTimeout(() => { if (!document.querySelector('#wrap canvas')) {
 </body></html>"""
 
 
-def power_flow_html(pv, load, batt, soc, grid, night=False, layout="front"):
-    """pv/load: kW；batt: kW (+充電/−放電)；grid: kW (+買電/−賣電)。"""
+def power_flow_html(pv, load, batt, soc, grid, night=False, layout="front", strings=None):
+    """pv/load: kW；batt: kW (+充電/−放電)；grid: kW (+買電/−賣電)；strings: [PV1, PV2, PV3] kW。"""
     data = {"pv": round(pv, 3), "load": round(load, 3), "batt": round(batt, 3),
-            "soc": int(soc), "grid": round(grid, 3), "night": bool(night), "layout": layout}
+            "soc": int(soc), "grid": round(grid, 3), "night": bool(night), "layout": layout,
+            "strings": [round(x, 3) for x in strings] if strings else []}
     sky = ("linear-gradient(180deg,#070B18 0%,#111a33 55%,#1E293B 100%)" if night
            else "linear-gradient(180deg,#5D8FC4 0%,#A9C7E3 55%,#D7E3EE 100%)")
     return (_TEMPLATE.replace("__DATA__", json.dumps(data))

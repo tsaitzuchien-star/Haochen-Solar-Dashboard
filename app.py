@@ -20,6 +20,8 @@ st.set_page_config(page_title="澔宸小窩 - 智慧能源", layout="wide", init
 st_autorefresh(interval=300000, key="datarefresh")  # 5 分鐘刷新 (官方資料約每 5 分鐘更新一次)
 
 C_PV, C_LOAD, C_BAT, C_GRID = "#10B981", "#F97316", "#A78BFA", "#38BDF8"
+# 屋頂 4 x 6 共 24 片，由左至右每 2 列 8 片為一組 (顏色與 3D 屋頂外框一致)
+STRINGS = [("PV1", "左側 8 片", "#10B981"), ("PV2", "中間 8 片", "#2DD4BF"), ("PV3", "右側 8 片", "#A3E635")]
 
 st.markdown("""
 <style>
@@ -36,6 +38,7 @@ header[data-testid="stHeader"] {background: transparent;}
 .section-title {color:#E2E8F0; font-size:17px; font-weight:700; margin:22px 0 10px;}
 .chip {display:inline-block; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:600;}
 .grid2 {display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+.grid3 {display:grid; grid-template-columns:repeat(3, 1fr); gap:10px;}
 .stTabs [data-baseweb="tab-list"] {gap: 6px;}
 .stTabs [data-baseweb="tab"] {background:#1E293B; border-radius:8px 8px 0 0; padding:8px 16px; color:#CBD5E1;}
 </style>
@@ -99,6 +102,8 @@ def fetch_day_curve(day):
         "soc": g(x, "soc"),
         # 逆變器溫度在 temp1/temp2 (歷史資料的 invTemp 恆為 0)
         "inv_temp": g(x, "temp1"), "inv_temp2": g(x, "temp2"), "bat_temp": g(x, "bmsBatteryTemp"),
+        # 歷史資料的 ppv1~3 恆為 0，各組功率以電壓 x 電流計算
+        **{f"pv{i}": g(x, f"vpv{i}") * g(x, f"ipv{i}") / 1000 for i in (1, 2, 3)},
     } for x in rows])
     return df.sort_values("time").reset_index(drop=True) if not df.empty else df
 
@@ -229,6 +234,8 @@ p_buy, p_sell = f("pacToUserTotal") / 1000, f("pacToGridTotal") / 1000
 soc = int(f("soc"))
 inv_temp = f("temp1") or f("invTemp")
 bat_temp = f("bmsBatteryTemp")
+str_kw = [(f(f"ppv{i}") or f(f"vpv{i}") * f(f"ipv{i}")) / 1000 for i in (1, 2, 3)]
+str_today = [f(f"epv{i}Today") for i in (1, 2, 3)]
 is_limited = (pv_kw > 0.05 and soc >= 95 and p_charge < 0.1 and p_sell < 0.05
               and 8 <= last_update.hour < 16)
 
@@ -295,7 +302,7 @@ col_main, col_side = st.columns([1.55, 1], gap="medium")
 with col_main:
     is_night = pv_kw < 0.05 and not (6 <= last_update.hour < 18)
     components.html(power_flow_html(pv=pv_kw, load=load_kw, batt=p_charge - p_discharge, soc=soc,
-                                    grid=p_buy - p_sell, night=is_night), height=520)
+                                    grid=p_buy - p_sell, night=is_night, strings=str_kw), height=520)
 
 
 def kpi(label, value, unit, color, sub=""):
@@ -372,6 +379,45 @@ else:
       系統為零饋電設定，電池充滿後太陽能只會發到等於家中用電；斜線區為以晴天推估的損失，多雲時可能高估。</div>"""
                 if full is not None else
                 '<div style="color:#94A3B8; font-size:13px; margin-top:-6px;">電池今天尚未充滿。</div>', unsafe_allow_html=True)
+
+# ==========================================
+# 8.5 三組太陽能板 (PV1 / PV2 / PV3)
+# ==========================================
+st.markdown("<div class='section-title'>☀️ 三組太陽能板</div>", unsafe_allow_html=True)
+string_kwp = CAPACITY_KWP / 3
+total_today = sum(str_today)
+best = max(str_today) if str_today else 0
+cards_html = ""
+for i, (name, where, color) in enumerate(STRINGS):
+    kw, today = str_kw[i], str_today[i]
+    share = today / total_today * 100 if total_today > 0 else 0
+    gap = (1 - today / best) * 100 if best >= 1 else 0
+    # 白天只顯示差距供參考；15 點後全天資料較完整，差距仍超過 15% 才提醒
+    if gap >= 15 and last_update.hour >= 15:
+        note = f'<div style="color:#F59E0B; font-size:12px; margin-top:4px;">⚠️ 今日比最佳組低 {gap:.0f}%，可能有遮蔭或髒污</div>'
+    elif gap >= 3:
+        note = f'<div class="kpi-sub" style="margin-top:4px;">比最佳組低 {gap:.0f}%</div>'
+    else:
+        note = '<div class="kpi-sub" style="margin-top:4px; color:#2DD4BF;">今日最佳</div>' if best >= 1 else ""
+    cards_html += f"""<div class="card" style="border-top:3px solid {color};">
+      <div style="display:flex; justify-content:space-between; align-items:baseline;">
+        <span style="color:{color}; font-weight:700;">{name}</span><span class="kpi-sub">{where}</span></div>
+      <div class="kpi-value">{kw:.2f}<span class="kpi-unit">kW</span></div>
+      <div class="kpi-sub">{f(f'vpv{i + 1}'):.0f} V · {f(f'ipv{i + 1}'):.1f} A</div>
+      <div style="color:#CBD5E1; font-size:13px; margin-top:6px;">今日 <b>{today:.1f}</b> kWh（{share:.0f}%）</div>
+      <div class="kpi-sub">{today / string_kwp:.2f} kWh/kWp</div>{note}</div>"""
+st.markdown(f'<div class="grid3">{cards_html}</div>', unsafe_allow_html=True)
+
+if not curve.empty and curve[["pv1", "pv2", "pv3"]].to_numpy().sum() > 0:
+    fs = go.Figure()
+    for i, (name, where, color) in enumerate(STRINGS):
+        fs.add_trace(go.Scatter(x=curve["time"], y=curve[f"pv{i + 1}"], name=f"{name}（{where}）", line=dict(color=color, width=2)))
+    fs.update_layout(**{**chart_layout, "height": 300}, xaxis=dict(showgrid=False, tickformat="%H:%M"),
+                     yaxis=dict(gridcolor="#334155", title="kW", rangemode="tozero"))
+    st.plotly_chart(fs, width="stretch", theme=None)
+st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:-6px;">三組容量相同（各 8 片、約 3.56 kWp），'
+            "正常情況下發電量應接近；某一組長期偏低時，可檢查是否有遮蔭、落葉或髒污。電池充滿限發時三組會一起被壓低。</div>",
+            unsafe_allow_html=True)
 
 # ==========================================
 # 9. 分頁：設備與溫度 / 趨勢
