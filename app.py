@@ -255,18 +255,15 @@ else:
     age_text = f"{age_min // 60} 小時 {age_min % 60} 分鐘前更新"
 dot_color, dot_text = ("#F59E0B", "資料延遲") if stale else ("#22C55E", "正常")
 
-st.markdown(f"""
-<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;
-     padding-bottom:12px; border-bottom:1px solid #334155; margin-bottom:16px;">
-  <div>
-    <div style="color:#F8FAFC; font-size:26px; font-weight:800;">澔宸小窩</div>
-    <div style="color:#64748B; font-size:12px; letter-spacing:1px;">SPH 10000TL-HU · {CAPACITY_KWP} kWp · 南投</div>
-  </div>
-  <div style="text-align:right;">
+# 狀態標籤放在標題同一行、資料時間放在副標題下方，手機上也不會錯位
+st.markdown(f"""<div style="padding-bottom:12px; border-bottom:1px solid #334155; margin-bottom:16px;">
+  <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+    <span style="color:#F8FAFC; font-size:26px; font-weight:800;">澔宸小窩</span>
     <span class="chip" style="background:{dot_color}22; color:{dot_color};">● {dot_text}</span>
-    <div style="color:#94A3B8; font-size:12px; margin-top:4px; font-family:monospace;">
-      資料 {last_update:%m/%d %H:%M}（{age_text}）· 網頁 {now_tw:%H:%M:%S}</div>
   </div>
+  <div style="color:#64748B; font-size:12px; letter-spacing:1px; margin-top:2px;">SPH 10000TL-HU · {CAPACITY_KWP} kWp · 南投</div>
+  <div style="color:#94A3B8; font-size:12px; margin-top:6px; font-family:monospace;">
+    資料 {last_update:%m/%d %H:%M}（{age_text}）· 網頁 {now_tw:%H:%M:%S}</div>
 </div>""", unsafe_allow_html=True)
 
 # ==========================================
