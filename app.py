@@ -41,6 +41,7 @@ header[data-testid="stHeader"] {background: transparent;}
 .grid2 {display:grid; grid-template-columns:1fr 1fr; gap:10px;}
 .grid3 {display:grid; grid-template-columns:repeat(3, 1fr); gap:10px;}
 @media (max-width: 640px) {.grid3 {grid-template-columns:1fr;}}
+[data-testid="stExpander"] summary, [data-testid="stExpander"] summary p {color:#CBD5E1 !important;}
 .stTabs [data-baseweb="tab-list"] {gap: 6px;}
 .stTabs [data-baseweb="tab"] {background:#1E293B; border-radius:8px 8px 0 0; padding:8px 16px; color:#CBD5E1;}
 </style>
@@ -429,12 +430,42 @@ for i, (name, where, color) in enumerate(STRINGS):
 st.markdown(f'<div class="grid3">{cards_html}</div>', unsafe_allow_html=True)
 
 if not curve.empty and curve[["pv1", "pv2", "pv3"]].to_numpy().sum() > 0:
-    fs = go.Figure()
-    for i, (name, where, color) in enumerate(STRINGS):
-        fs.add_trace(go.Scatter(x=curve["time"], y=curve[f"pv{i + 1}"], name=f"{name}（{where}）", line=dict(color=color, width=2)))
-    fs.update_layout(**{**chart_layout, "height": 300}, xaxis=dict(showgrid=False, tickformat="%H:%M"),
-                     yaxis=dict(gridcolor="#334155", title="kW", rangemode="tozero"))
-    st.plotly_chart(fs, width="stretch", theme=None)
+    # 每組一條橫向長條，切成上午 / 下午，直接看出朝向造成的差異
+    noon = curve["time"].dt.hour < 12
+    halves = [(float(curve.loc[noon, f"pv{i}"].sum() * 5 / 60), float(curve.loc[~noon, f"pv{i}"].sum() * 5 / 60)) for i in (1, 2, 3)]
+    vmax = max(am + pm for am, pm in halves) or 1
+    rows = ""
+    for (name, where, color), (am, pm) in zip(STRINGS, halves):
+        tot = am + pm
+        am_pct = am / tot * 100 if tot > 0 else 0
+        width = tot / vmax * 100
+        rows += f"""<div style="display:grid; grid-template-columns:120px 1fr; gap:10px; align-items:center; margin:10px 0;">
+          <div><div style="color:{color}; font-weight:700;">{name}</div><div class="kpi-sub">{where.split(" · ")[0]}</div></div>
+          <div>
+            <div style="display:flex; width:{width:.1f}%; height:26px; border-radius:6px; overflow:hidden; gap:2px;">
+              <div style="flex:{am:.3f}; background:#FBBF24; color:#1F2937; font-size:12px; font-weight:700; display:flex; align-items:center; padding-left:8px; white-space:nowrap; overflow:hidden;">上午 {am:.1f}</div>
+              <div style="flex:{pm:.3f}; background:#F97316; color:#1F2937; font-size:12px; font-weight:700; display:flex; align-items:center; padding-left:8px; white-space:nowrap; overflow:hidden;">下午 {pm:.1f}</div>
+            </div>
+            <div class="kpi-sub" style="margin-top:3px;">共 {tot:.1f} kWh · 上午占 {am_pct:.0f}%</div>
+          </div></div>"""
+    full_t = ana["full_time"] if ana else None
+    curtail_note = (f'<div style="color:#FBBF24; font-size:12px; margin-top:4px;">⚠️ 電池在 {full_t:%H:%M} 充滿後三組一起被限發，'
+                    "下午的數字會偏低；要比較朝向差異，請看電池未充滿的日子。</div>") if full_t is not None and full_t.hour < 15 else ""
+    st.markdown(f"""<div class="card" style="margin-top:10px;">
+      <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px;">
+        <span style="color:#E2E8F0; font-weight:700;">上午 vs 下午發電（kWh）</span>
+        <span style="font-size:12px; color:#94A3B8;"><span style="display:inline-block; width:10px; height:10px; background:#FBBF24; border-radius:2px;"></span> 上午（12 點前）
+        　<span style="display:inline-block; width:10px; height:10px; background:#F97316; border-radius:2px;"></span> 下午</span></div>
+      {rows}{curtail_note}</div>""", unsafe_allow_html=True)
+
+    with st.expander("📈 查看三組詳細曲線"):
+        fs = go.Figure()
+        for i, (name, where, color) in enumerate(STRINGS):
+            fs.add_trace(go.Scatter(x=curve["time"], y=curve[f"pv{i + 1}"], name=f"{name}（{where}）",
+                                    line=dict(color=color, width=2, dash=["solid", "dot", "dash"][i])))
+        fs.update_layout(**{**chart_layout, "height": 300}, xaxis=dict(showgrid=False, tickformat="%H:%M"),
+                         yaxis=dict(gridcolor="#334155", title="kW", rangemode="tozero"))
+        st.plotly_chart(fs, width="stretch", theme=None)
 st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:-6px;">屋頂為人字型、正面朝東，三組容量相同（各 8 片、約 3.56 kWp）但朝向不同：'
             "<b style='color:#A3E635'>PV3 在東坡</b>，上午日照直射發電較多；<b style='color:#10B981'>PV1 在西坡</b>，下午較多；"
             "<b style='color:#2DD4BF'>PV2 東西坡各半</b>，全天較平均。正午前後三組會接近。"
