@@ -43,6 +43,7 @@ header[data-testid="stHeader"] {background: transparent;}
 .grid3 {display:grid; grid-template-columns:repeat(3, 1fr); gap:10px;}
 @media (max-width: 640px) {.grid3 {grid-template-columns:1fr;}}
 [data-testid="stExpander"] summary, [data-testid="stExpander"] summary p {color:#CBD5E1 !important;}
+[data-testid="stRadio"] label p {color:#CBD5E1 !important;}
 .stTabs [data-baseweb="tab-list"] {gap: 6px;}
 .stTabs [data-baseweb="tab"] {background:#1E293B; border-radius:8px 8px 0 0; padding:8px 16px; color:#CBD5E1;}
 </style>
@@ -324,13 +325,11 @@ def temp_card(title, value, levels, series, unit_color):
     if series is not None and (series > 0).any():
         i = series.idxmax()
         peak = f"今日最高 {series.max():.1f}°C（{curve.loc[i, 'time']:%H:%M}）"
-    return f"""<div class="card" style="height:100%;">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <span class="kpi-label">{title}</span>
-        <span class="chip" style="background:{color}22; color:{color};">{label}</span></div>
-      <div class="kpi-value" style="color:{color};">{value:.1f}<span class="kpi-unit">°C</span></div>
-      {sparkline_svg(series.tolist() if series is not None else [], unit_color)}
-      <div class="kpi-sub">{peak}</div></div>"""
+    # 單行輸出：sparkline 為空字串時若留下空白行，Markdown 會把後面的 HTML 當成程式碼區塊顯示
+    return (f'<div class="card" style="height:100%;"><div style="display:flex; justify-content:space-between; align-items:center;">'
+            f'<span class="kpi-label">{title}</span><span class="chip" style="background:{color}22; color:{color};">{label}</span></div>'
+            f'<div class="kpi-value" style="color:{color};">{value:.1f}<span class="kpi-unit">°C</span></div>'
+            f'{sparkline_svg(series.tolist() if series is not None else [], unit_color)}<div class="kpi-sub">{peak}</div></div>')
 
 
 with col_side:
@@ -350,18 +349,79 @@ with col_side:
                 + temp_card("電池", bat_temp, BAT_TEMP_LEVELS, curve["bat_temp"] if not curve.empty else None, C_BAT)
                 + "</div>", unsafe_allow_html=True)
 
-# ==========================================
-# 8. 今日：太陽能的電去了哪裡
-# ==========================================
-st.markdown("<div class='section-title'>📈 今天太陽能的電去了哪裡？</div>", unsafe_allow_html=True)
 chart_layout = dict(
     paper_bgcolor="#1E293B", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="#94A3B8"),
     height=380, margin=dict(l=50, r=50, t=40, b=40), hovermode="x unified",
     legend=dict(orientation="h", y=1.02, yanchor="bottom", x=0, traceorder="normal", font=dict(color="#E2E8F0")),
 )
-if ana is None:
-    st.markdown(f'<div class="card" style="text-align:center; color:#94A3B8; padding:40px;">⏳ {api_error_text(curve_error) if curve_error else "今天還沒有資料"}</div>',
+
+
+# ==========================================
+# 7.5 發電預測 (Open-Meteo ECMWF 短波輻射)
+# ==========================================
+@st.cache_data(ttl=3600)
+def fetch_pv_forecast():
+    return pv_forecast.forecast()
+
+
+st.markdown("<div class='section-title'>🌤️ 天氣與發電預測（ECMWF 短波輻射）</div>", unsafe_allow_html=True)
+# 下午 2 點前預設看今天，之後看明天
+day_opts = {"今天": now_tw.date(), "明天": (now_tw + timedelta(days=1)).date()}
+pick = st.radio("預測日", list(day_opts), index=0 if now_tw.hour < 14 else 1, horizontal=True, label_visibility="collapsed")
+tomorrow = day_opts[pick]
+try:
+    fc_hourly, fc_days = with_fallback("pv_forecast", fetch_pv_forecast)
+    fd = fc_days.get(tomorrow)
+except Exception as e:
+    fd = None
+    st.markdown(f'<div class="card" style="color:#94A3B8;">⏳ 天氣預報暫時讀不到（{e}），稍後會自動重試。</div>', unsafe_allow_html=True)
+
+if fd:
+    sky = "☀️ 晴" if fd["cloud"] < 30 else ("⛅ 多雲" if fd["cloud"] < 70 else "☁️ 陰")
+    rain = f"，預估降雨 {fd['rain']:.0f} mm" if fd["rain"] >= 1 else ""
+    full_txt = f"約 <b>{fd['full_at']:%H:%M}</b> 充滿" if fd["full_at"] is not None else "<b>不會充滿</b>"
+    hrs = fd["best_hours"]
+    best = (f"💡 {pick} <b>{hrs[0]}:00–{hrs[-1] + 1}:00</b> 太陽能用不完，適合安排洗衣、烘衣、熱水器、電動車充電"
+            if hrs else f"{pick}預估太陽能大多會被家用與電池用完，沒有明顯浪費的時段")
+    strings_txt = "　".join(f'<span style="color:{c}">{n}</span> {fd[n]:.1f}' for n, _, c in STRINGS)
+    st.markdown(f"""<div class="card">
+      <div style="display:flex; flex-wrap:wrap; gap:16px 36px; align-items:flex-end;">
+        <div><div class="kpi-label">預估可發電量</div><div class="kpi-value" style="color:{C_PV};">{fd['pv']:.0f}<span class="kpi-unit">kWh</span></div>
+          <div class="kpi-sub">{sky}{rain} · 日照 {fd['ghi']:.1f} kWh/m²</div></div>
+        <div><div class="kpi-label">電池</div><div style="color:#F1F5F9; font-size:20px; margin-top:4px;">{full_txt}</div>
+          <div class="kpi-sub">以早上 7 點電量 74% 估算</div></div>
+        <div><div class="kpi-label">預估浪費</div><div class="kpi-value" style="color:#F59E0B;">{fd['lost']:.0f}<span class="kpi-unit">kWh</span></div>
+          <div class="kpi-sub">家用 {fd['home']:.0f} · 充電 {fd['charge']:.0f} kWh</div></div>
+        <div><div class="kpi-label">三組預估（kWh）</div><div style="color:#CBD5E1; font-size:14px; margin-top:8px;">{strings_txt}</div></div>
+      </div>
+      <div style="margin-top:12px; padding-top:10px; border-top:1px solid #334155; color:#E2E8F0; font-size:14px;">{best}</div>
+    </div>""", unsafe_allow_html=True)
+
+    t = fc_hourly[fc_hourly["time"].dt.date == tomorrow]
+    t = t[(t["time"].dt.hour >= 6) & (t["time"].dt.hour <= 19)]
+    tx = t["time"] - pd.Timedelta(minutes=30)
+    ff = go.Figure()
+    ff.add_trace(go.Bar(x=tx, y=t["pv_home"], name="供應家用", marker_color="#10B981"))
+    ff.add_trace(go.Bar(x=tx, y=t["pv_charge"], name="充進電池", marker_color="#A78BFA"))
+    ff.add_trace(go.Bar(x=tx, y=t["lost"].where(t["lost"] >= 0.05), name="浪費掉", marker=dict(
+        color="rgba(245,158,11,0.35)", line=dict(color="#F59E0B", width=1), pattern=dict(shape="/", fgcolor="#F59E0B", size=6))))
+    ff.add_trace(go.Scatter(x=tx, y=t["ghi"], name="短波輻射 W/m²", yaxis="y2", line=dict(color="#FDE68A", width=1.5, dash="dot")))
+    ff.update_layout(**{**chart_layout, "height": 280, "margin": dict(l=50, r=50, t=40, b=40)}, barmode="stack", bargap=0.15,
+                     xaxis=dict(showgrid=False, tickformat="%H時", dtick=2 * 3600000),
+                     yaxis=dict(gridcolor="#334155", title="預估 kWh", rangemode="tozero"),
+                     yaxis2=dict(overlaying="y", side="right", showgrid=False, title="W/m²", rangemode="tozero"))
+    st.plotly_chart(ff, width="stretch", theme=None)
+    st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:-6px;">資料來源：Open-Meteo ECMWF 逐時短波輻射預報（與中創需量預測同源），'
+                "換算到東西坡板面後估算三組發電；電池與用電依本站實測平均推估。依 7–10 月實測校正，逐時誤差中位數約 10%；午後雷陣雨或雲量多的日子誤差可能達 30% 以上。</div>",
                 unsafe_allow_html=True)
+
+# ==========================================
+# 8. 今日：太陽能的電去了哪裡
+# ==========================================
+st.markdown("<div class='section-title'>📈 今天太陽能的電去了哪裡？</div>", unsafe_allow_html=True)
+if ana is None or ana["df"]["pv"].sum() * 5 / 60 < 0.1:
+    msg = api_error_text(curve_error) if curve_error else "今天太陽還沒出來，日出後這裡會顯示今天的發電去向；可先看上方的今天預測。"
+    st.markdown(f'<div class="card" style="text-align:center; color:#94A3B8; padding:28px;">🌙 {msg}</div>', unsafe_allow_html=True)
 else:
     c = ana["df"]
     full = ana["full_time"]
@@ -406,62 +466,6 @@ else:
     st.markdown(f"""<div style="color:#94A3B8; font-size:13px; margin-top:-6px;">
       每根長條是一小時的太陽能發電。電池充滿後，因為不能賣電，多出來的日照用不到（橘色斜線，以晴天推估，多雲時可能高估）。
       今日賣電 {f('etoGridToday'):.1f} kWh。</div>""", unsafe_allow_html=True)
-
-# ==========================================
-# 8.2 明天發電預測 (Open-Meteo ECMWF 短波輻射)
-# ==========================================
-@st.cache_data(ttl=3600)
-def fetch_pv_forecast():
-    return pv_forecast.forecast()
-
-
-st.markdown("<div class='section-title'>🌤️ 明天發電預測</div>", unsafe_allow_html=True)
-try:
-    fc_hourly, fc_days = with_fallback("pv_forecast", fetch_pv_forecast)
-    tomorrow = (now_tw + timedelta(days=1)).date()
-    fd = fc_days.get(tomorrow)
-except Exception as e:
-    fd = None
-    st.markdown(f'<div class="card" style="color:#94A3B8;">⏳ 天氣預報暫時讀不到（{e}），稍後會自動重試。</div>', unsafe_allow_html=True)
-
-if fd:
-    sky = "☀️ 晴" if fd["cloud"] < 30 else ("⛅ 多雲" if fd["cloud"] < 70 else "☁️ 陰")
-    rain = f"，預估降雨 {fd['rain']:.0f} mm" if fd["rain"] >= 1 else ""
-    full_txt = f"約 <b>{fd['full_at']:%H:%M}</b> 充滿" if fd["full_at"] is not None else "<b>不會充滿</b>"
-    hrs = fd["best_hours"]
-    best = (f"💡 明天 <b>{hrs[0]}:00–{hrs[-1] + 1}:00</b> 太陽能用不完，適合安排洗衣、烘衣、熱水器、電動車充電"
-            if hrs else "明天預估太陽能大多會被家用與電池用完，沒有明顯浪費的時段")
-    strings_txt = "　".join(f'<span style="color:{c}">{n}</span> {fd[n]:.1f}' for n, _, c in STRINGS)
-    st.markdown(f"""<div class="card">
-      <div style="display:flex; flex-wrap:wrap; gap:16px 36px; align-items:flex-end;">
-        <div><div class="kpi-label">預估可發電量</div><div class="kpi-value" style="color:{C_PV};">{fd['pv']:.0f}<span class="kpi-unit">kWh</span></div>
-          <div class="kpi-sub">{sky}{rain} · 日照 {fd['ghi']:.1f} kWh/m²</div></div>
-        <div><div class="kpi-label">電池</div><div style="color:#F1F5F9; font-size:20px; margin-top:4px;">{full_txt}</div>
-          <div class="kpi-sub">以早上 7 點電量 74% 估算</div></div>
-        <div><div class="kpi-label">預估浪費</div><div class="kpi-value" style="color:#F59E0B;">{fd['lost']:.0f}<span class="kpi-unit">kWh</span></div>
-          <div class="kpi-sub">家用 {fd['home']:.0f} · 充電 {fd['charge']:.0f} kWh</div></div>
-        <div><div class="kpi-label">三組預估（kWh）</div><div style="color:#CBD5E1; font-size:14px; margin-top:8px;">{strings_txt}</div></div>
-      </div>
-      <div style="margin-top:12px; padding-top:10px; border-top:1px solid #334155; color:#E2E8F0; font-size:14px;">{best}</div>
-    </div>""", unsafe_allow_html=True)
-
-    t = fc_hourly[fc_hourly["time"].dt.date == tomorrow]
-    t = t[(t["time"].dt.hour >= 6) & (t["time"].dt.hour <= 19)]
-    tx = t["time"] - pd.Timedelta(minutes=30)
-    ff = go.Figure()
-    ff.add_trace(go.Bar(x=tx, y=t["pv_home"], name="供應家用", marker_color="#10B981"))
-    ff.add_trace(go.Bar(x=tx, y=t["pv_charge"], name="充進電池", marker_color="#A78BFA"))
-    ff.add_trace(go.Bar(x=tx, y=t["lost"].where(t["lost"] >= 0.05), name="浪費掉", marker=dict(
-        color="rgba(245,158,11,0.35)", line=dict(color="#F59E0B", width=1), pattern=dict(shape="/", fgcolor="#F59E0B", size=6))))
-    ff.add_trace(go.Scatter(x=tx, y=t["ghi"], name="短波輻射 W/m²", yaxis="y2", line=dict(color="#FDE68A", width=1.5, dash="dot")))
-    ff.update_layout(**{**chart_layout, "height": 280, "margin": dict(l=50, r=50, t=40, b=40)}, barmode="stack", bargap=0.15,
-                     xaxis=dict(showgrid=False, tickformat="%H時", dtick=2 * 3600000),
-                     yaxis=dict(gridcolor="#334155", title="預估 kWh", rangemode="tozero"),
-                     yaxis2=dict(overlaying="y", side="right", showgrid=False, title="W/m²", rangemode="tozero"))
-    st.plotly_chart(ff, width="stretch", theme=None)
-    st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:-6px;">資料來源：Open-Meteo ECMWF 逐時短波輻射預報（與中創需量預測同源），'
-                "換算到東西坡板面後估算三組發電；電池與用電依本站實測平均推估。依 7–10 月實測校正，逐時誤差中位數約 10%；午後雷陣雨或雲量多的日子誤差可能達 30% 以上。</div>",
-                unsafe_allow_html=True)
 
 # ==========================================
 # 8.5 三組太陽能板 (PV1 / PV2 / PV3)
