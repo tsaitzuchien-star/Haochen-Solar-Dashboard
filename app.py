@@ -1,7 +1,6 @@
 import math
 import os
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pandas as pd
@@ -12,7 +11,6 @@ import streamlit.components.v1 as components
 from streamlit_autorefresh import st_autorefresh
 
 from power_flow import power_flow_html
-from solar_core import CAPACITY_KWP, TW_TZ, analyze_curve, rows_to_curve
 
 # ==========================================
 # 1. 頁面設定與樣式
@@ -43,12 +41,13 @@ header[data-testid="stHeader"] {background: transparent;}
 .grid2 {display:grid; grid-template-columns:1fr 1fr; gap:10px;}
 .grid3 {display:grid; grid-template-columns:repeat(3, 1fr); gap:10px;}
 @media (max-width: 640px) {.grid3 {grid-template-columns:1fr;}}
-[data-testid="stExpander"] summary, [data-testid="stExpander"] summary p, [data-testid="stRadio"] label p {color:#CBD5E1 !important;}
+[data-testid="stExpander"] summary, [data-testid="stExpander"] summary p {color:#CBD5E1 !important;}
 .stTabs [data-baseweb="tab-list"] {gap: 6px;}
 .stTabs [data-baseweb="tab"] {background:#1E293B; border-radius:8px 8px 0 0; padding:8px 16px; color:#CBD5E1;}
 </style>
 """, unsafe_allow_html=True)
 
+TW_TZ = timezone(timedelta(hours=8))
 
 # ==========================================
 # 2. Growatt 官方 OpenAPI (Token 驗證)
@@ -65,6 +64,8 @@ TOKEN = get_secret("GROWATT_TOKEN")
 DEVICE_SN = get_secret("GROWATT_DEVICE_SN", "KQQ0N6200N")
 API_BASE = "https://openapi.growatt.com/"
 DEVICE_TYPE = "sph-s"
+CAPACITY_KWP = 10.68
+LAT, LON = 23.87, 120.85  # 南投
 
 # 溫度判定門檻 (一般參考值，可依原廠規格調整)
 INV_TEMP_LEVELS = [(60, "正常", "#2DD4BF"), (70, "偏高", "#F59E0B"), (math.inf, "過高", "#EF4444")]
@@ -94,7 +95,20 @@ def fetch_realtime():
 
 @st.cache_data(ttl=600)
 def fetch_day_curve(day):
-    return rows_to_curve(api_v4("queryHistoricalData", deviceSn=DEVICE_SN, deviceType=DEVICE_TYPE, date=day)["datas"] or [])
+    rows = api_v4("queryHistoricalData", deviceSn=DEVICE_SN, deviceType=DEVICE_TYPE, date=day)["datas"] or []
+    g = lambda x, k: float(x.get(k) or 0)
+    df = pd.DataFrame([{
+        "time": datetime.fromtimestamp(x["calendar"] / 1000, TW_TZ).replace(tzinfo=None),
+        "pv": g(x, "ppv") / 1000, "load": g(x, "plocalLoadTotal") / 1000,
+        "charge": g(x, "pcharge1") / 1000, "discharge": g(x, "pdischarge1") / 1000,
+        "buy": g(x, "pacToUserTotal") / 1000, "sell": g(x, "pacToGridTotal") / 1000,
+        "soc": g(x, "soc"),
+        # 逆變器溫度在 temp1/temp2 (歷史資料的 invTemp 恆為 0)
+        "inv_temp": g(x, "temp1"), "inv_temp2": g(x, "temp2"), "bat_temp": g(x, "bmsBatteryTemp"),
+        # 歷史資料的 ppv1~3 恆為 0，各組功率以電壓 x 電流計算
+        **{f"pv{i}": g(x, f"vpv{i}") * g(x, f"ipv{i}") / 1000 for i in (1, 2, 3)},
+    } for x in rows])
+    return df.sort_values("time").reset_index(drop=True) if not df.empty else df
 
 
 @st.cache_resource
@@ -134,8 +148,50 @@ def api_error_text(e):
 
 
 # ==========================================
-# 3. 分析 (限發估計等核心邏輯在 solar_core.py，與每日存檔共用)
+# 3. 分析：晴空模型估計「可發電量」，推算限發損失
 # ==========================================
+def sun_shape(times):
+    """各時間點的晴空日照形狀 (0~1)，以太陽高度角近似。"""
+    t = pd.to_datetime(pd.Series(times))
+    doy = t.dt.dayofyear.to_numpy()
+    hours = (t.dt.hour + t.dt.minute / 60).to_numpy()
+    decl = np.radians(23.44) * np.sin(2 * np.pi * (284 + doy) / 365)
+    b = 2 * np.pi * (doy - 81) / 364
+    eot = 9.87 * np.sin(2 * b) - 7.53 * np.cos(b) - 1.5 * np.sin(b)  # 分鐘
+    solar_time = hours + (4 * (LON - 120) + eot) / 60
+    ha = np.radians(15 * (solar_time - 12))
+    lat = np.radians(LAT)
+    sin_el = np.sin(lat) * np.sin(decl) + np.cos(lat) * np.cos(decl) * np.cos(ha)
+    return np.clip(sin_el, 0, None) ** 1.2
+
+
+def analyze_curve(curve):
+    """回傳限發判定、可發電量估計與今日損失。以晴天推估，多雲時會高估。"""
+    if curve.empty:
+        return None
+    c = curve.copy()
+    c["shape"] = sun_shape(c["time"])
+    hour = c["time"].dt.hour
+    c["limited"] = ((hour >= 8) & (hour < 16) & (c["soc"] >= 95) & (c["charge"] < 0.1)
+                    & (c["sell"] < 0.05) & (c["pv"] > 0.05))
+    # 用未限發、太陽夠高的時段校正系統可發功率
+    ref = c[~c["limited"] & (c["shape"] > 0.35) & (c["pv"] > 0.3)]
+    k = float(np.quantile(ref["pv"] / ref["shape"], 0.75)) if len(ref) >= 6 else np.nan
+    k = min(k, CAPACITY_KWP) if not np.isnan(k) else np.nan
+    c["potential"] = c["shape"] * k if not np.isnan(k) else c["pv"]
+    c["lost"] = np.where(c["limited"], (c["potential"] - c["pv"]).clip(lower=0), 0.0)
+    c["pv_home"] = np.minimum(c["pv"], c["load"])
+    c["pv_charge"] = np.clip(np.minimum(c["charge"], c["pv"] - c["pv_home"]), 0, None)
+    full = c[c["soc"] >= 97]["time"]
+    return {
+        "df": c,
+        "lost_kwh": float(c["lost"].sum() * 5 / 60),
+        "lost_now": float(c["lost"].iloc[-1]) if c["limited"].iloc[-1] else 0.0,
+        "full_time": full.min() if not full.empty else None,
+        "calibrated": not np.isnan(k),
+    }
+
+
 def temp_level(value, levels):
     for limit, label, color in levels:
         if value < limit:
@@ -427,7 +483,7 @@ st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:10px;">屋頂
 # 9. 分頁：設備與溫度 / 趨勢
 # ==========================================
 st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
-tab_dev, tab_trend = st.tabs(["🌡️ 溫度與設備", "📊 趨勢"])
+tab_dev, tab_trend = st.tabs(["🌡️ 溫度與設備", "📊 趨勢（即將推出）"])
 
 with tab_dev:
     if not curve.empty:
@@ -465,51 +521,10 @@ with tab_dev:
     ]), unsafe_allow_html=True)
 
 with tab_trend:
-    daily_path = Path(__file__).parent / "data" / "daily.csv"
-    if not daily_path.exists():
-        st.markdown("""<div class="card" style="color:#CBD5E1; line-height:1.8;">
-          <b>📊 尚未有存檔資料</b><br>每日自動存檔（GitHub Actions）第一次執行後，這裡會出現每日與每月趨勢。</div>""",
-                    unsafe_allow_html=True)
-    else:
-        dd = pd.read_csv(daily_path, parse_dates=["date"]).sort_values("date")
-        rng = st.radio("期間", ["最近 30 天", "最近 90 天", "全部"], horizontal=True, label_visibility="collapsed")
-        view = dd if rng == "全部" else dd[dd["date"] > dd["date"].max() - pd.Timedelta(days=30 if rng == "最近 30 天" else 90)]
-
-        def stacked(df, x, title, xfmt, height=320):
-            fig = go.Figure()
-            for i, (name, _, color) in enumerate(STRINGS):
-                fig.add_trace(go.Bar(x=x, y=df[f"pv{i + 1}"], name=f"{name} {['西坡', '屋脊兩側', '東坡'][i]}",
-                                     marker=dict(color=color, line=dict(color="#1E293B", width=1)),
-                                     hovertemplate=f"{name}：%{{y:.1f}} kWh<extra></extra>"))
-            fig.update_layout(**{**chart_layout, "height": height, "margin": dict(l=50, r=20, t=70, b=40)},
-                              barmode="stack", bargap=0.18,
-                              title=dict(text=title, font=dict(color="#E2E8F0", size=15), x=0.01, y=0.97),
-                              xaxis=dict(showgrid=False, tickformat=xfmt), yaxis=dict(gridcolor="#334155", title="kWh", rangemode="tozero"))
-            return fig
-
-        # (B) 每日三組堆疊
-        st.plotly_chart(stacked(view, view["date"], "每日發電（三組堆疊）", "%m/%d"), width="stretch", theme=None)
-
-        # 月份版本 + 月摘要
-        dd["month"] = dd["date"].dt.to_period("M")
-        m = dd.groupby("month").agg(days=("date", "count"), pv=("pv", "sum"), pv1=("pv1", "sum"), pv2=("pv2", "sum"),
-                                     pv3=("pv3", "sum"), load=("load", "sum"), buy=("buy", "sum"),
-                                     lost=("lost", lambda x: pd.to_numeric(x, errors="coerce").sum())).reset_index()
-        multi_year = m["month"].dt.year.nunique() > 1
-        m["label"] = [(f"{p.year % 100}/{p.month}月" if multi_year else f"{p.month}月") + ("" if n >= p.days_in_month else f"·{n}天")
-                      for p, n in zip(m["month"], m["days"])]
-        st.plotly_chart(stacked(m, m["label"], "每月發電（三組堆疊）", None), width="stretch", theme=None)
-
-        rows_html = "".join(
-            f"<tr style='border-bottom:1px solid #26334a;'><td style='text-align:left; padding:6px 0;'>{r.label}</td><td>{r.pv:,.0f}</td><td>{r.pv / CAPACITY_KWP:,.0f}</td><td>{r.load:,.0f}</td><td>{r.buy:,.0f}</td>"
-            f"<td>{(1 - r.buy / r.load) * 100 if r.load else 0:.0f}%</td><td>{r.lost:,.0f}</td></tr>" for r in m.itertuples())
-        st.markdown(f"""<div class="card" style="overflow-x:auto;">
-          <div style="color:#E2E8F0; font-weight:700; margin-bottom:8px;">每月摘要（kWh）</div>
-          <table style="width:100%; border-collapse:collapse; font-size:13px; color:#CBD5E1; text-align:right; white-space:nowrap;">
-            <tr style="color:#94A3B8; border-bottom:1px solid #334155;"><th style="text-align:left;">月份</th><th>發電</th><th>每kWp</th>
-              <th>用電</th><th>買電</th><th>自給</th><th>浪費*</th></tr>
-            {rows_html}</table>
-          <div class="kpi-sub" style="margin-top:8px;">資料來自逆變器自身的每日累計（比 Growatt 官方月報準確），每天凌晨自動存檔。
-            未滿整月的月份會標示天數。*浪費為電池充滿後被限發的估計值。</div></div>""", unsafe_allow_html=True)
+    st.markdown("""<div class="card" style="color:#CBD5E1; line-height:1.8;">
+      <b>📊 趨勢分析即將推出（第二階段）</b><br>
+      Growatt 官方月報經驗證會少算約 3 成，且 5 分鐘明細只保留 3 個月。<br>
+      第二階段將每天自動保存逆變器的正確數據，用來呈現每日 / 每月發電、用電、限發損失，以及設備健康檢查。
+    </div>""", unsafe_allow_html=True)
 
 st.markdown("<div style='height: 40px;'></div>", unsafe_allow_html=True)
