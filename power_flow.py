@@ -499,10 +499,9 @@ for (const f of flows) {
   if (!active) continue;
   f.len = len;
   f.speed = 0.2 + Math.min(f.kw, 10) * 0.05;   // 每秒移動距離 (m)，緩慢流動較有質感
-  // 短管線 (如逆變器→電池) 光點較密較小，看起來像連續水流
-  const short = len < 2;
-  const n = short ? Math.max(6, Math.round(len / 0.16)) : Math.max(3, Math.round(len / 0.6));
-  f.size = short ? 0.26 : 0.42; f.core = short ? 0.6 : 1;
+  // 所有管線都用密集的小光點，看起來像連續水流
+  const n = Math.max(6, Math.round(len / 0.17));
+  f.size = 0.28; f.core = 0.6;
   const sMat = new THREE.SpriteMaterial({ map: glowTex, color: f.color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
   const cMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(f.color).lerp(new THREE.Color('#ffffff'), 0.55) });
   for (let i = 0; i < n; i++) {
