@@ -62,7 +62,7 @@ const ENV = NIGHT ? 0.12 : 0.75;
 
 const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 200);
 // 依設備配置調整預設視角，讓設備正面朝向鏡頭
-const CAM = { front: [25.0, 12.5, 19.5], door: [15.5, 10.5, 18.5], side: [20.5, 10.0, 10.0], yard: [17.5, 10.2, 15.5] }[D.layout || 'front'];
+const CAM = { front: [23.5, 19.0, 19.0], door: [15.5, 10.5, 18.5], side: [20.5, 10.0, 10.0], yard: [17.5, 10.2, 15.5] }[D.layout || 'front'];
 camera.position.set(...CAM);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(1.0, 3.4, -0.3);
@@ -121,7 +121,7 @@ const M = {
   glass: NIGHT
     ? std('#0E1822', 0.06, 0.9, { emissive: new THREE.Color('#FFC873'), emissiveIntensity: 1.7, envMapIntensity: 0.2 })
     : std('#36597C', 0.04, 0.65, { emissive: new THREE.Color('#7FA9D1'), emissiveIntensity: 0.3, envMapIntensity: 1.6 }),
-  panel: std('#FFFFFF', 0.2, 0.55, { map: panelTex, envMapIntensity: NIGHT ? 0.2 : 1.5 }),
+  panel: std('#C8D4F0', 0.55, 0.0, { map: panelTex, envMapIntensity: NIGHT ? 0.2 : 0.35 }),  // 降低反光，白天也看得出電池片
   alu: std('#C9CED6', 0.35, 0.85),
   white: std('#F5F6F8', 0.35, 0.05),
   dark: std('#111827', 0.4, 0.2),
