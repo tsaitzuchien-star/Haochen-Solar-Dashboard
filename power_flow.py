@@ -499,11 +499,13 @@ for (const f of flows) {
   if (!active) continue;
   f.len = len;
   f.speed = 0.2 + Math.min(f.kw, 10) * 0.05;   // 每秒移動距離 (m)，緩慢流動較有質感
-  const n = Math.max(3, Math.round(len / 0.6));
+  // 所有管線都用密集的小光點，看起來像連續水流
+  const n = Math.max(6, Math.round(len / 0.17));
+  f.size = 0.28; f.core = 0.6;
   const sMat = new THREE.SpriteMaterial({ map: glowTex, color: f.color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
   const cMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(f.color).lerp(new THREE.Color('#ffffff'), 0.55) });
   for (let i = 0; i < n; i++) {
-    const s = new THREE.Sprite(sMat); s.scale.setScalar(0.42); scene.add(s);
+    const s = new THREE.Sprite(sMat); s.scale.setScalar(f.size); scene.add(s);
     const c = new THREE.Mesh(new THREE.SphereGeometry(0.055, 12, 8), cMat); scene.add(c);
     f.dots.push({ s, c, phase: i / n });
   }
@@ -546,6 +548,9 @@ function tick() {
     if (f.rev) u = 1 - u;
     f.curve.getPointAt(u, tmp);
     d.s.position.copy(tmp); d.c.position.copy(tmp);
+    // 兩端淡入淡出，光點不會在端點突然出現或消失 (避免看起來在跳)
+    const fade = Math.min(1, u / 0.12, (1 - u) / 0.12);
+    d.s.scale.setScalar(f.size * fade); d.c.scale.setScalar(f.core * fade);
   }
   controls.update();
   renderer.render(scene, camera);
