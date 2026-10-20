@@ -497,19 +497,16 @@ for (const f of flows) {
     : M.track, null, null, scene, false);
   f.dots = [];
   if (!active) continue;
-  // 方向箭頭：沿管線每約 0.5 m 一個圓錐，指向電流方向
+  // 方向箭頭：沿管線每約 0.5 m 一個圓錐，跟著電流流動並指向電流方向
   const arrowMat = new THREE.MeshStandardMaterial({ color: f.color, emissive: new THREE.Color(f.color), emissiveIntensity: 0.9, roughness: 0.4 });
   // 箭頭大小一致；短管線 (如逆變器→電池) 間距縮為約 0.25 m，才放得下兩個以上
   const arrowGeo = new THREE.ConeGeometry(0.11, 0.26, 16);
   const na = Math.max(1, Math.round(len / (len < 1.5 ? 0.25 : 0.5)));
+  f.arrows = [];
   for (let i = 0; i < na; i++) {
-    const u = (i + 0.5) / na;
-    const tan = f.curve.getTangentAt(u).normalize();
-    if (f.rev) tan.negate();
     const cone = new THREE.Mesh(arrowGeo, arrowMat);
-    cone.position.copy(f.curve.getPointAt(u));
-    cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tan);
     scene.add(cone);
+    f.arrows.push({ m: cone, phase: (i + 0.5) / na });  // 位置與方向在動畫迴圈中隨電流移動
   }
   f.len = len;
   f.speed = 0.2 + Math.min(f.kw, 10) * 0.05;   // 每秒移動距離 (m)，緩慢流動較有質感
@@ -554,7 +551,7 @@ function resize() {
 window.addEventListener('resize', resize); resize();
 
 const clock = new THREE.Clock();
-const tmp = new THREE.Vector3();
+const tmp = new THREE.Vector3(), tan = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
 function tick() {
   const t = clock.getElapsedTime();
   for (const f of flows) for (const d of f.dots) {
@@ -565,6 +562,17 @@ function tick() {
     // 兩端淡入淡出，光點不會在端點突然出現或消失 (避免看起來在跳)
     const fade = Math.min(1, u / 0.12, (1 - u) / 0.12);
     d.s.scale.setScalar(f.size * fade); d.c.scale.setScalar(f.core * fade);
+  }
+  // 箭頭與光點同速沿管線移動，並轉向電流方向
+  for (const f of flows) for (const a of f.arrows || []) {
+    let u = (a.phase + t * f.speed / f.len) % 1;
+    if (f.rev) u = 1 - u;
+    f.curve.getPointAt(u, tmp);
+    a.m.position.copy(tmp);
+    tan.copy(f.curve.getTangentAt(u)).normalize();
+    if (f.rev) tan.negate();
+    a.m.quaternion.setFromUnitVectors(UP, tan);
+    a.m.scale.setScalar(Math.min(1, u / 0.1, (1 - u) / 0.1));
   }
   controls.update();
   renderer.render(scene, camera);
