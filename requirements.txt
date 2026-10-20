@@ -1,8 +1,5 @@
 streamlit
 pandas
-numpy
 plotly
-growattServer
+requests
 streamlit-autorefresh
-gspread
-google-auth

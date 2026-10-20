@@ -1,0 +1,5 @@
+# 機密資料：Token 與金鑰不可上傳
+.streamlit/secrets.toml
+gcp_key.json
+.env
+__pycache__/
