@@ -11,6 +11,7 @@ import streamlit.components.v1 as components
 from streamlit_autorefresh import st_autorefresh
 
 from power_flow import power_flow_html
+import pv_forecast
 
 # ==========================================
 # 1. 頁面設定與樣式
@@ -405,6 +406,62 @@ else:
     st.markdown(f"""<div style="color:#94A3B8; font-size:13px; margin-top:-6px;">
       每根長條是一小時的太陽能發電。電池充滿後，因為不能賣電，多出來的日照用不到（橘色斜線，以晴天推估，多雲時可能高估）。
       今日賣電 {f('etoGridToday'):.1f} kWh。</div>""", unsafe_allow_html=True)
+
+# ==========================================
+# 8.2 明天發電預測 (Open-Meteo ECMWF 短波輻射)
+# ==========================================
+@st.cache_data(ttl=3600)
+def fetch_pv_forecast():
+    return pv_forecast.forecast()
+
+
+st.markdown("<div class='section-title'>🌤️ 明天發電預測</div>", unsafe_allow_html=True)
+try:
+    fc_hourly, fc_days = with_fallback("pv_forecast", fetch_pv_forecast)
+    tomorrow = (now_tw + timedelta(days=1)).date()
+    fd = fc_days.get(tomorrow)
+except Exception as e:
+    fd = None
+    st.markdown(f'<div class="card" style="color:#94A3B8;">⏳ 天氣預報暫時讀不到（{e}），稍後會自動重試。</div>', unsafe_allow_html=True)
+
+if fd:
+    sky = "☀️ 晴" if fd["cloud"] < 30 else ("⛅ 多雲" if fd["cloud"] < 70 else "☁️ 陰")
+    rain = f"，降雨機率最高 {fd['rain']:.0f}%" if fd["rain"] >= 30 else ""
+    full_txt = f"約 <b>{fd['full_at']:%H:%M}</b> 充滿" if fd["full_at"] is not None else "<b>不會充滿</b>"
+    hrs = fd["best_hours"]
+    best = (f"💡 明天 <b>{hrs[0]}:00–{hrs[-1] + 1}:00</b> 太陽能用不完，適合安排洗衣、烘衣、熱水器、電動車充電"
+            if hrs else "明天預估太陽能大多會被家用與電池用完，沒有明顯浪費的時段")
+    strings_txt = "　".join(f'<span style="color:{c}">{n}</span> {fd[n]:.1f}' for n, _, c in STRINGS)
+    st.markdown(f"""<div class="card">
+      <div style="display:flex; flex-wrap:wrap; gap:16px 36px; align-items:flex-end;">
+        <div><div class="kpi-label">預估可發電量</div><div class="kpi-value" style="color:{C_PV};">{fd['pv']:.0f}<span class="kpi-unit">kWh</span></div>
+          <div class="kpi-sub">{sky}{rain} · 日照 {fd['ghi']:.1f} kWh/m²</div></div>
+        <div><div class="kpi-label">電池</div><div style="color:#F1F5F9; font-size:20px; margin-top:4px;">{full_txt}</div>
+          <div class="kpi-sub">以早上 7 點電量 74% 估算</div></div>
+        <div><div class="kpi-label">預估浪費</div><div class="kpi-value" style="color:#F59E0B;">{fd['lost']:.0f}<span class="kpi-unit">kWh</span></div>
+          <div class="kpi-sub">家用 {fd['home']:.0f} · 充電 {fd['charge']:.0f} kWh</div></div>
+        <div><div class="kpi-label">三組預估（kWh）</div><div style="color:#CBD5E1; font-size:14px; margin-top:8px;">{strings_txt}</div></div>
+      </div>
+      <div style="margin-top:12px; padding-top:10px; border-top:1px solid #334155; color:#E2E8F0; font-size:14px;">{best}</div>
+    </div>""", unsafe_allow_html=True)
+
+    t = fc_hourly[fc_hourly["time"].dt.date == tomorrow]
+    t = t[(t["time"].dt.hour >= 6) & (t["time"].dt.hour <= 19)]
+    tx = t["time"] - pd.Timedelta(minutes=30)
+    ff = go.Figure()
+    ff.add_trace(go.Bar(x=tx, y=t["pv_home"], name="供應家用", marker_color="#10B981"))
+    ff.add_trace(go.Bar(x=tx, y=t["pv_charge"], name="充進電池", marker_color="#A78BFA"))
+    ff.add_trace(go.Bar(x=tx, y=t["lost"].where(t["lost"] >= 0.05), name="浪費掉", marker=dict(
+        color="rgba(245,158,11,0.35)", line=dict(color="#F59E0B", width=1), pattern=dict(shape="/", fgcolor="#F59E0B", size=6))))
+    ff.add_trace(go.Scatter(x=tx, y=t["ghi"], name="短波輻射 W/m²", yaxis="y2", line=dict(color="#FDE68A", width=1.5, dash="dot")))
+    ff.update_layout(**{**chart_layout, "height": 280, "margin": dict(l=50, r=50, t=40, b=40)}, barmode="stack", bargap=0.15,
+                     xaxis=dict(showgrid=False, tickformat="%H時", dtick=2 * 3600000),
+                     yaxis=dict(gridcolor="#334155", title="預估 kWh", rangemode="tozero"),
+                     yaxis2=dict(overlaying="y", side="right", showgrid=False, title="W/m²", rangemode="tozero"))
+    st.plotly_chart(ff, width="stretch", theme=None)
+    st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:-6px;">資料來源：Open-Meteo ECMWF 逐時短波輻射預報（與中創需量預測同源），'
+                "換算到東西坡板面後估算三組發電；電池與用電依本站實測平均推估。晴天誤差約 ±10–15%，午後雷陣雨或雲量多時誤差較大。</div>",
+                unsafe_allow_html=True)
 
 # ==========================================
 # 8.5 三組太陽能板 (PV1 / PV2 / PV3)
