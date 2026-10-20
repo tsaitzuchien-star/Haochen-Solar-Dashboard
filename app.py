@@ -20,8 +20,9 @@ st.set_page_config(page_title="澔宸小窩 - 智慧能源", layout="wide", init
 st_autorefresh(interval=300000, key="datarefresh")  # 5 分鐘刷新 (官方資料約每 5 分鐘更新一次)
 
 C_PV, C_LOAD, C_BAT, C_GRID = "#10B981", "#F97316", "#A78BFA", "#38BDF8"
-# 屋頂 4 x 6 共 24 片，由左至右每 2 列 8 片為一組 (顏色與 3D 屋頂外框一致)
-STRINGS = [("PV1", "左側 8 片", "#10B981"), ("PV2", "中間 8 片", "#2DD4BF"), ("PV3", "右側 8 片", "#A3E635")]
+# 人字屋頂、正面朝東：東西兩坡各 12 片，由西到東每 2 列 8 片為一組 (顏色與 3D 屋頂外框一致)
+STRINGS = [("PV1", "西坡 8 片 · 下午較強", "#10B981"), ("PV2", "東西坡各 4 片 · 全天平均", "#2DD4BF"),
+           ("PV3", "東坡 8 片 · 上午較強", "#A3E635")]
 
 st.markdown("""
 <style>
@@ -391,14 +392,9 @@ cards_html = ""
 for i, (name, where, color) in enumerate(STRINGS):
     kw, today = str_kw[i], str_today[i]
     share = today / total_today * 100 if total_today > 0 else 0
-    gap = (1 - today / best) * 100 if best >= 1 else 0
-    # 白天只顯示差距供參考；15 點後全天資料較完整，差距仍超過 15% 才提醒
-    if gap >= 15 and last_update.hour >= 15:
-        note = f'<div style="color:#F59E0B; font-size:12px; margin-top:4px;">⚠️ 今日比最佳組低 {gap:.0f}%，可能有遮蔭或髒污</div>'
-    elif gap >= 3:
-        note = f'<div class="kpi-sub" style="margin-top:4px;">比最佳組低 {gap:.0f}%</div>'
-    else:
-        note = '<div class="kpi-sub" style="margin-top:4px; color:#2DD4BF;">今日最佳</div>' if best >= 1 else ""
+    # 三組朝向不同 (東坡 / 西坡 / 各半)，即時功率差異屬正常；只標示目前最強的一組
+    note = ('<div class="kpi-sub" style="margin-top:4px; color:#2DD4BF;">☀️ 目前發電最強</div>'
+            if kw > 0.05 and kw == max(str_kw) else "")
     cards_html += f"""<div class="card" style="border-top:3px solid {color};">
       <div style="display:flex; justify-content:space-between; align-items:baseline;">
         <span style="color:{color}; font-weight:700;">{name}</span><span class="kpi-sub">{where}</span></div>
@@ -415,8 +411,10 @@ if not curve.empty and curve[["pv1", "pv2", "pv3"]].to_numpy().sum() > 0:
     fs.update_layout(**{**chart_layout, "height": 300}, xaxis=dict(showgrid=False, tickformat="%H:%M"),
                      yaxis=dict(gridcolor="#334155", title="kW", rangemode="tozero"))
     st.plotly_chart(fs, width="stretch", theme=None)
-st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:-6px;">三組容量相同（各 8 片、約 3.56 kWp），'
-            "正常情況下發電量應接近；某一組長期偏低時，可檢查是否有遮蔭、落葉或髒污。電池充滿限發時三組會一起被壓低。</div>",
+st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:-6px;">屋頂為人字型、正面朝東，三組容量相同（各 8 片、約 3.56 kWp）但朝向不同：'
+            "<b style='color:#A3E635'>PV3 在東坡</b>，上午日照直射發電較多；<b style='color:#10B981'>PV1 在西坡</b>，下午較多；"
+            "<b style='color:#2DD4BF'>PV2 東西坡各半</b>，全天較平均。正午前後三組會接近。"
+            "若同一時段某組長期明顯低於往常，再檢查是否有遮蔭、落葉或髒污。電池充滿限發時三組會一起被壓低。</div>",
             unsafe_allow_html=True)
 
 # ==========================================
