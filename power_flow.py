@@ -58,13 +58,15 @@ scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 const ENV = NIGHT ? 0.12 : 0.75;
 
 const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 200);
-camera.position.set(12.5, 7.6, 14.8);
+// 依設備配置調整預設視角，讓設備正面朝向鏡頭
+const CAM = { front: [15.5, 10.5, 18.5], side: [20.5, 10.0, 10.0], yard: [17.5, 10.2, 15.5] }[D.layout || 'front'];
+camera.position.set(...CAM);
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0.6, 2.0, 0.6);
+controls.target.set(0.6, 3.4, 0.6);
 controls.enableDamping = true;
 controls.enablePan = false;
-controls.minDistance = 12;
-controls.maxDistance = 32;
+controls.minDistance = 14;
+controls.maxDistance = 40;
 controls.maxPolarAngle = 1.38;
 
 // ---------- 材質 ----------
@@ -127,7 +129,7 @@ const M = {
   leaf: std('#4E7F3D', 0.85, 0, { flatShading: true }),
   leaf2: std('#5F9447', 0.85, 0, { flatShading: true }),
   pole: std('#8D8A84', 0.85),
-  track: std('#1F2937', 0.55, 0.3),
+  track: std('#64748B', 0.5, 0.3),   // 無電流時的管線，夜間也看得見
 };
 
 function mesh(geo, mat, pos, rot, parent = scene, cast = true) {
@@ -152,15 +154,17 @@ function tree(x, z, s = 1) {
   mesh(new THREE.IcosahedronGeometry(1.0 * s, 1), M.leaf, [x, Y0 + 1.9 * s, z]);
   mesh(new THREE.IcosahedronGeometry(0.7 * s, 1), M.leaf2, [x + 0.4 * s, Y0 + 2.5 * s, z - 0.2 * s]);
 }
-tree(-6.4, 4.4, 0.95); tree(-4.8, -5.6, 1.3); tree(4.6, -6.0, 1.0); tree(8.4, -2.2, 0.85);
+tree(-6.6, 4.4, 1.1); tree(-5.0, -5.8, 1.5); tree(-1.6, -7.4, 1.1); tree(8.4, -2.4, 1.0);
 for (const [x, z, s] of [[-3.6, 3.0, 0.45], [-2.4, 3.05, 0.38], [-1.0, 3.0, 0.42], [5.2, 2.0, 0.4]])
   mesh(new THREE.IcosahedronGeometry(s, 1), M.leaf2, [x, Y0 + s * 0.8, z]);
 
-// ---------- 房屋主體 ----------
-const W = 8.4, H = 3.2, DP = 5.0, RISE = 1.75, OVER = 0.45;
+// ---------- 房屋主體 (兩層樓) ----------
+const W = 8.4, FL = 3.1, H = FL * 2, DP = 5.0, RISE = 1.75, OVER = 0.45;
 const TOP = Y0 + H;
+const F2 = Y0 + FL;  // 二樓樓板高度
 mesh(box(W, H, DP), M.wall, [0, Y0 + H / 2, 0]);
 mesh(box(W + 0.1, 0.25, DP + 0.1), M.trim, [0, Y0 + 0.12, 0]);
+mesh(box(W + 0.12, 0.16, DP + 0.12), M.trim, [0, F2, 0]);  // 樓層飾帶
 
 // 山牆
 const gShape = new THREE.Shape();
@@ -214,42 +218,138 @@ mesh(new THREE.SphereGeometry(0.04, 12, 8), M.alu, [1.1, Y0 + 1.15, DP / 2 + 0.0
 // 側面 (+x) 木紋外牆 + 落地窗 + 山牆三角窗
 mesh(box(0.08, H, 1.9), M.wood, [W / 2 + 0.04, Y0 + H / 2, -1.55]);
 windowAt(2.6, 2.6, [W / 2 + 0.01, Y0 + 1.4, 1.0], Math.PI / 2);
+windowAt(1.8, 1.4, [W / 2 + 0.01, F2 + 1.5, 1.0], Math.PI / 2);
+// 二樓正面：玻璃欄杆陽台 + 落地窗，右側窗
+windowAt(2.6, 2.3, [-1.6, F2 + 1.3, DP / 2]);
+windowAt(1.4, 1.4, [2.3, F2 + 1.55, DP / 2]);
+const railGlass = std('#BFD9EE', 0.05, 0.1, { transparent: true, opacity: NIGHT ? 0.18 : 0.35, envMapIntensity: 1.2 });
+mesh(box(3.6, 0.18, 1.2), M.white, [-1.6, F2, DP / 2 + 0.6]);
+mesh(box(3.6, 1.0, 0.03), railGlass, [-1.6, F2 + 0.6, DP / 2 + 1.18], null, scene, false);
+for (const sx of [-1, 1]) mesh(box(0.03, 1.0, 1.18), railGlass, [-1.6 + sx * 1.785, F2 + 0.6, DP / 2 + 0.6], null, scene, false);
+mesh(box(3.64, 0.05, 0.07), M.trim, [-1.6, F2 + 1.12, DP / 2 + 1.18]);
 const triShape = new THREE.Shape();
 triShape.moveTo(-1.3, 0); triShape.lineTo(1.3, 0); triShape.lineTo(0, 0.9); triShape.closePath();
 mesh(new THREE.ShapeGeometry(triShape), M.glass, [W / 2 + 0.02, TOP + 0.15, 0], [0, Math.PI / 2, 0], scene, false);
 // 後側窗
 windowAt(1.4, 1.5, [-W / 2 - 0.01, Y0 + 1.8, 0], -Math.PI / 2);
+windowAt(1.4, 1.5, [-W / 2 - 0.01, F2 + 1.5, 0], -Math.PI / 2);
 
-// ---------- 配電箱 (家中用電由此進屋) ----------
-const PANEL = [-3.78, Y0 + 1.85, DP / 2 + 0.08];
-mesh(new RoundedBoxGeometry(0.46, 0.66, 0.14, 3, 0.03), std('#9CA3AF', 0.45, 0.5), PANEL);
-mesh(box(0.36, 0.008, 0.01), std('#6B7280', 0.6), [PANEL[0], PANEL[1] + 0.12, PANEL[2] + 0.075], null, scene, false);
-mesh(new THREE.SphereGeometry(0.02, 10, 8), std('#F97316', 0.3, 0, { emissive: new THREE.Color('#F97316'), emissiveIntensity: 2 }),
-     [PANEL[0] + 0.15, PANEL[1] + 0.24, PANEL[2] + 0.075], null, scene, false);
+// ---------- 設備配置 ----------
+// layout: front=設備在正面 / side=集中在右側牆 / yard=側院獨立設備區 (配電箱在牆上，以地下管線連接)
+const LAYOUT = D.layout || 'front';
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+function frame(pos, rotY) {
+  const g = new THREE.Group(); g.position.set(...pos); g.rotation.y = rotY;
+  scene.add(g); g.updateMatrixWorld(true); return g;
+}
+const at = (g, x, y, z) => g.localToWorld(V(x, y, z));
+const glowMat = (c, i) => std(c, 0.3, 0, { emissive: new THREE.Color(c), emissiveIntensity: i });
 
-// ---------- 逆變器與電池 ----------
-const INV = [2.7, Y0 + 1.75, DP / 2 + 0.14];
-mesh(new RoundedBoxGeometry(0.72, 0.82, 0.24, 4, 0.05), M.white, INV);
-mesh(new THREE.CircleGeometry(0.09, 24), M.dark, [INV[0], INV[1] + 0.05, INV[2] + 0.125], null, scene, false);
-mesh(new THREE.SphereGeometry(0.025, 12, 8), std('#22C55E', 0.3, 0, { emissive: new THREE.Color('#22C55E'), emissiveIntensity: 2.5 }),
-     [INV[0] + 0.24, INV[1] + 0.3, INV[2] + 0.125]);
+// 各設備以「牆面座標」建立：x 沿牆、y 向上、z 朝外
+function addPanel(g, x, y) {
+  mesh(new RoundedBoxGeometry(0.46, 0.66, 0.14, 3, 0.03), std('#9CA3AF', 0.45, 0.5), [x, y, 0.08], null, g);
+  mesh(box(0.36, 0.008, 0.01), std('#6B7280', 0.6), [x, y + 0.12, 0.155], null, g, false);
+  mesh(new THREE.SphereGeometry(0.02, 10, 8), glowMat('#F97316', 2), [x + 0.15, y + 0.24, 0.155], null, g, false);
+}
+function addInverter(g, x, y) {
+  mesh(new RoundedBoxGeometry(0.72, 0.82, 0.24, 4, 0.05), M.white, [x, y, 0.14], null, g);
+  mesh(new THREE.CircleGeometry(0.09, 24), M.dark, [x, y + 0.05, 0.265], null, g, false);
+  mesh(new THREE.SphereGeometry(0.025, 12, 8), glowMat('#22C55E', 2.5), [x + 0.24, y + 0.3, 0.265], null, g);
+}
+function addBattery(g, x, y) {  // y 為電池中心高度
+  mesh(new RoundedBoxGeometry(0.8, 1.4, 0.38, 4, 0.05), M.white, [x, y, 0.22], null, g);
+  for (let i = 1; i < 4; i++) mesh(box(0.78, 0.012, 0.01), std('#CBD5E1', 0.6), [x, y - 0.7 + i * 0.35, 0.41], null, g, false);
+  const h = 1.1 * Math.max(D.soc, 3) / 100;
+  mesh(box(0.06, 1.1, 0.01), std('#CBD5E1', 0.6), [x - 0.28, y, 0.415], null, g, false);
+  mesh(box(0.06, h, 0.012), glowMat('#8B5CF6', 1.6), [x - 0.28, y - 0.55 + h / 2, 0.42], null, g, false);
+}
+function addPole(pos) {
+  mesh(new THREE.CylinderGeometry(0.11, 0.15, 7.4, 12), M.pole, [pos[0], Y0 + 3.7, pos[2]]);
+  mesh(box(1.8, 0.12, 0.12), M.pole, [pos[0], Y0 + 6.9, pos[2]], [0, 0.5, 0]);
+  for (const dx of [-0.7, 0.7]) mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.18, 8), M.white, [pos[0] + dx * Math.cos(0.5), Y0 + 7.05, pos[2] - dx * Math.sin(0.5)]);
+}
+function sagWire(a, b, sag = 1.3) {
+  const mid = a.clone().add(b).multiplyScalar(0.5); mid.y -= sag;
+  const curve = new THREE.QuadraticBezierCurve3(a, mid, b);
+  mesh(new THREE.TubeGeometry(curve, 40, 0.018, 6), M.dark, null, null, scene, false);
+  return curve;
+}
+function poly(pts) {
+  const cp = new THREE.CurvePath();
+  for (let i = 0; i < pts.length - 1; i++) cp.add(new THREE.LineCurve3(pts[i], pts[i + 1]));
+  return cp;
+}
+function chain(...curves) {
+  const cp = new THREE.CurvePath();
+  for (const c of curves) for (const k of (c.curves || [c])) cp.add(k);
+  return cp;
+}
 
-const BAT = [3.75, Y0 + 0.7, DP / 2 + 0.22];
-mesh(new RoundedBoxGeometry(0.8, 1.4, 0.38, 4, 0.05), M.white, BAT);
-for (let i = 1; i < 4; i++) mesh(box(0.78, 0.012, 0.01), std('#CBD5E1', 0.6), [BAT[0], BAT[1] - 0.7 + i * 0.35, BAT[2] + 0.19], null, scene, false);
-const socH = 1.1 * Math.max(D.soc, 3) / 100;
-mesh(box(0.06, 1.1, 0.01), std('#CBD5E1', 0.6), [BAT[0] - 0.28, BAT[1], BAT[2] + 0.195], null, scene, false);
-mesh(box(0.06, socH, 0.012), std('#A78BFA', 0.3, 0, { emissive: new THREE.Color('#8B5CF6'), emissiveIntensity: 1.6 }),
-     [BAT[0] - 0.28, BAT[1] - 0.55 + socH / 2, BAT[2] + 0.2], null, scene, false);
+const eaveY = TOP + RISE - halfRun * Math.tan(slope) + 0.05;
+const XW = W / 2 + 0.07;   // 右側牆面外側
+const ZW = DP / 2 + 0.07;  // 正面牆面外側
+const pvDrop = [V(3.4, eaveY + 0.35, DP / 2 + 0.1), V(3.4, eaveY - 0.05, DP / 2 + OVER - 0.05)];
+let P;  // 管線與標籤位置
 
-// ---------- 電線桿 ----------
-const POLE = [-8.6, 0, 0.4];
-mesh(new THREE.CylinderGeometry(0.11, 0.15, 7.4, 12), M.pole, [POLE[0], Y0 + 3.7, POLE[2]]);
-mesh(box(1.8, 0.12, 0.12), M.pole, [POLE[0], Y0 + 6.9, POLE[2]], [0, 0.5, 0]);
-for (const dx of [-0.7, 0.7]) mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.18, 8), M.white, [POLE[0] + dx * Math.cos(0.5), Y0 + 7.05, POLE[2] - dx * Math.sin(0.5)]);
-const wire = new THREE.QuadraticBezierCurve3(new THREE.Vector3(POLE[0] + 0.6, Y0 + 7.0, POLE[2] - 0.35),
-  new THREE.Vector3(-6.4, Y0 + 4.9, 0.2), new THREE.Vector3(-W / 2 - 0.3, TOP + 0.9, 0));
-mesh(new THREE.TubeGeometry(wire, 40, 0.018, 6), M.dark, null, null, scene, false);
+if (LAYOUT === 'front') {
+  // 正面只留門窗；逆變器與電池在右側牆 (電池在正下方，隔約 0.7 m)；
+  // 配電盤在後牆靠右側轉角，台電由右後方電線桿架空接入後牆。管線分層避免交叉：
+  // 太陽能沿二樓牆頂走到逆變器正上方，再垂直往下進逆變器，家用電沿門框高度 (Y0+2.35) 繞過後側轉角，從側邊接入配電盤
+  const S = frame([W / 2, 0, 0], Math.PI / 2);
+  const B = frame([0, 0, -DP / 2], Math.PI);
+  addInverter(S, 0.95, Y0 + 2.5); addBattery(S, 0.95, Y0 + 0.7);  // 電池在逆變器正下方，間隔約 0.7 m
+  addPanel(B, -3.0, Y0 + 1.75);
+  const pole = [7.6, 0, -6.4]; addPole(pole);
+  const service = at(B, -3.0, Y0 + 3.05, 0.07);
+  const wire = sagWire(V(pole[0] - 0.6, Y0 + 7.0, pole[2] + 0.35), service, 1.2);
+  const ZB = -DP / 2 - 0.07;  // 後牆外側
+  P = {
+    pv: poly([V(3.9, eaveY + 0.35, DP / 2 + 0.1), V(3.9, eaveY - 0.05, DP / 2 + OVER - 0.05), V(3.9, TOP - 0.3, ZW), V(XW, TOP - 0.3, ZW),
+              at(S, 0.95, TOP - 0.3, 0.07), at(S, 0.95, Y0 + 2.91, 0.07)]),
+    load: poly([at(S, 1.31, Y0 + 2.5, 0.07), at(S, 1.6, Y0 + 2.5, 0.07), at(S, 1.6, Y0 + 2.35, 0.07), V(XW, Y0 + 2.35, ZB), V(3.45, Y0 + 2.35, ZB), V(3.45, Y0 + 1.75, ZB), V(3.25, Y0 + 1.75, ZB)]),
+    bat: poly([at(S, 0.95, Y0 + 2.09, 0.1), at(S, 0.95, Y0 + 1.4, 0.1)]),
+    grid: chain(wire, poly([service, at(B, -3.0, Y0 + 2.08, 0.07)])),
+    batCard: [7.0, Y0 + 0.2, 0.6], gridCard: [pole[0], Y0 + 8.0, pole[2]],
+  };
+} else if (LAYOUT === 'side') {
+  // 右側牆 (木紋段)：配電箱、逆變器、下方電池；台電由電線桿架空接入牆頂，再沿管線下到配電箱
+  const S = frame([W / 2, 0, 0], Math.PI / 2);
+  addPanel(S, 0.85, Y0 + 1.85); addInverter(S, 1.75, Y0 + 2.15); addBattery(S, 1.75, Y0 + 0.7);
+  const pole = [8.8, 0, -3.8]; addPole(pole);
+  const service = at(S, 0.85, Y0 + 3.05, 0.07);
+  const wire = sagWire(V(pole[0] - 0.6, Y0 + 7.0, pole[2] + 0.35), service, 1.2);
+  P = {
+    pv: poly([...pvDrop, V(XW, eaveY - 0.05, DP / 2 + OVER - 0.05), V(XW, Y0 + 2.95, DP / 2 - 0.05),
+              at(S, 1.75, Y0 + 2.95, 0.07), at(S, 1.75, Y0 + 2.56, 0.07)]),
+    load: poly([at(S, 1.39, Y0 + 2.0, 0.07), at(S, 1.15, Y0 + 2.0, 0.07), at(S, 1.15, Y0 + 1.3, 0.07),
+                at(S, 0.85, Y0 + 1.3, 0.07), at(S, 0.85, Y0 + 1.52, 0.07)]),
+    bat: poly([at(S, 1.95, Y0 + 1.74, 0.1), at(S, 1.95, Y0 + 1.4, 0.15)]),
+    grid: chain(wire, poly([service, at(S, 0.85, Y0 + 2.18, 0.07)])),
+    batCard: [W / 2 + 2.6, Y0 + 0.2, -0.6], gridCard: [pole[0], Y0 + 8.0, pole[2]],
+  };
+} else {
+  // 側院設備區：水泥平台 + 背板 + 雨遮；配電箱在右側牆，兩者以地下管線連接
+  const Y = frame([6.6, 0, -1.3], 0);
+  mesh(box(2.5, 0.12, 1.4), M.concrete, [0, Y0 + 0.06, 0.45], null, Y);
+  mesh(box(2.3, 2.7, 0.08), std('#4B5563', 0.8), [0, Y0 + 1.47, -0.04], null, Y);
+  mesh(box(2.7, 0.07, 1.45), M.trim, [0, Y0 + 2.95, 0.5], [0.08, 0, 0], Y);
+  for (const x of [-1.2, 1.2]) mesh(new THREE.CylinderGeometry(0.035, 0.035, 2.85, 8), M.trim, [x, Y0 + 1.5, 1.1], null, Y);
+  addInverter(Y, -0.5, Y0 + 1.85); addBattery(Y, 0.55, Y0 + 0.82);
+  const S = frame([W / 2, 0, 0], Math.PI / 2);
+  addPanel(S, 1.3, Y0 + 1.7);
+  const pole = [9.0, 0, -4.4]; addPole(pole);
+  const service = at(S, 1.3, Y0 + 3.05, 0.07);
+  const wire = sagWire(V(pole[0] - 0.6, Y0 + 7.0, pole[2] + 0.35), service, 1.2);
+  const g0 = Y0 + 0.08;
+  P = {
+    pv: poly([...pvDrop, V(XW, eaveY - 0.05, DP / 2 + OVER - 0.05), V(XW, eaveY - 0.05, DP / 2 + 0.07), V(XW, g0, DP / 2 + 0.07),
+              at(Y, -0.75, g0, 0.6), at(Y, -0.75, Y0 + 0.13, 0.08), at(Y, -0.75, Y0 + 2.45, 0.08), at(Y, -0.5, Y0 + 2.45, 0.08), at(Y, -0.5, Y0 + 2.26, 0.08)]),
+    load: poly([at(Y, -0.86, Y0 + 1.6, 0.1), at(Y, -1.0, Y0 + 1.6, 0.1), at(Y, -1.0, g0, 0.1), at(S, 1.3, g0, 0.07), at(S, 1.3, Y0 + 1.37, 0.07)]),
+    bat: poly([at(Y, -0.14, Y0 + 1.7, 0.14), at(Y, 0.55, Y0 + 1.7, 0.14), at(Y, 0.55, Y0 + 1.52, 0.22)]),
+    grid: chain(wire, poly([service, at(S, 1.3, Y0 + 2.03, 0.07)])),
+    batCard: [8.6, Y0 + 0.1, 0.8], gridCard: [pole[0], Y0 + 8.0, pole[2]],
+  };
+}
 
 // ---------- 光源 ----------
 if (!NIGHT) {
@@ -268,30 +368,19 @@ if (!NIGHT) {
   moon.shadow.mapSize.set(1024, 1024); moon.shadow.radius = 6;
   moon.castShadow = true; scene.add(moon);
   // 室內燈光從窗戶灑出
-  for (const p of [[-3.0, Y0 + 1.6, DP / 2 + 0.8], [-1.1, Y0 + 1.6, DP / 2 + 0.8], [W / 2 + 0.9, Y0 + 1.4, 1.0], [0.7, Y0 + 2.6, DP / 2 + 0.5]]) {
+  for (const p of [[-3.0, Y0 + 1.6, DP / 2 + 0.8], [-1.1, Y0 + 1.6, DP / 2 + 0.8], [W / 2 + 0.9, Y0 + 1.4, 1.0], [0.7, Y0 + 2.6, DP / 2 + 0.5],
+                   [-1.6, F2 + 1.4, DP / 2 + 1.6], [2.3, F2 + 1.5, DP / 2 + 0.8]]) {
     const l = new THREE.PointLight('#FFC66E', 6, 7, 2); l.position.set(...p); scene.add(l);
   }
 }
 
 // ---------- 能源流 ----------
 const C = { pv: '#10B981', load: '#F97316', bat: '#A78BFA', grid: '#38BDF8' };
-const V = (x, y, z) => new THREE.Vector3(x, y, z);
-const ZW = DP / 2 + 0.07;
-function poly(pts) {
-  const cp = new THREE.CurvePath();
-  for (let i = 0; i < pts.length - 1; i++) cp.add(new THREE.LineCurve3(pts[i], pts[i + 1]));
-  return cp;
-}
-const eaveY = TOP + RISE - halfRun * Math.tan(slope) + 0.05;
 const flows = [
-  { kw: D.pv, color: C.pv, rev: false,
-    curve: poly([V(2.0, eaveY + 0.35, DP / 2 + 0.1), V(2.0, eaveY - 0.05, DP / 2 + OVER - 0.05), V(2.0, eaveY - 0.05, ZW), V(2.0, INV[1] + 0.75, ZW), V(INV[0], INV[1] + 0.75, ZW), V(INV[0], INV[1] + 0.41, ZW)]) },
-  { kw: D.load, color: C.load, rev: false,
-    curve: poly([V(INV[0] - 0.36, INV[1], ZW), V(1.7, INV[1], ZW), V(1.7, Y0 + 2.8, ZW), V(PANEL[0], Y0 + 2.8, ZW), V(PANEL[0], PANEL[1] + 0.33, ZW)]) },
-  { kw: Math.abs(D.batt), color: C.bat, rev: D.batt < 0,
-    curve: poly([V(INV[0] + 0.2, INV[1] - 0.41, ZW), V(INV[0] + 0.2, BAT[1] + 0.95, ZW), V(BAT[0], BAT[1] + 0.95, ZW), V(BAT[0], BAT[1] + 0.7, BAT[2])]) },
-  { kw: Math.abs(D.grid), color: C.grid, rev: D.grid < 0,
-    curve: poly([V(POLE[0], Y0 + 2.6, POLE[2]), V(POLE[0], Y0 + 0.08, POLE[2]), V(-W / 2 - 0.12, Y0 + 0.08, ZW), V(INV[0] - 0.2, Y0 + 0.08, ZW), V(INV[0] - 0.2, INV[1] - 0.41, ZW)]) },
+  { kw: D.pv, color: C.pv, rev: false, curve: P.pv },
+  { kw: D.load, color: C.load, rev: false, curve: P.load },
+  { kw: Math.abs(D.batt), color: C.bat, rev: D.batt < 0, curve: P.bat },
+  { kw: Math.abs(D.grid), color: C.grid, rev: D.grid < 0, curve: P.grid },
 ];
 
 const glowTex = canvasTex(64, 64, (g, w, h) => {
@@ -333,8 +422,8 @@ const gridLabel = D.grid > 0.02 ? '電網購電' : (D.grid < -0.02 ? '賣電至�
 const cards = [
   card('光伏', D.pv, C.pv, '', [0.4, TOP + RISE + 1.4, 1.6]),
   card('載入 (家中負載)', D.load, C.load, '', [-5.0, Y0 + 0.1, DP / 2 + 1.2]),
-  card(battLabel, Math.abs(D.batt), C.bat, `<span style="color:${C.bat};font-size:16px;margin-left:10px">${D.soc}%</span>`, [BAT[0] + 2.4, Y0 + 0.2, BAT[2] + 1.6]),
-  card(gridLabel, Math.abs(D.grid), C.grid, '', [POLE[0], Y0 + 8.0, POLE[2]]),
+  card(battLabel, Math.abs(D.batt), C.bat, `<span style="color:${C.bat};font-size:16px;margin-left:10px">${D.soc}%</span>`, P.batCard),
+  card(gridLabel, Math.abs(D.grid), C.grid, '', P.gridCard),
 ];
 
 // ---------- 迴圈 ----------
@@ -379,10 +468,10 @@ setTimeout(() => { if (!document.querySelector('#wrap canvas')) {
 </body></html>"""
 
 
-def power_flow_html(pv, load, batt, soc, grid, night=False):
+def power_flow_html(pv, load, batt, soc, grid, night=False, layout="front"):
     """pv/load: kW；batt: kW (+充電/−放電)；grid: kW (+買電/−賣電)。"""
     data = {"pv": round(pv, 3), "load": round(load, 3), "batt": round(batt, 3),
-            "soc": int(soc), "grid": round(grid, 3), "night": bool(night)}
+            "soc": int(soc), "grid": round(grid, 3), "night": bool(night), "layout": layout}
     sky = ("linear-gradient(180deg,#070B18 0%,#111a33 55%,#1E293B 100%)" if night
            else "linear-gradient(180deg,#5D8FC4 0%,#A9C7E3 55%,#D7E3EE 100%)")
     return (_TEMPLATE.replace("__DATA__", json.dumps(data))
