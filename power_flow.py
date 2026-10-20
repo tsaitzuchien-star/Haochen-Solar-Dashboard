@@ -497,6 +497,19 @@ for (const f of flows) {
     : M.track, null, null, scene, false);
   f.dots = [];
   if (!active) continue;
+  // 方向箭頭：沿管線每約 1.4 m 一個圓錐，指向電流方向
+  const arrowMat = new THREE.MeshStandardMaterial({ color: f.color, emissive: new THREE.Color(f.color), emissiveIntensity: 0.9, roughness: 0.4 });
+  const arrowGeo = new THREE.ConeGeometry(0.11, 0.26, 16);
+  const na = Math.max(1, Math.round(len / 1.4));
+  for (let i = 0; i < na; i++) {
+    const u = (i + 0.5) / na;
+    const tan = f.curve.getTangentAt(u).normalize();
+    if (f.rev) tan.negate();
+    const cone = new THREE.Mesh(arrowGeo, arrowMat);
+    cone.position.copy(f.curve.getPointAt(u));
+    cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tan);
+    scene.add(cone);
+  }
   f.len = len;
   f.speed = 0.2 + Math.min(f.kw, 10) * 0.05;   // 每秒移動距離 (m)，緩慢流動較有質感
   // 所有管線都用密集的小光點，看起來像連續水流
