@@ -113,10 +113,27 @@ def fetch_monthly(year):
     return pd.DataFrame([{"month": e["date"], "kwh": float(e["energy"])} for e in d.get("energys", [])])
 
 
+@st.cache_resource
+def last_good():
+    # 跨使用者共用的「最後一次成功資料」，API 限流 (FREQUENTLY_ACCESS) 時改顯示這份
+    return {}
+
+
+def with_fallback(key, fn, *args):
+    store = last_good()
+    try:
+        store[key] = fn(*args)
+    except Exception as e:
+        if key not in store:
+            raise
+        st.toast(f"Growatt 暫時限流，顯示上一次資料 ({e})", icon="⏳")
+    return store[key]
+
+
 try:
-    s = fetch_realtime()
+    s = with_fallback("realtime", fetch_realtime)
 except Exception as e:
-    st.error(f"⚠️ 連線異常: {e}")
+    st.error(f"⚠️ 連線異常: {e}（若為 FREQUENTLY_ACCESS，請等幾分鐘後重新整理）")
     st.stop()
 
 now_tw = datetime.now(TW_TZ)
@@ -247,7 +264,7 @@ with col_bar:
 
 with col_line:
     try:
-        curve = fetch_day_curve(now_tw.strftime("%Y-%m-%d"))
+        curve = with_fallback("curve", fetch_day_curve, now_tw.strftime("%Y-%m-%d"))
     except Exception as e:
         curve = pd.DataFrame()
         st.warning(f"今日曲線讀取失敗: {e}")
@@ -288,7 +305,7 @@ if not curve.empty:
 st.markdown("<div class='section-title' style='margin-top:20px;'>🗓️ 每月發電量</div>", unsafe_allow_html=True)
 try:
     years = range(2024, now_tw.year + 1)
-    monthly = pd.concat([fetch_monthly(y) for y in years], ignore_index=True)
+    monthly = pd.concat([with_fallback(f"monthly-{y}", fetch_monthly, y) for y in years], ignore_index=True)
     monthly = monthly[monthly["kwh"] > 0]
     monthly["kwh_per_kwp"] = monthly["kwh"] / CAPACITY_KWP
     fig_m = go.Figure(go.Bar(x=monthly["month"], y=monthly["kwh"], marker_color="#10B981",
