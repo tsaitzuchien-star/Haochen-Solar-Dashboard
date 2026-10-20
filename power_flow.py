@@ -499,10 +499,9 @@ for (const f of flows) {
   if (!active) continue;
   // 方向箭頭：沿管線每約 0.5 m 一個圓錐，指向電流方向
   const arrowMat = new THREE.MeshStandardMaterial({ color: f.color, emissive: new THREE.Color(f.color), emissiveIntensity: 0.9, roughness: 0.4 });
-  // 短管線 (如逆變器→電池) 箭頭較小、間距約 0.2 m，才看得出方向
-  const shortLine = len < 1.5;
-  const arrowGeo = shortLine ? new THREE.ConeGeometry(0.08, 0.18, 16) : new THREE.ConeGeometry(0.11, 0.26, 16);
-  const na = Math.max(1, Math.round(len / (shortLine ? 0.2 : 0.5)));
+  // 箭頭大小一致；短管線 (如逆變器→電池) 間距縮為約 0.25 m，才放得下兩個以上
+  const arrowGeo = new THREE.ConeGeometry(0.11, 0.26, 16);
+  const na = Math.max(1, Math.round(len / (len < 1.5 ? 0.25 : 0.5)));
   for (let i = 0; i < na; i++) {
     const u = (i + 0.5) / na;
     const tan = f.curve.getTangentAt(u).normalize();
