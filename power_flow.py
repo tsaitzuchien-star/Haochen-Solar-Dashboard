@@ -209,8 +209,10 @@ const STRING_COLORS = ['#10B981', '#2DD4BF', '#A3E635'];
 // 沿屋脊 4 排分成 2 + 2，中間留支架走道
 const xs = [-1.5, -0.5, 0.5, 1.5].map(i => i * (PW + GAP) + Math.sign(i) * AISLE / 2);
 const ridgeZ = -L / 2 + 0.2;  // 屋面局部座標：靠屋脊端
+// 兩坡的屋面局部 z 方向相反：東坡 (roofs[1]) 屋脊在 -z，西坡 (roofs[-1]) 屋脊在 +z
+const toward = (roof, z) => (roof === roofs[-1] ? -z : z);
 function panelAt(roof, x, k) {  // k = 0 緊鄰屋脊, 2 最靠屋簷
-  const z = ridgeZ + PL / 2 + k * (PL + GAP);
+  const z = toward(roof, ridgeZ + PL / 2 + k * (PL + GAP));
   mesh(box(PW + 0.03, 0.05, PL + 0.03), M.alu, [x, 0.11, z], null, roof);
   const pm = mesh(new THREE.PlaneGeometry(PW, PL), M.panel, [x, 0.14, z], [-Math.PI / 2, 0, 0], roof);
   pm.castShadow = false;
@@ -219,13 +221,13 @@ for (const s of [1, -1]) for (const x of xs) for (let k = 0; k < 3; k++) panelAt
 // 各組以彩色外框標示
 function outline(roof, k0, k1, color) {
   const xa = xs[0] - PW / 2 - 0.05, xb = xs[ALONG - 1] + PW / 2 + 0.05;
-  const za = ridgeZ + k0 * (PL + GAP) - 0.05, zb = ridgeZ + (k1 + 1) * (PL + GAP) - GAP + 0.05;
+  const za = toward(roof, ridgeZ + k0 * (PL + GAP) - 0.05), zb = toward(roof, ridgeZ + (k1 + 1) * (PL + GAP) - GAP + 0.05);
   const m = std(color, 0.4, 0, { emissive: new THREE.Color(color), emissiveIntensity: NIGHT ? 0.5 : 0.9 });
   const t = 0.035;
   mesh(box(xb - xa, 0.02, t), m, [(xa + xb) / 2, 0.165, za], null, roof, false);
   mesh(box(xb - xa, 0.02, t), m, [(xa + xb) / 2, 0.165, zb], null, roof, false);
-  mesh(box(t, 0.02, zb - za), m, [xa, 0.165, (za + zb) / 2], null, roof, false);
-  mesh(box(t, 0.02, zb - za), m, [xb, 0.165, (za + zb) / 2], null, roof, false);
+  mesh(box(t, 0.02, Math.abs(zb - za)), m, [xa, 0.165, (za + zb) / 2], null, roof, false);
+  mesh(box(t, 0.02, Math.abs(zb - za)), m, [xb, 0.165, (za + zb) / 2], null, roof, false);
 }
 outline(roofs[1], 1, 2, STRING_COLORS[2]);   // PV3 東坡
 outline(roofs[-1], 1, 2, STRING_COLORS[0]);  // PV1 西坡
