@@ -162,7 +162,7 @@ for (const [x, z, s] of [[-3.6, 4.5, 0.45], [-2.4, 4.55, 0.38], [-1.0, 4.5, 0.42
   mesh(new THREE.IcosahedronGeometry(s, 1), M.leaf2, [x, Y0 + s * 0.8, z]);
 
 // ---------- 房屋主體 (兩層樓) ----------
-const W = 8.4, FL = 3.1, H = FL * 2, DP = 8.0, RISE = 2.7, OVER = 0.45;
+const W = 8.4, FL = 3.1, H = FL * 2, DP = 8.0, RISE = 1.6, OVER = 0.45;  // 緩坡人字屋頂
 const TOP = Y0 + H;
 const F2 = Y0 + FL;  // 二樓樓板高度
 mesh(box(W, H, DP), M.wall, [0, Y0 + H / 2, 0]);
@@ -191,29 +191,47 @@ for (const s of [1, -1]) {
 }
 mesh(box(W + 0.95, 0.14, 0.32), M.trim, [0, TOP + RISE + 0.22, 0]);
 
-// 太陽能板 (前坡 4 排 x 6 列 = 24 片)；由左至右每 2 列 8 片為一組：PV1 / PV2 / PV3
-const PW = 1.0, PL = 1.2, GAP = 0.05, ROWS = 4, COLS = 6;
+// 太陽能板：人字屋頂兩坡各 12 片 (沿屋脊 4 片 x 往屋簷 3 片)。正面 (+z) 朝東。
+// 由西到東共 6 列，每 2 列一組：PV1 = 西坡下方 2 列；PV2 = 緊鄰屋脊的兩列 (東、西坡各一)；PV3 = 東坡下方 2 列
+const PW = 1.65, PL = 1.5, GAP = 0.05, ALONG = 4;
 const STRING_COLORS = ['#10B981', '#2DD4BF', '#A3E635'];
-const x0 = -((COLS - 1) * (PW + GAP)) / 2 - 0.3;
-const z0 = -((ROWS - 1) * (PL + GAP)) / 2;
-for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
-  const x = x0 + c * (PW + GAP);
-  const z = z0 + r * (PL + GAP);
-  mesh(box(PW + 0.03, 0.05, PL + 0.03), M.alu, [x, 0.11, z], null, roofs[1]);
-  const p = mesh(new THREE.PlaneGeometry(PW, PL), M.panel, [x, 0.14, z], [-Math.PI / 2, 0, 0], roofs[1]);
-  p.castShadow = false;
+const xs = Array.from({ length: ALONG }, (_, i) => (i - (ALONG - 1) / 2) * (PW + GAP));
+const ridgeZ = -L / 2 + 0.2;  // 屋面局部座標：靠屋脊端
+function panelAt(roof, x, k) {  // k = 0 緊鄰屋脊, 2 最靠屋簷
+  const z = ridgeZ + PL / 2 + k * (PL + GAP);
+  mesh(box(PW + 0.03, 0.05, PL + 0.03), M.alu, [x, 0.11, z], null, roof);
+  const pm = mesh(new THREE.PlaneGeometry(PW, PL), M.panel, [x, 0.14, z], [-Math.PI / 2, 0, 0], roof);
+  pm.castShadow = false;
 }
-// 每組外框以顏色區分
-for (let g = 0; g < 3; g++) {
-  const xa = x0 + 2 * g * (PW + GAP) - PW / 2 - 0.04, xb = xa + 2 * PW + GAP + 0.08;
-  const za = z0 - PL / 2 - 0.04, zb = z0 + (ROWS - 1) * (PL + GAP) + PL / 2 + 0.04;
-  const m = std(STRING_COLORS[g], 0.4, 0, { emissive: new THREE.Color(STRING_COLORS[g]), emissiveIntensity: NIGHT ? 0.5 : 0.9 });
+for (const s of [1, -1]) for (const x of xs) for (let k = 0; k < 3; k++) panelAt(roofs[s], x, k);
+// 各組以彩色外框標示
+function outline(roof, k0, k1, color) {
+  const xa = xs[0] - PW / 2 - 0.05, xb = xs[ALONG - 1] + PW / 2 + 0.05;
+  const za = ridgeZ + k0 * (PL + GAP) - 0.05, zb = ridgeZ + (k1 + 1) * (PL + GAP) - GAP + 0.05;
+  const m = std(color, 0.4, 0, { emissive: new THREE.Color(color), emissiveIntensity: NIGHT ? 0.5 : 0.9 });
   const t = 0.035;
-  mesh(box(xb - xa, 0.02, t), m, [(xa + xb) / 2, 0.165, za], null, roofs[1], false);
-  mesh(box(xb - xa, 0.02, t), m, [(xa + xb) / 2, 0.165, zb], null, roofs[1], false);
-  mesh(box(t, 0.02, zb - za), m, [xa, 0.165, (za + zb) / 2], null, roofs[1], false);
-  mesh(box(t, 0.02, zb - za), m, [xb, 0.165, (za + zb) / 2], null, roofs[1], false);
+  mesh(box(xb - xa, 0.02, t), m, [(xa + xb) / 2, 0.165, za], null, roof, false);
+  mesh(box(xb - xa, 0.02, t), m, [(xa + xb) / 2, 0.165, zb], null, roof, false);
+  mesh(box(t, 0.02, zb - za), m, [xa, 0.165, (za + zb) / 2], null, roof, false);
+  mesh(box(t, 0.02, zb - za), m, [xb, 0.165, (za + zb) / 2], null, roof, false);
 }
+outline(roofs[1], 1, 2, STRING_COLORS[2]);   // PV3 東坡
+outline(roofs[-1], 1, 2, STRING_COLORS[0]);  // PV1 西坡
+outline(roofs[1], 0, 0, STRING_COLORS[1]);   // PV2 東半
+outline(roofs[-1], 0, 0, STRING_COLORS[1]);  // PV2 西半
+
+// 地面方位指標 (正面 +z 朝東 → 北為 +x)
+const compassTex = canvasTex(256, 256, (g, w, h) => {
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = 'rgba(15,23,42,0.75)'; g.beginPath(); g.arc(w / 2, h / 2, 118, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = 'rgba(226,232,240,0.6)'; g.lineWidth = 3; g.stroke();
+  g.fillStyle = '#EF4444'; g.beginPath(); g.moveTo(w - 40, h / 2); g.lineTo(w / 2, h / 2 - 16); g.lineTo(w / 2, h / 2 + 16); g.fill();
+  g.fillStyle = '#CBD5E1'; g.beginPath(); g.moveTo(40, h / 2); g.lineTo(w / 2, h / 2 - 16); g.lineTo(w / 2, h / 2 + 16); g.fill();
+  g.font = 'bold 34px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#F8FAFC';
+  g.fillText('北', w - 22, h / 2 - 40); g.fillText('東', w / 2, h - 30); g.fillText('南', 22, h / 2 - 40); g.fillText('西', w / 2, 30);
+});
+mesh(new THREE.PlaneGeometry(2.0, 2.0), new THREE.MeshBasicMaterial({ map: compassTex, transparent: true }),
+     [-7.4, Y0 + 0.06, 7.2], [-Math.PI / 2, 0, 0], scene, false);
 
 // 窗戶
 function windowAt(w, h, pos, rotY = 0) {
@@ -245,7 +263,7 @@ mesh(box(3.6, 1.0, 0.03), railGlass, [-1.6, F2 + 0.6, DP / 2 + 1.18], null, scen
 for (const sx of [-1, 1]) mesh(box(0.03, 1.0, 1.18), railGlass, [-1.6 + sx * 1.785, F2 + 0.6, DP / 2 + 0.6], null, scene, false);
 mesh(box(3.64, 0.05, 0.07), M.trim, [-1.6, F2 + 1.12, DP / 2 + 1.18]);
 const triShape = new THREE.Shape();
-triShape.moveTo(-2.0, 0); triShape.lineTo(2.0, 0); triShape.lineTo(0, 1.4); triShape.closePath();
+triShape.moveTo(-1.8, 0); triShape.lineTo(1.8, 0); triShape.lineTo(0, 0.7); triShape.closePath();
 mesh(new THREE.ShapeGeometry(triShape), M.glass, [W / 2 + 0.02, TOP + 0.15, 0], [0, Math.PI / 2, 0], scene, false);
 // 後側窗
 for (const z of [-2, 2]) { windowAt(1.4, 1.5, [-W / 2 - 0.01, Y0 + 1.8, z], -Math.PI / 2); windowAt(1.4, 1.5, [-W / 2 - 0.01, F2 + 1.5, z], -Math.PI / 2); }
@@ -484,7 +502,7 @@ function card(label, kw, color, extra, anchor, foot = '') {
 }
 // 光伏卡片下方列出三組功率，顏色對應屋頂外框
 const stringRows = (D.strings || []).length ? '<div class="strings">' + D.strings.map((kw, i) =>
-  `<span><i style="background:${STRING_COLORS[i]}"></i>PV${i + 1} <b>${kw.toFixed(2)}</b></span>`).join('') + '</div>' : '';
+  `<span><i style="background:${STRING_COLORS[i]}"></i>PV${i + 1}${['西', '中', '東'][i]} <b>${kw.toFixed(2)}</b></span>`).join('') + '</div>' : '';
 const battLabel = D.batt > 0.02 ? '電池充電' : (D.batt < -0.02 ? '電池放電' : '電池待機');
 const gridLabel = D.grid > 0.02 ? '電網購電' : (D.grid < -0.02 ? '賣電至電網' : '電網');
 const cards = [
