@@ -1,7 +1,7 @@
 """明日發電預測：Open-Meteo ECMWF 短波輻射 → 東西坡板面日照 → 三組 PV 可發功率 → 電池充滿時間與限發估計。
 
 參數由本站 2026/7~10 的實測資料推得 (電池每 1% 約 0.7 kWh、充電上限約 5 kW、早上 7 點電量中位數約 74%)，
-系統效率 PR 預設 0.80，之後可用歷史預報與實測比對再校正。
+系統效率 PR 以 430 個未限發小時的實測與 ECMWF 輻射比對校正為 0.70。
 """
 import numpy as np
 import pandas as pd
@@ -12,7 +12,7 @@ TILT = 15.0                 # 屋頂坡度 (度)
 PANEL_KWP = 0.445           # 單片容量 (24 片 = 10.68 kWp)
 # 各組板面朝向片數：(東坡片數, 西坡片數)；正面朝東
 STRING_PANELS = {"PV1": (0, 8), "PV2": (4, 4), "PV3": (8, 0)}
-PR = 0.80                   # 系統效率 (線損、逆變器、髒污等)
+PR = 0.70                   # 系統效率：以 2026/7~10 未限發時段的實測與 ECMWF 輻射比對校正
 TEMP_COEF = -0.0035         # 每 °C 功率變化
 INVERTER_KW = 10.0
 BATT_KWH_PER_PCT = 0.70
@@ -30,7 +30,7 @@ def fetch_weather(days=2):
     """今天與明天的逐時預報 (ECMWF)。輻射為「前一小時平均」，時間標記在該小時結束時。"""
     r = requests.get(API, timeout=20, params={
         "latitude": LAT, "longitude": LON, "timezone": "Asia/Taipei", "forecast_days": days, "models": "ecmwf_ifs",
-        "hourly": "shortwave_radiation,direct_radiation,diffuse_radiation,temperature_2m,cloud_cover,precipitation_probability",
+        "hourly": "shortwave_radiation,direct_radiation,diffuse_radiation,temperature_2m,cloud_cover,precipitation",
     })
     r.raise_for_status()
     h = r.json()["hourly"]
@@ -99,7 +99,7 @@ def forecast(df=None, start_soc=74):
             "pv": float(g["pv"].sum()), **{n: float(g[n].sum()) for n in STRING_PANELS},
             "home": float(sim["pv_home"].sum()), "charge": float(sim["pv_charge"].sum()), "lost": float(sim["lost"].sum()),
             "full_at": full_at, "ghi": float(g["ghi"].sum() / 1000), "cloud": float(g.loc[g["ghi"] > 50, "cloud_cover"].mean() or 0),
-            "rain": float(g["precipitation_probability"].max()),
+            "rain": float(g["precipitation"].sum()),
             "best_hours": [t.hour - 1 for t in sim.loc[sim["lost"] > 0.5, "time"]],
         }
     return df.merge(pd.concat(out), on="time"), summary

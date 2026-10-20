@@ -426,7 +426,7 @@ except Exception as e:
 
 if fd:
     sky = "☀️ 晴" if fd["cloud"] < 30 else ("⛅ 多雲" if fd["cloud"] < 70 else "☁️ 陰")
-    rain = f"，降雨機率最高 {fd['rain']:.0f}%" if fd["rain"] >= 30 else ""
+    rain = f"，預估降雨 {fd['rain']:.0f} mm" if fd["rain"] >= 1 else ""
     full_txt = f"約 <b>{fd['full_at']:%H:%M}</b> 充滿" if fd["full_at"] is not None else "<b>不會充滿</b>"
     hrs = fd["best_hours"]
     best = (f"💡 明天 <b>{hrs[0]}:00–{hrs[-1] + 1}:00</b> 太陽能用不完，適合安排洗衣、烘衣、熱水器、電動車充電"
@@ -460,7 +460,7 @@ if fd:
                      yaxis2=dict(overlaying="y", side="right", showgrid=False, title="W/m²", rangemode="tozero"))
     st.plotly_chart(ff, width="stretch", theme=None)
     st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:-6px;">資料來源：Open-Meteo ECMWF 逐時短波輻射預報（與中創需量預測同源），'
-                "換算到東西坡板面後估算三組發電；電池與用電依本站實測平均推估。晴天誤差約 ±10–15%，午後雷陣雨或雲量多時誤差較大。</div>",
+                "換算到東西坡板面後估算三組發電；電池與用電依本站實測平均推估。依 7–10 月實測校正，逐時誤差中位數約 10%；午後雷陣雨或雲量多的日子誤差可能達 30% 以上。</div>",
                 unsafe_allow_html=True)
 
 # ==========================================
