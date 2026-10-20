@@ -497,10 +497,10 @@ for (const f of flows) {
     : M.track, null, null, scene, false);
   f.dots = [];
   if (!active) continue;
-  // 方向箭頭：沿管線每約 1.4 m 一個圓錐，指向電流方向
+  // 方向箭頭：沿管線每約 0.5 m 一個圓錐，指向電流方向
   const arrowMat = new THREE.MeshStandardMaterial({ color: f.color, emissive: new THREE.Color(f.color), emissiveIntensity: 0.9, roughness: 0.4 });
   const arrowGeo = new THREE.ConeGeometry(0.11, 0.26, 16);
-  const na = Math.max(1, Math.round(len / 1.4));
+  const na = Math.max(1, Math.round(len / 0.5));
   for (let i = 0; i < na; i++) {
     const u = (i + 0.5) / na;
     const tan = f.curve.getTangentAt(u).normalize();
