@@ -5,7 +5,10 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 from streamlit_autorefresh import st_autorefresh
+
+from power_flow import power_flow_html
 
 # ==========================================
 # 1. 頁面基本設定與高階 CSS 樣式
@@ -234,19 +237,11 @@ with col3:
 # 5. 即時能源流向
 # ==========================================
 st.markdown("<div class='section-title'>⚡ 即時能源流向 (Power Flow)</div>", unsafe_allow_html=True)
-c1, c2, c3, c4 = st.columns(4)
-
-
-def mini_card(icon, title, value, unit, color, details):
-    return f"""<div style="background:#1E293B; border-radius:8px; padding:15px; border-left:4px solid {color}; box-shadow: 0 2px 10px rgba(0,0,0,0.2);">
-    <div style="color:#94A3B8; font-size:14px; display:flex; justify-content:space-between;"><span>{icon} {title}</span><span style="color:{color}; font-size:20px; font-weight:bold;">{value:.2f}<span style="font-size:12px; color:#64748B;"> {unit}</span></span></div>
-    <div style="margin-top:10px; font-size:12px; color:#64748B;">{details}</div></div>"""
-
-
-c1.markdown(mini_card("☀️", "太陽能總輸出", f("ppv") / 1000, "kW", "#10B981", "三組陣列即時發電功率總和"), unsafe_allow_html=True)
-c2.markdown(mini_card("🔋", "電池端充放", batt_power, "kW", "#8B5CF6", f"電池溫度: {f('bmsBatteryTemp'):.1f} °C | {batt_status}"), unsafe_allow_html=True)
-c3.markdown(mini_card("🏠", "負載端消耗", load_kw, "kW", "#F97316", "供應家中電器即時負載"), unsafe_allow_html=True)
-c4.markdown(mini_card("⚡", "市電端", p_buy if p_buy > 0 else p_sell, "kW", "#38BDF8", f"狀態: {grid_status}"), unsafe_allow_html=True)
+is_night = f("ppv") < 50 and not (6 <= last_update.hour < 18)
+components.html(power_flow_html(
+    pv=f("ppv") / 1000, load=load_kw, batt=p_charge - p_discharge, soc=soc,
+    grid=p_buy - p_sell, night=is_night,
+), height=520)
 
 st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
 
