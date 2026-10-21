@@ -400,6 +400,7 @@ if (LAYOUT === 'front') {
     bat: poly([at(S, IX, EQ_Y - INV_H / 2 - 0.05, 0.14), at(S, IX, Y0 + 1.4, 0.14)]),
     grid: chain(wire, poly([service, at(S, PX, EQ_Y + 0.48, 0.07)])),
     batCard: [7.6, Y0 + 0.2, -0.6], gridCard: [pole[0], Y0 + 8.0, pole[2]],
+    panelIn: at(S, PX, EQ_Y, -0.25),  // 配電盤對應的室內位置 (家中微電網起點)
   };
 } else if (LAYOUT === 'door') {
   // 與 front 相同，但配電盤在正面大門右手邊；家用電從逆變器沿落地窗上緣繞到正面，台電走地下管線進配電盤底部
@@ -690,6 +691,50 @@ IN(box(0.8, 1.9, 0.35), MI.oak, [-3.6, F2f + 0.95, -2.5]);                      
 for (let r = 0; r < 4; r++) for (let i = 0; i < 4; i++) IN(box(0.05, 0.28, 0.2), iMat(['#94A3B8', '#C084FC', '#FB923C', '#22D3EE'][(r + i) % 4], 0.8), [-3.6, F2f + 0.3 + r * 0.45, -2.75 + i * 0.12]);
 IN(new THREE.SphereGeometry(0.45, 20, 14, 0, Math.PI * 2, 0, Math.PI / 1.6), MI.cushion, [-2.3, F2f + 0.2, -3.6]);  // 懶骨頭
 plant(-1.2, F2f, -4.8, 1.1);
+
+
+// ===== 家中微電網：配電盤 → 各房間電器，綠色 = 再生能源 (太陽能/電池)，紅色 = 台電 =====
+const greenShare = D.load > 0.02 ? Math.min(1, Math.max(0, 1 - Math.max(D.grid, 0) / D.load)) : 1;
+const G_COL = new THREE.Color('#22C55E'), R_COL = new THREE.Color('#EF4444');
+const wireCol = R_COL.clone().lerp(G_COL, greenShare);
+const hub = P.panelIn || V(W / 2 - 0.25, F1 + 2.6, -3.7);
+const ceil1 = C1 - 0.12, ceil2 = C2 - 0.12;
+const loads = [
+  { on: true, to: V(3.55, F1 + 1.9, -3.9) },                                          // 冰箱 (常時)
+  { on: true, to: V(-1.2, F1 + 1.72, -0.85) },                                        // 智慧能源面板 (常時)
+  { on: ACT.kitchen && !SLEEP, to: V(2.1, F1 + 2.15, KZ + 0.05) },                    // 排油煙機、電鍋、氣炸鍋
+  { on: ACT.heater, to: V(-1.2, F1 + 1.63, -5.0) },                                   // 熱水器
+  { on: ACT.tv && !SLEEP, to: V(-2.2, F1 + 1.88, 1.85) },                             // 電視
+  { on: ACT.lights, to: V(-2.2, ceil1 + 0.05, 3.4) }, { on: ACT.lights, to: V(2.5, ceil1 + 0.05, 3.3) },   // 1F 照明
+  { on: ACT.study && !SLEEP, to: V(-2.25, F2f + 1.25, 1.25), up: true },              // 兒童房檯燈
+  { on: ACT.lights, to: V(2.4, F2f + 1.24, 2.56), up: true },                         // 主臥燈
+  { on: ACT.vacuum, to: V(0.2, F1 + 0.1, 5.3) },                                      // 掃地機器人充電座
+];
+const wireMat = std(wireCol.getStyle(), 0.4, 0, { emissive: wireCol, emissiveIntensity: 0.8 });
+const offMat = iMat('#475569', 0.6);
+const glowT = glowTex0();
+const dotMats = [G_COL, R_COL].map(c => new THREE.SpriteMaterial({ map: glowT, color: c, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+const totalOn = loads.filter(l => l.on).length || 1;
+for (const L of loads) {
+  // 走天花板：先沿配電盤牆上到天花，再橫走到電器上方，最後垂直接下
+  const cy = L.up ? ceil2 : ceil1;
+  const pts = [hub, V(hub.x, cy, hub.z), V(L.to.x, cy, hub.z), V(L.to.x, cy, L.to.z), L.to];
+  const curve = poly(pts.filter((p, i) => i === 0 || p.distanceTo(pts[i - 1]) > 0.01));
+  IN(new THREE.TubeGeometry(curve, Math.ceil(curve.getLength() * 12), 0.022, 6), L.on ? wireMat : offMat);
+  if (!L.on) continue;
+  const len = curve.getLength(), n = Math.max(6, Math.round(len / 0.22));
+  const speed = 0.5 + Math.min(D.load / totalOn, 2) * 0.6;
+  for (let i = 0; i < n; i++) {
+    // 依再生能源比例決定每顆光點顏色 (例如 70% 綠、30% 紅)
+    const sp = new THREE.Sprite(dotMats[((i * 0.618) % 1) < greenShare ? 0 : 1]); sp.scale.setScalar(0.18); interior.add(sp);
+    anim.push(t => {
+      const u = (i / n + t * speed / len) % 1;
+      curve.getPointAt(u, sp.position);
+      sp.scale.setScalar(0.18 * Math.min(1, u / 0.08, (1 - u) / 0.08));
+    });
+  }
+}
+IN(new THREE.SphereGeometry(0.07, 16, 12), std(wireCol.getStyle(), 0.3, 0, { emissive: wireCol, emissiveIntensity: 2 }), hub.toArray());
 
 // 透視模式：房屋外殼半透明
 const SHELL = [M.wall, M.slat, M.roof, M.trim, M.frame, M.glass, M.panel, M.alu, M.wood];
