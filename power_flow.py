@@ -30,6 +30,12 @@ html, body { margin:0; padding:0; background:transparent; overflow:hidden;
 .card .strings b { color:#F1F5F9; font-weight:600; }
 .card .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; vertical-align:middle; }
 .hint { position:absolute; right:12px; bottom:10px; font-size:11px; color:rgba(226,232,240,0.55); pointer-events:none; }
+.tag { position:absolute; left:0; top:0; padding:3px 8px; border-radius:8px; font-size:11px; pointer-events:none; white-space:nowrap;
+  background:rgba(15,23,42,0.55); color:#94A3B8; border:1px solid rgba(148,163,184,0.2); }
+.tag.on { color:#FDE68A; border-color:rgba(253,230,138,0.5); background:rgba(15,23,42,0.75); }
+.mode { position:absolute; left:12px; bottom:10px; display:flex; gap:4px; background:rgba(15,23,42,0.6); padding:3px; border-radius:10px; }
+.mode button { border:0; background:transparent; color:#CBD5E1; font-size:12px; padding:5px 10px; border-radius:7px; cursor:pointer; }
+.mode button.sel { background:#334155; color:#F8FAFC; }
 .fallback { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#94A3B8; }
 </style>
 <script type="importmap">{"imports":{
@@ -394,6 +400,7 @@ if (LAYOUT === 'front') {
     bat: poly([at(S, IX, EQ_Y - INV_H / 2 - 0.05, 0.14), at(S, IX, Y0 + 1.4, 0.14)]),
     grid: chain(wire, poly([service, at(S, PX, EQ_Y + 0.48, 0.07)])),
     batCard: [7.6, Y0 + 0.2, -0.6], gridCard: [pole[0], Y0 + 8.0, pole[2]],
+    panelIn: at(S, PX, EQ_Y, -0.25),  // 配電盤對應的室內位置 (家中微電網起點)
   };
 } else if (LAYOUT === 'door') {
   // 與 front 相同，但配電盤在正面大門右手邊；家用電從逆變器沿落地窗上緣繞到正面，台電走地下管線進配電盤底部
@@ -475,6 +482,278 @@ if (!NIGHT) {
   }
 }
 
+// ---------- 室內透視：溫馨科技風住宅 (家人與電器依時段示意，非實測分路用電) ----------
+// 1F：前段 客廳(左) / 餐廳(右)；後段 廚房(右)、洗衣與熱水器(左)、樓梯(左側)
+// 2F：前段 兒童房(左) / 主臥(右)；後段 浴室(右)、閱讀角(左)
+const HOUR = D.hour ?? 12, WEEKEND = !!D.weekend;
+const inRange = (a, b) => HOUR >= a && HOUR < b;
+const SLEEP = HOUR >= 23 || HOUR < 6;
+const ACT = {
+  lights: (HOUR >= 17 || HOUR < 6.5 || NIGHT) && !SLEEP,
+  kitchen: inRange(6, 7.5) || inRange(11, 12.5) || inRange(17, 19),
+  tv: inRange(19, 23) || (WEEKEND && inRange(13, 17)),
+  study: (!WEEKEND && inRange(18.5, 22)) || (WEEKEND && inRange(9, 11)),
+  heater: inRange(9, 15) && D.pv > 0.8,   // 白天用太陽能加熱洗澡熱水
+  vacuum: inRange(9, 15),
+};
+const interior = new THREE.Group(); scene.add(interior);
+const iMat = (c, r = 0.8, extra = {}) => std(c, r, 0, extra);
+const glow = (c, i) => std(c, 0.3, 0, { emissive: new THREE.Color(c), emissiveIntensity: i });
+const IN = (geo, mat, pos, rot) => mesh(geo, mat, pos, rot, interior);
+const anim = [];
+const F1 = Y0 + 0.31, F2f = F2 + 0.09, C1 = Y0 + FL - 0.05, C2 = TOP - 0.05;
+
+// 材質：木地板、溫暖布料、深色科技面板
+const floorTex = canvasTex(256, 256, (g, w, h) => {
+  for (let i = 0; i < 8; i++) { g.fillStyle = ['#C8A27A', '#BF9870', '#CDA982', '#C29C74'][i % 4]; g.fillRect(0, i * h / 8, w, h / 8 - 2);
+    g.fillStyle = 'rgba(80,50,20,0.35)'; g.fillRect((i * 97) % w, i * h / 8, 2, h / 8); }
+}, [3, 4]);
+const MI = {
+  floor: std('#FFFFFF', 0.7, 0, { map: floorTex }), floor2: std('#FFFFFF', 0.7, 0, { map: floorTex }),
+  part: iMat('#F3EEE6', 0.9, { transparent: true, opacity: 0.45 }),
+  glassPart: std('#CFE6F5', 0.1, 0.1, { transparent: true, opacity: 0.25 }),
+  fabric: iMat('#8C9A8B', 0.95), fabric2: iMat('#C9B79C', 0.95), cushion: iMat('#E8C07A', 0.9),
+  oak: iMat('#B98B5E', 0.6), walnut: iMat('#6B4A33', 0.6), white: iMat('#F5F5F2', 0.45),
+  dark: iMat('#1F242C', 0.4), metal: std('#A7AEB8', 0.35, 0.7), rug: iMat('#D9CBB4', 1), rug2: iMat('#9FB3C8', 1),
+  plant: iMat('#4E8B4A', 0.8, { flatShading: true }), pot: iMat('#D7CFC4', 0.7), sheet: iMat('#EEF2F7', 0.9), blanket: iMat('#7C9CC4', 0.9),
+};
+
+// 樓板與隔間
+IN(box(W - 0.3, 0.06, DP - 0.3), MI.floor, [0, F1 - 0.03, 0]);
+IN(box(W - 0.3, 0.14, DP - 0.3), MI.floor2, [0, F2 + 0.02, 0]);
+const wallZ = (x1, x2, z, y0, h, mat = MI.part) => IN(box(x2 - x1, h, 0.08), mat, [(x1 + x2) / 2, y0 + h / 2, z]);
+const wallX = (z1, z2, x, y0, h, mat = MI.part) => IN(box(0.08, h, z2 - z1), mat, [x, y0 + h / 2, (z1 + z2) / 2]);
+wallZ(-2.6, -0.2, -0.9, F1, FL - 0.35); wallZ(1.6, 4.05, -0.9, F1, FL - 0.35, MI.glassPart);   // 1F 前後分區 (廚房玻璃隔間)
+wallZ(-4.05, -0.3, 0.9, F2f, FL - 0.2); wallZ(0.9, 4.05, 0.9, F2f, FL - 0.2);                 // 2F 前後分區
+wallX(0.9, 5.6, 0.3, F2f, FL - 0.2);                                                           // 兒童房 / 主臥
+wallX(-5.6, 0.9, 0.9, F2f, FL - 0.2, MI.glassPart);                                            // 浴室玻璃
+
+// 天花板間接照明 (LED 燈條)：傍晚後暖光，白天微亮
+const stripMat = glow('#FFD9A0', ACT.lights ? 2.2 : 0.25);
+const accentMat = glow('#5EEAD4', ACT.lights ? 1.6 : 0.6);
+function strip(x1, z1, x2, z2, y, mat = stripMat) {
+  const len = Math.hypot(x2 - x1, z2 - z1);
+  IN(box(x1 === x2 ? 0.04 : len, 0.03, z1 === z2 ? 0.04 : len), mat, [(x1 + x2) / 2, y, (z1 + z2) / 2]);
+}
+for (const y of [C1 - 0.08, C2 - 0.08]) {
+  strip(-3.95, 5.45, 3.95, 5.45, y); strip(-3.95, -5.45, 3.95, -5.45, y);
+  strip(-3.95, -5.45, -3.95, 5.45, y); strip(3.95, -5.45, 3.95, 5.45, y);
+}
+if (ACT.lights) for (const [x, y, z] of [[-2.2, C1 - 0.3, 3.4], [2.5, C1 - 0.3, 3.3], [2.3, C1 - 0.3, -3.3], [-2.0, C2 - 0.3, 3.3], [2.3, C2 - 0.3, 3.3], [2.4, C2 - 0.3, -2.5]]) {
+  const l = new THREE.PointLight('#FFE3B8', NIGHT ? 6 : 3, 6.5, 2); l.position.set(x, y, z); interior.add(l);
+}
+
+function person(x, y, z, shirt, scale = 1, rotY = 0, sit = false) {
+  const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = rotY; g.scale.setScalar(scale); interior.add(g);
+  mesh(new THREE.CapsuleGeometry(0.2, sit ? 0.35 : 0.55, 6, 12), iMat(shirt, 0.7), [0, sit ? 0.4 : 0.5, 0], null, g);
+  mesh(new THREE.SphereGeometry(0.17, 16, 12), iMat('#F1C9A5', 0.6), [0, sit ? 0.88 : 1.05, 0], null, g);
+  mesh(new THREE.SphereGeometry(0.175, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2), iMat('#2B2118', 0.8), [0, sit ? 0.92 : 1.09, -0.01], null, g);
+  return g;
+}
+function plant(x, y, z, s = 1) {
+  IN(new THREE.CylinderGeometry(0.16 * s, 0.12 * s, 0.32 * s, 16), MI.pot, [x, y + 0.16 * s, z]);
+  IN(new THREE.IcosahedronGeometry(0.3 * s, 1), MI.plant, [x, y + 0.55 * s, z]);
+}
+
+// ===== 1F 客廳 (前左) =====
+IN(box(3.0, 0.02, 2.2), MI.rug, [-2.2, F1 + 0.01, 3.6]);
+IN(box(3.4, 2.5, 0.12), iMat('#2A2F37', 0.6), [-2.2, F1 + 1.25, 1.75]);                         // 電視牆
+IN(box(3.2, 0.03, 0.03), accentMat, [-2.2, F1 + 0.42, 1.83]);                                    // 電視櫃下藍綠燈條
+IN(box(2.6, 0.4, 0.45), MI.walnut, [-2.2, F1 + 0.2, 2.05]);
+const tv = IN(box(1.9, 1.05, 0.05), ACT.tv && !SLEEP ? glow('#7CB7FF', 1.3) : MI.dark, [-2.2, F1 + 1.35, 1.83]);
+IN(box(2.6, 0.42, 0.9), MI.fabric, [-2.2, F1 + 0.21, 4.75]); IN(box(2.6, 0.5, 0.22), MI.fabric, [-2.2, F1 + 0.6, 5.1]);
+IN(box(0.9, 0.42, 1.6), MI.fabric, [-3.45, F1 + 0.21, 4.2]);                                     // L 型沙發
+for (const dx of [-0.8, 0.1]) IN(box(0.45, 0.35, 0.15), MI.cushion, [-2.2 + dx, F1 + 0.6, 4.95]);
+IN(new THREE.CylinderGeometry(0.45, 0.45, 0.35, 32), MI.oak, [-2.2, F1 + 0.18, 3.55]);           // 圓茶几
+plant(-3.7, F1, 2.3, 1.2);
+IN(new THREE.CylinderGeometry(0.02, 0.02, 1.5, 8), MI.metal, [-0.9, F1 + 0.75, 5.0]);            // 立燈
+IN(new THREE.SphereGeometry(0.16, 16, 12), ACT.lights ? glow('#FFD49A', 2.5) : MI.white, [-0.9, F1 + 1.55, 5.0]);
+if (ACT.tv && !SLEEP) {
+  person(-1.9, F1 + 0.2, 4.75, '#2F6FB0', 1.35, Math.PI, true);
+  anim.push(t => { tv.material.emissiveIntensity = 1.0 + 0.4 * Math.sin(t * 7) * Math.sin(t * 2.3); });
+}
+
+// ===== 1F 餐廳 (前右) =====
+IN(box(1.8, 0.05, 0.95), MI.oak, [2.5, F1 + 0.75, 3.3]);
+for (const dx of [-0.75, 0.75]) IN(box(0.06, 0.72, 0.8), MI.walnut, [2.5 + dx, F1 + 0.37, 3.3]);
+for (const [dx, dz] of [[-0.45, -0.75], [0.45, -0.75], [-0.45, 0.75], [0.45, 0.75]]) {
+  IN(box(0.42, 0.06, 0.42), MI.fabric2, [2.5 + dx, F1 + 0.45, 3.3 + dz]);
+  IN(box(0.42, 0.45, 0.05), MI.fabric2, [2.5 + dx, F1 + 0.7, 3.3 + dz * 1.28]);
+}
+for (const dx of [-0.45, 0.45]) {                                                                // 吊燈
+  IN(new THREE.CylinderGeometry(0.005, 0.005, 0.9, 6), MI.dark, [2.5 + dx, C1 - 0.45, 3.3]);
+  IN(new THREE.ConeGeometry(0.18, 0.2, 20, 1, true), ACT.lights ? glow('#FFD49A', 2.2) : MI.dark, [2.5 + dx, C1 - 0.95, 3.3]);
+}
+plant(3.7, F1, 5.0, 1.0);
+
+// ===== 1F 廚房 (後右，玻璃隔間) =====
+const KZ = -5.15;
+IN(box(3.4, 0.9, 0.6), MI.white, [2.1, F1 + 0.45, KZ]);
+IN(box(3.4, 0.04, 0.62), iMat('#3F4650', 0.3), [2.1, F1 + 0.92, KZ]);
+IN(box(3.4, 0.6, 0.35), MI.white, [2.1, F1 + 2.15, KZ - 0.1]);                                  // 吊櫃
+IN(box(3.3, 0.02, 0.02), accentMat, [2.1, F1 + 1.83, KZ + 0.05]);                                // 櫃下燈條
+IN(box(0.85, 1.9, 0.7), iMat('#D1D5DB', 0.3, { metalness: 0.4 }), [3.55, F1 + 0.95, -3.9]);       // 冰箱
+IN(box(0.06, 0.6, 0.02), accentMat, [3.15, F1 + 1.2, -3.55]);
+IN(box(1.8, 0.9, 0.8), MI.oak, [1.9, F1 + 0.45, -3.4]);                                          // 中島
+IN(box(1.82, 0.04, 0.82), iMat('#ECECEC', 0.25), [1.9, F1 + 0.92, -3.4]);
+IN(box(0.8, 0.4, 0.5), MI.metal, [2.1, F1 + 1.95, KZ + 0.05]);                                   // 排油煙機
+IN(box(0.6, 0.02, 0.3), ACT.kitchen && !SLEEP ? glow('#FFE7B0', 2) : MI.dark, [2.1, F1 + 1.74, KZ + 0.1]);
+IN(new THREE.CylinderGeometry(0.17, 0.17, 0.27, 20), iMat('#E5E1DA', 0.4), [0.9, F1 + 1.08, KZ]);  // 電鍋
+IN(box(0.3, 0.34, 0.3), MI.dark, [3.2, F1 + 1.11, KZ]);                                          // 氣炸鍋
+IN(new THREE.CylinderGeometry(0.2, 0.18, 0.15, 20), MI.metal, [2.1, F1 + 1.02, KZ]);              // 炒鍋
+for (const dx of [-0.5, 0.5]) IN(box(0.36, 0.7, 0.36), MI.walnut, [1.9 + dx, F1 + 0.35, -2.7]);  // 吧台椅
+if (ACT.kitchen && !SLEEP) {
+  const mom = person(2.1, F1, -4.45, '#C2557A', 1.3, Math.PI);
+  anim.push(t => { mom.position.x = 2.1 + 0.35 * Math.sin(t * 0.7); });
+  const steamTex = glowTex0();
+  for (const [sx, sy] of [[0.9, F1 + 1.25], [2.1, F1 + 1.12], [3.2, F1 + 1.3]]) for (let i = 0; i < 4; i++) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: steamTex, color: '#FFFFFF', transparent: true, depthWrite: false })); interior.add(sp);
+    anim.push(t => { const k = (t * 0.5 + i / 4) % 1; sp.position.set(sx + 0.05 * Math.sin(t * 3 + i), sy + k * 0.6, KZ);
+                     sp.material.opacity = 0.45 * (1 - k); sp.scale.setScalar(0.15 + k * 0.25); });
+  }
+}
+
+// ===== 1F 洗衣與熱水器 (後左)、樓梯 =====
+const tank = IN(new THREE.CylinderGeometry(0.32, 0.32, 1.35, 24), MI.white, [-1.2, F1 + 0.95, -5.0]);
+const heatRing = IN(new THREE.TorusGeometry(0.34, 0.035, 8, 32), ACT.heater ? glow('#F97316', 2.5) : iMat('#94A3B8'), [-1.2, F1 + 0.55, -5.0], [Math.PI / 2, 0, 0]);
+if (ACT.heater) anim.push(t => { heatRing.material.emissiveIntensity = 1.5 + 1.2 * (0.5 + 0.5 * Math.sin(t * 2.5)); });
+IN(box(0.62, 0.85, 0.6), MI.white, [-2.1, F1 + 0.43, -5.0]);                                     // 洗衣機
+IN(new THREE.CircleGeometry(0.2, 24), iMat('#334155', 0.2), [-2.1, F1 + 0.45, -4.69]);
+for (let i = 0; i < 13; i++) {                                                                    // 樓梯 (沿左牆往後上樓)
+  const h = (F2 - F1 + 0.1) / 13;
+  IN(box(1.0, 0.06, 0.32), MI.oak, [-3.5, F1 + h * (i + 1), -1.2 - i * 0.3]);
+  IN(box(1.0, 0.02, 0.02), accentMat, [-3.5, F1 + h * (i + 1) - 0.05, -1.05 - i * 0.3]);           // 踏階燈
+}
+IN(box(0.04, 0.9, 4.0), MI.glassPart, [-2.98, F1 + 1.6, -3.0]);                                  // 玻璃扶手
+
+// 智慧能源面板 (走道牆上)：電池電量環 + 發電長條，與實際數據連動
+const smartTex = canvasTex(256, 160, (g, w, h) => {
+  g.fillStyle = '#0B1220'; g.fillRect(0, 0, w, h);
+  g.lineWidth = 14; g.strokeStyle = '#1E293B'; g.beginPath(); g.arc(70, 80, 46, 0, Math.PI * 2); g.stroke();
+  g.strokeStyle = '#A78BFA'; g.beginPath(); g.arc(70, 80, 46, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * D.soc / 100); g.stroke();
+  const bars = [[D.pv, '#10B981'], [D.load, '#F97316'], [Math.abs(D.grid), '#38BDF8']];
+  bars.forEach(([v, c], i) => { g.fillStyle = '#1E293B'; g.fillRect(140, 38 + i * 32, 96, 16);
+    g.fillStyle = c; g.fillRect(140, 38 + i * 32, 96 * Math.min(v / 8, 1), 16); });
+});
+IN(box(0.62, 0.42, 0.03), MI.dark, [-1.2, F1 + 1.5, -0.85]);
+IN(new THREE.PlaneGeometry(0.56, 0.36), new THREE.MeshBasicMaterial({ map: smartTex }), [-1.2, F1 + 1.5, -0.83]);
+
+// 掃地機器人 (白天在客廳餐廳巡航)
+if (ACT.vacuum) {
+  const bot = new THREE.Group(); interior.add(bot);
+  mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.08, 24), MI.white, [0, 0.04, 0], null, bot);
+  mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.02, 16), accentMat, [0, 0.09, 0.06], null, bot);
+  anim.push(t => { const a = t * 0.35; bot.position.set(0.2 + 2.8 * Math.cos(a), F1, 3.0 + 1.0 * Math.sin(2 * a)); bot.rotation.y = -a; });
+}
+
+// ===== 2F 兒童房 (前左) =====
+IN(box(2.4, 0.02, 1.6), MI.rug2, [-1.9, F2f + 0.01, 3.4]);
+IN(box(2.6, 0.06, 0.7), MI.oak, [-1.9, F2f + 0.75, 1.35]);                                     // 長書桌 (靠隔間)
+for (const dx of [-1.25, 1.25]) IN(box(0.06, 0.75, 0.65), MI.walnut, [-1.9 + dx, F2f + 0.37, 1.35]);
+IN(box(2.6, 0.03, 0.25), MI.oak, [-1.9, F2f + 1.5, 1.05]);                                    // 層板與書
+for (let i = 0; i < 9; i++) IN(box(0.06, 0.24, 0.18), iMat(['#EF4444', '#3B82F6', '#F59E0B', '#10B981'][i % 4], 0.8), [-2.9 + i * 0.22, F2f + 1.64, 1.05]);
+const study = ACT.study && !SLEEP;
+for (const dx of [-0.6, 0.6]) {                                                                 // 檯燈
+  IN(new THREE.CylinderGeometry(0.015, 0.015, 0.4, 8), MI.dark, [-1.9 + dx - 0.35, F2f + 0.98, 1.2]);
+  IN(new THREE.ConeGeometry(0.12, 0.14, 16, 1, true), study ? glow('#FFE7A0', 2.5) : MI.metal, [-1.9 + dx - 0.35, F2f + 1.18, 1.25]);
+  if (study) { const l = new THREE.PointLight('#FFE2A8', 2.5, 2.5, 2); l.position.set(-1.9 + dx - 0.35, F2f + 1.05, 1.4); interior.add(l); }
+}
+for (const dz of [0, 1]) {                                                                       // 上下舖
+  IN(box(1.0, 0.25, 2.0), MI.white, [-3.45, F2f + 0.3 + dz * 1.3, 4.4]);
+  IN(box(0.95, 0.12, 1.9), MI.blanket, [-3.45, F2f + 0.48 + dz * 1.3, 4.4]);
+}
+for (const [dx, dz] of [[-0.5, -1], [0.5, -1], [-0.5, 1], [0.5, 1]]) IN(box(0.05, 1.8, 0.05), MI.oak, [-3.45 + dx, F2f + 0.9, 4.4 + dz]);
+if (study) {
+  const kids = [person(-2.5, F2f + 0.15, 1.95, '#16A34A', 1.0, Math.PI, true), person(-1.3, F2f + 0.15, 1.95, '#EA580C', 0.95, Math.PI, true)];
+  kids.forEach((k, i) => anim.push(t => { k.rotation.x = 0.18 + 0.05 * Math.sin(t * 2 + i * 1.7); }));
+} else if (SLEEP) {
+  person(-3.45, F2f + 0.55, 4.4, '#16A34A', 0.9, 0).rotation.x = -Math.PI / 2;
+}
+
+// ===== 2F 主臥 (前右) =====
+IN(box(1.9, 0.35, 2.1), MI.white, [2.4, F2f + 0.18, 3.6]);
+IN(box(1.85, 0.15, 1.6), MI.sheet, [2.4, F2f + 0.42, 3.8]);
+IN(box(1.85, 0.08, 0.9), MI.fabric2, [2.4, F2f + 0.5, 4.2]);
+IN(box(2.1, 1.0, 0.1), iMat('#8B6F55', 0.8), [2.4, F2f + 0.7, 2.5]);                              // 床頭板
+IN(box(1.9, 0.03, 0.03), stripMat, [2.4, F2f + 1.22, 2.56]);
+for (const dx of [-1.25, 1.25]) {
+  IN(box(0.45, 0.45, 0.4), MI.walnut, [2.4 + dx, F2f + 0.23, 2.75]);
+  IN(new THREE.SphereGeometry(0.1, 16, 12), ACT.lights || SLEEP ? glow('#FFD49A', SLEEP ? 0.8 : 2) : MI.white, [2.4 + dx, F2f + 0.6, 2.75]);
+}
+plant(3.7, F2f, 5.2, 0.9);
+
+// ===== 2F 浴室 (後右)、閱讀角 (後左) =====
+IN(box(1.7, 0.55, 0.8), MI.white, [2.6, F2f + 0.28, -4.8]);
+IN(box(1.5, 0.05, 0.6), iMat('#A5D8F0', 0.1, { transparent: true, opacity: 0.8 }), [2.6, F2f + 0.5, -4.8]);
+IN(box(1.0, 0.8, 0.5), MI.oak, [1.6, F2f + 0.4, -2.0]);
+IN(box(0.8, 0.6, 0.03), glow('#E0F2FE', ACT.lights ? 0.9 : 0.25), [1.6, F2f + 1.5, -2.25]);       // 發光鏡
+IN(box(0.8, 1.9, 0.35), MI.oak, [-3.6, F2f + 0.95, -2.5]);                                      // 書櫃
+for (let r = 0; r < 4; r++) for (let i = 0; i < 4; i++) IN(box(0.05, 0.28, 0.2), iMat(['#94A3B8', '#C084FC', '#FB923C', '#22D3EE'][(r + i) % 4], 0.8), [-3.6, F2f + 0.3 + r * 0.45, -2.75 + i * 0.12]);
+IN(new THREE.SphereGeometry(0.45, 20, 14, 0, Math.PI * 2, 0, Math.PI / 1.6), MI.cushion, [-2.3, F2f + 0.2, -3.6]);  // 懶骨頭
+plant(-1.2, F2f, -4.8, 1.1);
+
+
+// ===== 家中微電網：配電盤 → 各房間電器，金色 = 再生能源 (太陽能/電池)，紅色 = 台電 =====
+// (綠色已代表屋頂太陽能管線，室內改用暖金色，與紅色台電電力明顯區隔)
+const greenShare = D.load > 0.02 ? Math.min(1, Math.max(0, 1 - Math.max(D.grid, 0) / D.load)) : 1;
+const G_COL = new THREE.Color('#FBBF24'), R_COL = new THREE.Color('#EF4444');
+const wireCol = R_COL.clone().lerp(G_COL, greenShare);
+const hub = P.panelIn || V(W / 2 - 0.25, F1 + 2.6, -3.7);
+const ceil1 = C1 - 0.12, ceil2 = C2 - 0.12;
+const loads = [
+  { on: true, to: V(3.55, F1 + 1.9, -3.9) },                                          // 冰箱 (常時)
+  { on: true, to: V(-1.2, F1 + 1.72, -0.85) },                                        // 智慧能源面板 (常時)
+  { on: ACT.kitchen && !SLEEP, to: V(2.1, F1 + 2.15, KZ + 0.05) },                    // 排油煙機、電鍋、氣炸鍋
+  { on: ACT.heater, to: V(-1.2, F1 + 1.63, -5.0) },                                   // 熱水器
+  { on: ACT.tv && !SLEEP, to: V(-2.2, F1 + 1.88, 1.85) },                             // 電視
+  { on: ACT.lights, to: V(-2.2, ceil1 + 0.05, 3.4) }, { on: ACT.lights, to: V(2.5, ceil1 + 0.05, 3.3) },   // 1F 照明
+  { on: ACT.study && !SLEEP, to: V(-2.25, F2f + 1.25, 1.25), up: true },              // 兒童房檯燈
+  { on: ACT.lights, to: V(2.4, F2f + 1.24, 2.56), up: true },                         // 主臥燈
+  { on: ACT.vacuum, to: V(0.2, F1 + 0.1, 5.3) },                                      // 掃地機器人充電座
+];
+const wireMat = std(wireCol.getStyle(), 0.4, 0, { emissive: wireCol, emissiveIntensity: 0.8 });
+const offMat = iMat('#475569', 0.6);
+const glowT = glowTex0();
+const dotMats = [G_COL, R_COL].map(c => new THREE.SpriteMaterial({ map: glowT, color: c, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+const totalOn = loads.filter(l => l.on).length || 1;
+for (const L of loads) {
+  // 走天花板：先沿配電盤牆上到天花，再橫走到電器上方，最後垂直接下
+  const cy = L.up ? ceil2 : ceil1;
+  const pts = [hub, V(hub.x, cy, hub.z), V(L.to.x, cy, hub.z), V(L.to.x, cy, L.to.z), L.to];
+  const curve = poly(pts.filter((p, i) => i === 0 || p.distanceTo(pts[i - 1]) > 0.01));
+  IN(new THREE.TubeGeometry(curve, Math.ceil(curve.getLength() * 12), 0.022, 6), L.on ? wireMat : offMat);
+  if (!L.on) continue;
+  const len = curve.getLength(), n = Math.max(6, Math.round(len / 0.22));
+  const speed = 0.5 + Math.min(D.load / totalOn, 2) * 0.6;
+  for (let i = 0; i < n; i++) {
+    // 依再生能源比例決定每顆光點顏色 (例如 70% 金、30% 紅)
+    const sp = new THREE.Sprite(dotMats[((i * 0.618) % 1) < greenShare ? 0 : 1]); sp.scale.setScalar(0.18); interior.add(sp);
+    anim.push(t => {
+      const u = (i / n + t * speed / len) % 1;
+      curve.getPointAt(u, sp.position);
+      sp.scale.setScalar(0.18 * Math.min(1, u / 0.08, (1 - u) / 0.08));
+    });
+  }
+}
+IN(new THREE.SphereGeometry(0.07, 16, 12), std(wireCol.getStyle(), 0.3, 0, { emissive: wireCol, emissiveIntensity: 2 }), hub.toArray());
+
+// 透視模式：房屋外殼半透明
+const SHELL = [M.wall, M.slat, M.roof, M.trim, M.frame, M.glass, M.panel, M.alu, M.wood];
+function setXray(on) {
+  for (const m of SHELL) { m.transparent = on; m.opacity = on ? (m === M.panel ? 0.55 : m === M.roof ? 0.22 : 0.16) : 1; m.depthWrite = !on; m.needsUpdate = true; }
+  interior.visible = on;
+  document.querySelectorAll('.mode button').forEach(b => b.classList.toggle('sel', (b.dataset.m === 'x') === on));
+  try { localStorage.setItem('pf_xray', on ? '1' : '0'); } catch (e) {}
+}
+let xray = true;
+try { xray = localStorage.getItem('pf_xray') !== '0'; } catch (e) {}
+// 透視模式預設鏡頭拉近，看得到家人
+if (xray) camera.position.lerp(controls.target, 0.25);
+const modeEl = document.createElement('div'); modeEl.className = 'mode';
+modeEl.innerHTML = '<button data-m="o" title="外觀">🏠</button><button data-m="x" title="透視">🔍</button>';
+wrap.appendChild(modeEl);
+modeEl.querySelectorAll('button').forEach(b => b.onclick = () => setXray(b.dataset.m === 'x'));
+
 // ---------- 能源流 ----------
 const C = { pv: '#10B981', load: '#F97316', bat: '#A78BFA', grid: '#38BDF8' };
 const flows = [
@@ -484,12 +763,13 @@ const flows = [
   { kw: Math.abs(D.grid), color: C.grid, rev: D.grid < 0, curve: P.grid },
 ];
 
-const glowTex = canvasTex(64, 64, (g, w, h) => {
+const glowTex = glowTex0();
+function glowTex0() { if (glowTex0.t) return glowTex0.t; return glowTex0.t = canvasTex(64, 64, (g, w, h) => {
   const r = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
   r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.25, 'rgba(255,255,255,0.75)');
   r.addColorStop(1, 'rgba(255,255,255,0)');
   g.fillStyle = r; g.fillRect(0, 0, w, h);
-});
+}); }
 
 for (const f of flows) {
   const active = f.kw >= 0.02;
@@ -580,6 +860,7 @@ function tick() {
     a.m.quaternion.setFromUnitVectors(UP, tan);
     a.m.scale.setScalar(Math.min(1, u / 0.1, (1 - u) / 0.1));
   }
+  for (const a of anim) a(t);
   controls.update();
   renderer.render(scene, camera);
   const w = wrap.clientWidth, h = wrap.clientHeight;
@@ -592,6 +873,7 @@ function tick() {
   }
   requestAnimationFrame(tick);
 }
+setXray(xray);
 tick();
 </script>
 <script>
@@ -603,12 +885,12 @@ setTimeout(() => { if (!document.querySelector('#wrap canvas')) {
 </body></html>"""
 
 
-def power_flow_html(pv, load, batt, soc, grid, night=False, layout="front", strings=None, grid_today=None):
+def power_flow_html(pv, load, batt, soc, grid, night=False, layout="front", strings=None, grid_today=None, hour=12.0, weekend=False):
     """pv/load: kW；batt: kW (+充電/−放電)；grid: kW (+買電/−賣電)；strings: [PV1, PV2, PV3] kW；grid_today: {"buy","sell"} 今日買賣電 kWh。"""
     data = {"pv": round(pv, 3), "load": round(load, 3), "batt": round(batt, 3),
             "soc": int(soc), "grid": round(grid, 3), "night": bool(night), "layout": layout,
             "strings": [round(x, 3) for x in strings] if strings else [],
-            "grid_today": grid_today}
+            "grid_today": grid_today, "hour": round(hour, 2), "weekend": bool(weekend)}
     sky = ("linear-gradient(180deg,#070B18 0%,#111a33 55%,#1E293B 100%)" if night
            else "linear-gradient(180deg,#5D8FC4 0%,#A9C7E3 55%,#D7E3EE 100%)")
     return (_TEMPLATE.replace("__DATA__", json.dumps(data))

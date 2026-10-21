@@ -305,7 +305,8 @@ with col_main:
     is_night = pv_kw < 0.05 and not (6 <= last_update.hour < 18)
     components.html(power_flow_html(pv=pv_kw, load=load_kw, batt=p_charge - p_discharge, soc=soc,
                                     grid=p_buy - p_sell, night=is_night, strings=str_kw,
-                                    grid_today={"buy": f("etoUserToday"), "sell": f("etoGridToday")}), height=520)
+                                    grid_today={"buy": f("etoUserToday"), "sell": f("etoGridToday")},
+                                    hour=last_update.hour + last_update.minute / 60, weekend=last_update.weekday() >= 5), height=520)
 
 
 def kpi(label, value, unit, color, sub=""):
