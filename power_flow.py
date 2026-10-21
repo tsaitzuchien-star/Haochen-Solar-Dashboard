@@ -495,6 +495,8 @@ const ACT = {
   study: (!WEEKEND && inRange(18.5, 22)) || (WEEKEND && inRange(9, 11)),
   heater: inRange(9, 15) && D.pv > 0.8,   // 白天用太陽能加熱洗澡熱水
   vacuum: inRange(9, 15),
+  laundry: inRange(9, 11.5) || (WEEKEND && inRange(14, 16)),
+  dehumid: inRange(8, 18),
 };
 const interior = new THREE.Group(); scene.add(interior);
 const iMat = (c, r = 0.8, extra = {}) => std(c, r, 0, extra);
@@ -614,10 +616,13 @@ if (ACT.kitchen && !SLEEP) {
 }
 
 // ===== 1F 洗衣與熱水器 (後左)、樓梯 =====
-const tank = IN(new THREE.CylinderGeometry(0.32, 0.32, 1.35, 24), MI.white, [-1.2, F1 + 0.95, -5.0]);
-const heatRing = IN(new THREE.TorusGeometry(0.34, 0.035, 8, 32), ACT.heater ? glow('#F97316', 2.5) : iMat('#94A3B8'), [-1.2, F1 + 0.55, -5.0], [Math.PI / 2, 0, 0]);
-if (ACT.heater) anim.push(t => { heatRing.material.emissiveIntensity = 1.5 + 1.2 * (0.5 + 0.5 * Math.sin(t * 2.5)); });
 IN(box(0.62, 0.85, 0.6), MI.white, [-2.1, F1 + 0.43, -5.0]);                                     // 洗衣機
+const drum = IN(new THREE.CircleGeometry(0.2, 24), ACT.laundry ? glow('#38BDF8', 0.8) : iMat('#334155', 0.2), [-2.1, F1 + 0.45, -4.68]);
+if (ACT.laundry) anim.push(t => { drum.rotation.z = t * 6; drum.material.emissiveIntensity = 0.6 + 0.3 * Math.sin(t * 6); });
+IN(box(0.62, 0.85, 0.6), MI.white, [-1.4, F1 + 0.43, -5.0]);                                     // 烘衣機
+IN(box(0.3, 0.06, 0.2), MI.dark, [-1.2, F1 + 1.2, -0.84]);                                       // Wi-Fi 路由器
+for (let i = 0; i < 3; i++) { const led = IN(new THREE.SphereGeometry(0.012, 8, 6), glow('#22C55E', 2), [-1.3 + i * 0.05, F1 + 1.235, -0.73]);
+  anim.push(t => { led.material.emissiveIntensity = (Math.sin(t * 9 + i * 2) > 0) ? 2.5 : 0.4; }); }
 IN(new THREE.CircleGeometry(0.2, 24), iMat('#334155', 0.2), [-2.1, F1 + 0.45, -4.69]);
 for (let i = 0; i < 13; i++) {                                                                    // 樓梯 (沿左牆往後上樓)
   const h = (F2 - F1 + 0.1) / 13;
@@ -681,6 +686,8 @@ for (const dx of [-1.25, 1.25]) {
   IN(new THREE.SphereGeometry(0.1, 16, 12), ACT.lights || SLEEP ? glow('#FFD49A', SLEEP ? 0.8 : 2) : MI.white, [2.4 + dx, F2f + 0.6, 2.75]);
 }
 plant(3.7, F2f, 5.2, 0.9);
+const purifier = IN(box(0.35, 0.65, 0.35), MI.white, [3.7, F2f + 0.33, 1.5]);                     // 空氣清淨機 (常時)
+IN(new THREE.CircleGeometry(0.1, 20), glow('#5EEAD4', 1.2), [3.7, F2f + 0.6, 1.68]);
 
 // ===== 2F 浴室 (後右)、閱讀角 (後左) =====
 IN(box(1.7, 0.55, 0.8), MI.white, [2.6, F2f + 0.28, -4.8]);
@@ -691,6 +698,21 @@ IN(box(0.8, 1.9, 0.35), MI.oak, [-3.6, F2f + 0.95, -2.5]);                      
 for (let r = 0; r < 4; r++) for (let i = 0; i < 4; i++) IN(box(0.05, 0.28, 0.2), iMat(['#94A3B8', '#C084FC', '#FB923C', '#22D3EE'][(r + i) % 4], 0.8), [-3.6, F2f + 0.3 + r * 0.45, -2.75 + i * 0.12]);
 IN(new THREE.SphereGeometry(0.45, 20, 14, 0, Math.PI * 2, 0, Math.PI / 1.6), MI.cushion, [-2.3, F2f + 0.2, -3.6]);  // 懶骨頭
 plant(-1.2, F2f, -4.8, 1.1);
+// 2F 儲熱式電熱水器 (浴室旁)：白天有太陽能時加熱，水桶內水溫以紅橘色由下往上升
+const WH = [3.55, F2f, -1.3];
+IN(new THREE.CylinderGeometry(0.36, 0.36, 1.5, 28), std('#F1F5F9', 0.35, 0, { transparent: true, opacity: 0.55 }), [WH[0], WH[1] + 0.85, WH[2]]);
+const water = IN(new THREE.CylinderGeometry(0.31, 0.31, 1.0, 24), ACT.heater ? glow('#F97316', 1.2) : iMat('#60A5FA', 0.3), [WH[0], WH[1] + 0.6, WH[2]]);
+for (const dy of [0.12, 1.58]) IN(new THREE.CylinderGeometry(0.37, 0.37, 0.05, 28), MI.metal, [WH[0], WH[1] + dy, WH[2]]);
+const heatRing = IN(new THREE.TorusGeometry(0.38, 0.03, 8, 32), ACT.heater ? glow('#F97316', 2.5) : iMat('#94A3B8'), [WH[0], WH[1] + 0.35, WH[2]], [Math.PI / 2, 0, 0]);
+if (ACT.heater) anim.push(t => {
+  const k = 0.5 + 0.5 * Math.sin(t * 1.2);
+  heatRing.material.emissiveIntensity = 1.5 + 1.2 * (0.5 + 0.5 * Math.sin(t * 2.5));
+  water.scale.y = 0.55 + 0.45 * k; water.position.y = WH[1] + 0.12 + 0.5 * water.scale.y;   // 熱水由下往上加熱
+});
+// 2F 除濕機 (兒童房，白天運轉)
+IN(box(0.38, 0.6, 0.28), MI.white, [-0.4, F2f + 0.3, 5.0]);
+const dh = IN(box(0.25, 0.04, 0.02), ACT.dehumid ? glow('#38BDF8', 1.5) : MI.dark, [-0.4, F2f + 0.5, 5.15]);
+if (ACT.dehumid) anim.push(t => { dh.material.emissiveIntensity = 1 + 0.6 * Math.sin(t * 2); });
 
 
 // ===== 家中微電網：配電盤 → 各房間電器，金色 = 再生能源 (太陽能/電池)，紅色 = 台電 =====
@@ -704,7 +726,11 @@ const loads = [
   { on: true, to: V(3.55, F1 + 1.9, -3.9) },                                          // 冰箱 (常時)
   { on: true, to: V(-1.2, F1 + 1.72, -0.85) },                                        // 智慧能源面板 (常時)
   { on: ACT.kitchen && !SLEEP, to: V(2.1, F1 + 2.15, KZ + 0.05) },                    // 排油煙機、電鍋、氣炸鍋
-  { on: ACT.heater, to: V(-1.2, F1 + 1.63, -5.0) },                                   // 熱水器
+  { on: ACT.heater, to: V(3.55, F2f + 1.62, -1.3), up: true },                         // 2F 儲熱式熱水器
+  { on: ACT.laundry, to: V(-2.1, F1 + 0.88, -5.0) }, { on: ACT.laundry, to: V(-1.4, F1 + 0.88, -5.0) },   // 洗衣機、烘衣機
+  { on: true, to: V(-1.2, F1 + 1.25, -0.84) },                                        // Wi-Fi 路由器 (常時)
+  { on: true, to: V(3.7, F2f + 0.67, 1.5), up: true },                                // 2F 空氣清淨機 (常時)
+  { on: ACT.dehumid, to: V(-0.4, F2f + 0.62, 5.0), up: true },                        // 2F 除濕機
   { on: ACT.tv && !SLEEP, to: V(-2.2, F1 + 1.88, 1.85) },                             // 電視
   { on: ACT.lights, to: V(-2.2, ceil1 + 0.05, 3.4) }, { on: ACT.lights, to: V(2.5, ceil1 + 0.05, 3.3) },   // 1F 照明
   { on: ACT.study && !SLEEP, to: V(-2.25, F2f + 1.25, 1.25), up: true },              // 兒童房檯燈
