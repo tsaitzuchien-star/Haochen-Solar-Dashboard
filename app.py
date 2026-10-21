@@ -304,7 +304,8 @@ col_main, col_side = st.columns([1.55, 1], gap="medium")
 with col_main:
     is_night = pv_kw < 0.05 and not (6 <= last_update.hour < 18)
     components.html(power_flow_html(pv=pv_kw, load=load_kw, batt=p_charge - p_discharge, soc=soc,
-                                    grid=p_buy - p_sell, night=is_night, strings=str_kw), height=520)
+                                    grid=p_buy - p_sell, night=is_night, strings=str_kw,
+                                    grid_today=(f("etoUserToday"), f("etoGridToday"))), height=520)
 
 
 def kpi(label, value, unit, color, sub=""):
@@ -576,6 +577,10 @@ with tab_dev:
         ("電網電壓 L1 / L2", f"{f('vac1'):.1f} / {f('vac2'):.1f} V"),
         ("電網頻率", f"{f('fac'):.2f} Hz"),
         ("離網輸出", f"{f('upsVac1'):.0f} V / {f('upsPac1'):.0f} W"),
+        # 電表原始讀數，用來確認「電網 0 kW」是真的沒買電，還是欄位沒資料
+        ("即時買電 / 賣電", f"{f('pacToUserTotal'):.0f} / {f('pacToGridTotal'):.0f} W"),
+        ("今日買電 / 賣電", f"{f('etoUserToday'):.1f} / {f('etoGridToday'):.1f} kWh"),
+        ("累計買電 / 賣電", f"{f('etoUserTotal'):.0f} / {f('etoGridTotal'):.0f} kWh"),
     ]), unsafe_allow_html=True)
 
 with tab_trend:
