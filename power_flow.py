@@ -501,7 +501,7 @@ for (const f of flows) {
   const arrowMat = new THREE.MeshStandardMaterial({ color: f.color, emissive: new THREE.Color(f.color), emissiveIntensity: 0.9, roughness: 0.4 });
   // 箭頭大小一致；短管線 (如逆變器→電池) 間距縮為約 0.25 m，才放得下兩個以上
   // 短管線 (逆變器→電池) 箭頭放大，才看得清楚
-  const arrowGeo = len < 1.5 ? new THREE.ConeGeometry(0.14, 0.31, 16) : new THREE.ConeGeometry(0.11, 0.26, 16);
+  const arrowGeo = len < 1.5 ? new THREE.ConeGeometry(0.125, 0.285, 16) : new THREE.ConeGeometry(0.11, 0.26, 16);
   const na = Math.max(1, Math.round(len / (len < 1.5 ? 0.3 : 0.5)));
   f.arrows = [];
   for (let i = 0; i < na; i++) {
