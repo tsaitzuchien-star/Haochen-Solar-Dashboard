@@ -722,47 +722,50 @@ const G_COL = new THREE.Color('#FBBF24'), R_COL = new THREE.Color('#EF4444');
 const wireCol = R_COL.clone().lerp(G_COL, greenShare);
 const hub = P.panelIn || V(W / 2 - 0.25, F1 + 2.6, -3.7);
 const ceil1 = C1 - 0.12, ceil2 = C2 - 0.12;
+// 走地板：每條分路由配電盤垂直下到樓板，沿外牆走到電器所在列，再橫向到電器腳下，最後沿電器/牆面上到插座
+// to = 插座端點；base = 電器在地板上的接點 (x, z)
 const loads = [
-  { on: true, to: V(3.55, F1 + 1.9, -3.9) },                                          // 冰箱 (常時)
-  { on: true, to: V(-1.2, F1 + 1.72, -0.85) },                                        // 智慧能源面板 (常時)
-  { on: ACT.kitchen && !SLEEP, to: V(2.1, F1 + 2.15, KZ + 0.05) },                    // 排油煙機、電鍋、氣炸鍋
-  { on: ACT.heater, to: V(3.55, F2f + 1.62, -1.3), up: true },                         // 2F 儲熱式熱水器
-  { on: ACT.laundry, to: V(-2.1, F1 + 0.88, -5.0) }, { on: ACT.laundry, to: V(-1.4, F1 + 0.88, -5.0) },   // 洗衣機、烘衣機
-  { on: true, to: V(-1.2, F1 + 1.25, -0.84) },                                        // Wi-Fi 路由器 (常時)
-  { on: true, to: V(3.7, F2f + 0.67, 1.5), up: true },                                // 2F 空氣清淨機 (常時)
-  { on: ACT.dehumid, to: V(-0.4, F2f + 0.62, 5.0), up: true },                        // 2F 除濕機
-  { on: ACT.tv && !SLEEP, to: V(-2.2, F1 + 1.88, 1.85) },                             // 電視
-  { on: ACT.lights, to: V(-2.2, ceil1 + 0.05, 3.4) }, { on: ACT.lights, to: V(2.5, ceil1 + 0.05, 3.3) },   // 1F 照明
-  { on: ACT.study && !SLEEP, to: V(-2.25, F2f + 1.25, 1.25), up: true },              // 兒童房檯燈
-  { on: ACT.lights, to: V(2.4, F2f + 1.24, 2.56), up: true },                         // 主臥燈
-  { on: ACT.vacuum, to: V(0.2, F1 + 0.1, 5.3) },                                      // 掃地機器人充電座
+  { on: true, base: [3.55, -3.5], to: V(3.55, F1 + 0.35, -3.5) },                      // 冰箱 (常時)
+  { on: true, base: [-1.2, -0.8], to: V(-1.2, F1 + 1.25, -0.8) },                      // 智慧能源面板、Wi-Fi 路由器 (常時)
+  { on: ACT.kitchen && !SLEEP, base: [2.1, -4.8], to: V(2.1, F1 + 0.95, -4.8) },       // 廚房流理台 (排油煙機、電鍋、氣炸鍋)
+  { on: ACT.laundry, base: [-1.75, -4.65], to: V(-1.75, F1 + 0.3, -4.65) },            // 洗衣機、烘衣機
+  { on: ACT.tv && !SLEEP, base: [-2.2, 1.9], to: V(-2.2, F1 + 0.42, 1.9) },            // 電視櫃
+  { on: ACT.lights, base: [-0.9, 5.0], to: V(-0.9, F1 + 1.45, 5.0) },                  // 客廳立燈
+  { on: ACT.lights, base: [2.5, 3.3], to: V(2.5, F1 + 0.78, 3.3) },                    // 餐桌 (吊燈)
+  { on: ACT.vacuum, base: [0.2, 5.3], to: V(0.2, F1 + 0.12, 5.3) },                    // 掃地機器人充電座
+  { on: ACT.heater, base: [3.55, -1.3], to: V(3.55, F2f + 0.15, -1.3), up: true },     // 2F 儲熱式熱水器
+  { on: true, base: [3.7, 1.5], to: V(3.7, F2f + 0.3, 1.5), up: true },               // 2F 空氣清淨機 (常時)
+  { on: ACT.dehumid, base: [-0.4, 5.0], to: V(-0.4, F2f + 0.3, 5.0), up: true },       // 2F 除濕機
+  { on: ACT.study && !SLEEP, base: [-0.65, 1.35], to: V(-0.65, F2f + 0.78, 1.35), up: true },  // 兒童房書桌檯燈
+  { on: ACT.lights, base: [3.65, 2.75], to: V(3.65, F2f + 0.45, 2.75), up: true },     // 主臥床頭燈
 ];
 const wireMat = std(wireCol.getStyle(), 0.4, 0, { emissive: wireCol, emissiveIntensity: 0.8 });
-// 未使用中的分路只淡淡顯示，避免看起來像沒電流的黑色管子
+// 未使用中的分路只淡淡顯示
 const offMat = std('#CBD5E1', 0.6, 0, { transparent: true, opacity: 0.12, depthWrite: false });
 const glowT = glowTex0();
 const dotMats = [G_COL, R_COL].map(c => new THREE.SpriteMaterial({ map: glowT, color: c, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
 const totalOn = loads.filter(l => l.on).length || 1;
-for (const L of loads) {
-  // 走天花板：先沿配電盤牆上到天花，再橫走到電器上方，最後垂直接下
-  const cy = L.up ? ceil2 : ceil1;
-  const pts = [hub, V(hub.x, cy, hub.z), V(L.to.x, cy, hub.z), V(L.to.x, cy, L.to.z), L.to];
+const WALL_X = W / 2 - 0.22;
+loads.forEach((L, k) => {
+  const fy = (L.up ? F2f : F1) + 0.015 + k * 0.002;      // 貼地，每條略微錯開避免重疊閃爍
+  const wx = WALL_X - (k % 4) * 0.05;                      // 沿外牆的走線並排
+  const pts = [hub, V(hub.x, fy, hub.z), V(wx, fy, hub.z), V(wx, fy, L.base[1]), V(L.base[0], fy, L.base[1]), L.to];
   const curve = poly(pts.filter((p, i) => i === 0 || p.distanceTo(pts[i - 1]) > 0.01));
-  IN(new THREE.TubeGeometry(curve, Math.ceil(curve.getLength() * 12), 0.022, 6), L.on ? wireMat : offMat);
-  if (!L.on) continue;
-  const len = curve.getLength(), n = Math.max(6, Math.round(len / 0.22));
+  IN(new THREE.TubeGeometry(curve, Math.ceil(curve.getLength() * 12), 0.011, 6), L.on ? wireMat : offMat);
+  if (!L.on) return;
+  const len = curve.getLength(), n = Math.max(6, Math.round(len / 0.2));
   const speed = 0.5 + Math.min(D.load / totalOn, 2) * 0.6;
   for (let i = 0; i < n; i++) {
     // 依再生能源比例決定每顆光點顏色 (例如 70% 金、30% 紅)
-    const sp = new THREE.Sprite(dotMats[((i * 0.618) % 1) < greenShare ? 0 : 1]); sp.scale.setScalar(0.18); interior.add(sp);
+    const sp = new THREE.Sprite(dotMats[((i * 0.618) % 1) < greenShare ? 0 : 1]); interior.add(sp);
     anim.push(t => {
       const u = (i / n + t * speed / len) % 1;
       curve.getPointAt(u, sp.position);
-      sp.scale.setScalar(0.18 * Math.min(1, u / 0.08, (1 - u) / 0.08));
+      sp.scale.setScalar(0.11 * Math.min(1, u / 0.06, (1 - u) / 0.06));
     });
   }
-}
-IN(new THREE.SphereGeometry(0.07, 16, 12), std(wireCol.getStyle(), 0.3, 0, { emissive: wireCol, emissiveIntensity: 2 }), hub.toArray());
+});
+IN(new THREE.SphereGeometry(0.05, 16, 12), std(wireCol.getStyle(), 0.3, 0, { emissive: wireCol, emissiveIntensity: 2 }), hub.toArray());
 
 // 透視模式：房屋外殼半透明
 const SHELL = [M.wall, M.slat, M.roof, M.trim, M.frame, M.glass, M.panel, M.alu, M.wood];
