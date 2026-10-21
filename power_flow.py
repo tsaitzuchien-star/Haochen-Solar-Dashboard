@@ -571,7 +571,6 @@ plant(-3.7, F1, 2.3, 1.2);
 IN(new THREE.CylinderGeometry(0.02, 0.02, 1.5, 8), MI.metal, [-0.9, F1 + 0.75, 5.0]);            // 立燈
 IN(new THREE.SphereGeometry(0.16, 16, 12), ACT.lights ? glow('#FFD49A', 2.5) : MI.white, [-0.9, F1 + 1.55, 5.0]);
 if (ACT.tv && !SLEEP) {
-  person(-1.9, F1 + 0.2, 4.75, '#2F6FB0', 1.35, Math.PI, true);
   anim.push(t => { tv.material.emissiveIntensity = 1.0 + 0.4 * Math.sin(t * 7) * Math.sin(t * 2.3); });
 }
 
@@ -668,12 +667,6 @@ for (const dz of [0, 1]) {                                                      
   IN(box(0.95, 0.12, 1.9), MI.blanket, [-3.45, F2f + 0.48 + dz * 1.3, 4.4]);
 }
 for (const [dx, dz] of [[-0.5, -1], [0.5, -1], [-0.5, 1], [0.5, 1]]) IN(box(0.05, 1.8, 0.05), MI.oak, [-3.45 + dx, F2f + 0.9, 4.4 + dz]);
-if (study) {
-  const kids = [person(-2.5, F2f + 0.15, 1.95, '#16A34A', 1.0, Math.PI, true), person(-1.3, F2f + 0.15, 1.95, '#EA580C', 0.95, Math.PI, true)];
-  kids.forEach((k, i) => anim.push(t => { k.rotation.x = 0.18 + 0.05 * Math.sin(t * 2 + i * 1.7); }));
-} else if (SLEEP) {
-  person(-3.45, F2f + 0.55, 4.4, '#16A34A', 0.9, 0).rotation.x = -Math.PI / 2;
-}
 
 // ===== 2F 主臥 (前右) =====
 IN(box(1.9, 0.35, 2.1), MI.white, [2.4, F2f + 0.18, 3.6]);
@@ -714,6 +707,49 @@ IN(box(0.38, 0.6, 0.28), MI.white, [-0.4, F2f + 0.3, 5.0]);
 const dh = IN(box(0.25, 0.04, 0.02), ACT.dehumid ? glow('#38BDF8', 1.5) : MI.dark, [-0.4, F2f + 0.5, 5.15]);
 if (ACT.dehumid) anim.push(t => { dh.material.emissiveIntensity = 1 + 0.6 * Math.sin(t * 2); });
 
+
+
+// ===== 家人作息：爸爸、媽媽、兩個兒子依時段出現在不同位置 (示意) =====
+const DAD = '#2F6FB0', MOM = '#C2557A', SON1 = '#16A34A', SON2 = '#EA580C';
+const sit = (x, y, z, c, sc, rot) => person(x, y, z, c, sc, rot, true);
+function lie(x, y, z, c, sc) { const p = person(x, y, z, c, sc, 0); p.rotation.x = -Math.PI / 2; return p; }
+function screen(x, y, z, rotY = 0) {   // 筆電 / 平板發光螢幕
+  const m = IN(box(0.32, 0.22, 0.02), glow('#93C5FD', 1.4), [x, y, z], [0, rotY, 0]);
+  anim.push(t => { m.material.emissiveIntensity = 1.1 + 0.3 * Math.sin(t * 3); });
+}
+const eat = inRange(6, 7.5) || inRange(12, 13) || inRange(17.5, 19);
+
+// 爸爸
+if (SLEEP) lie(2.05, F2f + 0.62, 3.9, DAD, 1.2);
+else if (eat) sit(2.05, F1 + 0.25, 4.05, DAD, 1.3, Math.PI);
+else if (HOUR >= 19) sit(-1.6, F1 + 0.2, 4.75, DAD, 1.35, Math.PI);                    // 客廳看電視
+else { const d = sit(-2.3, F2f + 0.25, -3.35, DAD, 1.3, Math.PI); screen(-2.3, F2f + 0.95, -3.85); }  // 閱讀角用筆電工作
+
+// 媽媽 (下廚時段已在廚房)
+if (SLEEP) lie(2.75, F2f + 0.62, 3.9, MOM, 1.15);
+else if (!(ACT.kitchen && !SLEEP)) {
+  if (eat) sit(2.95, F1 + 0.25, 2.55, MOM, 1.25, 0);
+  else if (HOUR >= 19) sit(-2.6, F1 + 0.2, 4.75, MOM, 1.3, Math.PI);                  // 陪爸爸看電視
+  else { sit(2.95, F1 + 0.25, 2.55, MOM, 1.25, 0); screen(2.95, F1 + 0.83, 2.95, Math.PI); }  // 餐桌用平板
+}
+
+// 兩個兒子
+if (SLEEP || HOUR >= 22) { lie(-3.45, F2f + 0.62, 4.4, SON1, 0.9); lie(-3.45, F2f + 1.92, 4.4, SON2, 0.85); }
+else if (ACT.study) {
+  [sit(-2.5, F2f + 0.15, 1.95, SON1, 1.0, Math.PI), sit(-1.3, F2f + 0.15, 1.95, SON2, 0.95, Math.PI)]
+    .forEach((k, i) => anim.push(t => { k.rotation.x = 0.18 + 0.05 * Math.sin(t * 2 + i * 1.7); }));   // 低頭寫功課
+} else if (eat) { sit(2.95, F1 + 0.25, 4.05, SON1, 1.0, Math.PI); sit(2.05, F1 + 0.25, 2.55, SON2, 0.95, 0); }
+else if (inRange(13, 17.5) || HOUR >= 18.5) {                                          // 客廳地毯：一個玩平板、一個玩球
+  sit(-2.7, F1 - 0.05, 3.3, SON1, 0.95, Math.PI / 2); screen(-2.35, F1 + 0.42, 3.3, Math.PI / 2);
+  const s2 = person(-1.6, F1, 3.0, SON2, 0.9, -Math.PI / 2);
+  const ball = IN(new THREE.SphereGeometry(0.1, 16, 12), iMat('#EF4444', 0.5), [-1.2, F1 + 0.1, 3.0]);
+  anim.push(t => { const k = Math.abs(Math.sin(t * 3)); ball.position.y = F1 + 0.1 + k * 0.8; s2.position.y = F1 + 0.08 * k; });
+} else {                                                                           // 兒童房：一個在下舖看書、一個在地毯堆積木
+  sit(-3.45, F2f + 0.45, 4.4, SON1, 0.95, Math.PI / 2); screen(-3.1, F2f + 1.0, 4.4, Math.PI / 2);
+  const s2 = sit(-1.8, F2f + 0.0, 3.5, SON2, 0.9, Math.PI);
+  for (let i = 0; i < 5; i++) IN(box(0.12, 0.12, 0.12), iMat(['#EF4444', '#3B82F6', '#F59E0B', '#10B981', '#A855F7'][i], 0.6), [-1.8 + (i % 3 - 1) * 0.15, F2f + 0.06 + Math.floor(i / 3) * 0.12, 3.05]);
+  anim.push(t => { s2.rotation.x = 0.15 + 0.08 * Math.sin(t * 1.5); });
+}
 
 // ===== 家中微電網：配電盤 → 各房間電器，金色 = 再生能源 (太陽能/電池)，紅色 = 台電 =====
 // (綠色已代表屋頂太陽能管線，室內改用暖金色，與紅色台電電力明顯區隔)
