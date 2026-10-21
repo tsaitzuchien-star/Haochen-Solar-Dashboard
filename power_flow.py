@@ -375,22 +375,24 @@ if (LAYOUT === 'front') {
   const S = frame([W / 2, 0, 0], Math.PI / 2);
   // 設備組置中於木紋牆：IX = 逆變器/電池、PX = 配電盤 (牆面局部座標，往後為正)
   const WOOD_C = DP / 4 - 0.3, IX = WOOD_C - 1.1, PX = WOOD_C + 1.1, LX = WOOD_C;
-  addInverter(S, IX, Y0 + 2.5); addBattery(S, IX, Y0 + 0.7);
-  addPanel(S, PX, Y0 + 2.5);
+  // 逆變器與配電盤同高 (EQ_Y)，抬高後與下方電池間距約 0.9 m
+  const EQ_Y = Y0 + 2.9;
+  addInverter(S, IX, EQ_Y); addBattery(S, IX, Y0 + 0.7);
+  addPanel(S, PX, EQ_Y);
   const pole = [8.6, 0, -6.6]; addPole(pole);
-  const service = at(S, PX, Y0 + 3.9, 0.07);
+  const service = at(S, PX, EQ_Y + 1.4, 0.07);
   if (NIGHT) {  // 設備區壁燈：照亮逆變器、電池與配電盤
-    mesh(box(0.3, 0.08, 0.14), M.trim, at(S, LX, Y0 + 3.45, 0.07).toArray());
-    mesh(box(0.26, 0.02, 0.1), glowMat('#FFE7B0', 3), at(S, LX, Y0 + 3.4, 0.08).toArray(), null, scene, false);
-    const lamp = new THREE.PointLight('#FFE2A8', 9, 6, 2); lamp.position.copy(at(S, LX, Y0 + 3.2, 0.8)); scene.add(lamp);
+    mesh(box(0.3, 0.08, 0.14), M.trim, at(S, LX, EQ_Y + 0.95, 0.07).toArray());
+    mesh(box(0.26, 0.02, 0.1), glowMat('#FFE7B0', 3), at(S, LX, EQ_Y + 0.9, 0.08).toArray(), null, scene, false);
+    const lamp = new THREE.PointLight('#FFE2A8', 9, 6, 2); lamp.position.copy(at(S, LX, EQ_Y + 0.7, 0.8)); scene.add(lamp);
   }
   const wire = sagWire(V(pole[0] - 0.6, Y0 + 7.0, pole[2] + 0.35), service, 1.0);
   P = {
     pv: poly([V(3.9, eaveY + 0.35, DP / 2 + 0.1), V(3.9, eaveY - 0.05, DP / 2 + OVER - 0.05), V(3.9, TOP - 0.3, ZW), V(XW, TOP - 0.3, ZW),
-              at(S, IX, TOP - 0.3, 0.07), at(S, IX, Y0 + 2.5 + INV_H / 2 + 0.05, 0.07)]),
-    load: poly([at(S, IX + INV_W / 2, Y0 + 2.5, 0.07), at(S, PX - 0.35, Y0 + 2.5, 0.07)]),
-    bat: poly([at(S, IX, Y0 + 2.5 - INV_H / 2 - 0.05, 0.14), at(S, IX, Y0 + 1.4, 0.14)]),
-    grid: chain(wire, poly([service, at(S, PX, Y0 + 2.98, 0.07)])),
+              at(S, IX, TOP - 0.3, 0.07), at(S, IX, EQ_Y + INV_H / 2 + 0.05, 0.07)]),
+    load: poly([at(S, IX + INV_W / 2, EQ_Y, 0.07), at(S, PX - 0.35, EQ_Y, 0.07)]),
+    bat: poly([at(S, IX, EQ_Y - INV_H / 2 - 0.05, 0.14), at(S, IX, Y0 + 1.4, 0.14)]),
+    grid: chain(wire, poly([service, at(S, PX, EQ_Y + 0.48, 0.07)])),
     batCard: [7.6, Y0 + 0.2, -0.6], gridCard: [pole[0], Y0 + 8.0, pole[2]],
   };
 } else if (LAYOUT === 'door') {
