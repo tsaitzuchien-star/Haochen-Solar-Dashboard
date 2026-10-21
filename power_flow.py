@@ -712,7 +712,8 @@ const loads = [
   { on: ACT.vacuum, to: V(0.2, F1 + 0.1, 5.3) },                                      // 掃地機器人充電座
 ];
 const wireMat = std(wireCol.getStyle(), 0.4, 0, { emissive: wireCol, emissiveIntensity: 0.8 });
-const offMat = iMat('#475569', 0.6);
+// 未使用中的分路只淡淡顯示，避免看起來像沒電流的黑色管子
+const offMat = std('#CBD5E1', 0.6, 0, { transparent: true, opacity: 0.12, depthWrite: false });
 const glowT = glowTex0();
 const dotMats = [G_COL, R_COL].map(c => new THREE.SpriteMaterial({ map: glowT, color: c, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
 const totalOn = loads.filter(l => l.on).length || 1;
