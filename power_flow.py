@@ -30,6 +30,12 @@ html, body { margin:0; padding:0; background:transparent; overflow:hidden;
 .card .strings b { color:#F1F5F9; font-weight:600; }
 .card .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; vertical-align:middle; }
 .hint { position:absolute; right:12px; bottom:10px; font-size:11px; color:rgba(226,232,240,0.55); pointer-events:none; }
+.tag { position:absolute; left:0; top:0; padding:3px 8px; border-radius:8px; font-size:11px; pointer-events:none; white-space:nowrap;
+  background:rgba(15,23,42,0.55); color:#94A3B8; border:1px solid rgba(148,163,184,0.2); }
+.tag.on { color:#FDE68A; border-color:rgba(253,230,138,0.5); background:rgba(15,23,42,0.75); }
+.mode { position:absolute; left:12px; bottom:10px; display:flex; gap:4px; background:rgba(15,23,42,0.6); padding:3px; border-radius:10px; }
+.mode button { border:0; background:transparent; color:#CBD5E1; font-size:12px; padding:5px 10px; border-radius:7px; cursor:pointer; }
+.mode button.sel { background:#334155; color:#F8FAFC; }
 .fallback { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#94A3B8; }
 </style>
 <script type="importmap">{"imports":{
@@ -475,6 +481,124 @@ if (!NIGHT) {
   }
 }
 
+// ---------- 室內透視：家人與電器 (依時段示意，非實測分路用電) ----------
+const HOUR = D.hour ?? 12, WEEKEND = !!D.weekend;
+const inRange = (a, b) => HOUR >= a && HOUR < b;
+const ACT = {
+  lights: HOUR >= 17 || HOUR < 7 && HOUR >= 6 || NIGHT,
+  kitchen: inRange(6, 7.5) || inRange(11, 12.5) || inRange(17, 19),
+  tv: inRange(19, 23) || (WEEKEND && inRange(13, 17)),
+  study: (!WEEKEND && inRange(18.5, 22)) || (WEEKEND && inRange(9, 11)),
+  heater: inRange(9, 15) && D.pv > 0.8,   // 白天用太陽能加熱洗澡熱水
+};
+const SLEEP = HOUR >= 23 || HOUR < 6;
+const interior = new THREE.Group(); scene.add(interior);
+const iMat = (c, r = 0.8, extra = {}) => std(c, r, 0, extra);
+const glow = (c, i) => std(c, 0.3, 0, { emissive: new THREE.Color(c), emissiveIntensity: i });
+const IN = (geo, mat, pos, rot) => mesh(geo, mat, pos, rot, interior);
+// 樓板
+IN(box(W - 0.3, 0.06, DP - 0.3), iMat('#C9B79C'), [0, Y0 + 0.28, 0]);
+IN(box(W - 0.3, 0.14, DP - 0.3), iMat('#D8CBB5'), [0, F2 + 0.02, 0]);
+// 隔間牆 (淡色)
+const part = iMat('#E9E4DA', 0.9, { transparent: true, opacity: 0.55 });
+IN(box(0.08, FL - 0.2, DP - 0.4), part, [0.3, Y0 + FL / 2, 0]);
+IN(box(W - 0.4, FL - 0.2, 0.08), part, [0, F2 + FL / 2, 0.9]);
+
+function person(x, y, z, shirt, scale = 1, rotY = 0) {
+  const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = rotY; g.scale.setScalar(scale); interior.add(g);
+  mesh(new THREE.CapsuleGeometry(0.2, 0.55, 6, 12), iMat(shirt, 0.7), [0, 0.5, 0], null, g);
+  mesh(new THREE.SphereGeometry(0.17, 16, 12), iMat('#F1C9A5', 0.6), [0, 1.05, 0], null, g);
+  mesh(new THREE.SphereGeometry(0.175, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2), iMat('#2B2118', 0.8), [0, 1.09, -0.01], null, g);
+  return g;
+}
+const anim = [];
+const labels = [];
+function tag(text, anchor, active) {
+  const el = document.createElement('div'); el.className = 'tag' + (active ? ' on' : '');
+  el.innerHTML = text; wrap.appendChild(el); labels.push({ el, anchor: V(...anchor) });
+}
+
+// 客廳 (1F 前段左側)：沙發、電視、爸爸
+const LV = [-2.3, Y0 + 0.31, 3.6];
+IN(box(2.0, 0.4, 0.8), iMat('#5B6B7F'), [LV[0], LV[1] + 0.2, LV[2] + 1.0]);
+IN(box(2.0, 0.5, 0.2), iMat('#4A586A'), [LV[0], LV[1] + 0.45, LV[2] + 1.4]);
+IN(box(1.6, 0.45, 0.4), iMat('#3B3F46'), [LV[0], LV[1] + 0.22, LV[2] - 1.3]);
+const tvScreen = IN(box(1.5, 0.85, 0.06), ACT.tv ? glow('#7CB7FF', 1.4) : iMat('#111827', 0.3), [LV[0], LV[1] + 1.05, LV[2] - 1.35]);
+if (ACT.tv && !SLEEP) {
+  person(LV[0] + 0.3, LV[1] + 0.12, LV[2] + 0.95, '#2F6FB0', 1.35, Math.PI);
+  anim.push(t => { tvScreen.material.emissiveIntensity = 1.1 + 0.4 * Math.sin(t * 7) * Math.sin(t * 2.3); });
+}
+tag('📺 客廳' + (ACT.tv ? ' · 看電視' : ''), [LV[0], LV[1] + 2.2, LV[2]], ACT.tv && !SLEEP);
+
+// 廚房 (1F 後段右側)：流理台、爐台、排油煙機、氣炸鍋、電鍋、媽媽
+const KT = [2.4, Y0 + 0.31, -3.4];
+IN(box(3.2, 0.9, 0.6), iMat('#E8E8E8', 0.5), [KT[0], KT[1] + 0.45, KT[2] - 0.9]);
+IN(box(3.2, 0.04, 0.62), iMat('#3F4650', 0.4), [KT[0], KT[1] + 0.92, KT[2] - 0.9]);
+IN(box(0.9, 0.45, 0.5), iMat('#9CA3AF', 0.35), [KT[0], KT[1] + 2.0, KT[2] - 0.95]);  // 排油煙機
+const hoodLight = IN(box(0.6, 0.02, 0.3), ACT.kitchen ? glow('#FFE7B0', 2) : iMat('#555'), [KT[0], KT[1] + 1.76, KT[2] - 0.9]);
+IN(new THREE.CylinderGeometry(0.18, 0.18, 0.28, 20), iMat('#D6D3CE', 0.4), [KT[0] - 1.1, KT[1] + 1.08, KT[2] - 0.85]);   // 電鍋
+IN(box(0.32, 0.36, 0.32), iMat('#1F2937', 0.4), [KT[0] + 1.1, KT[1] + 1.12, KT[2] - 0.85]);                              // 氣炸鍋
+IN(new THREE.CylinderGeometry(0.2, 0.18, 0.18, 20), iMat('#6B7280', 0.3, { metalness: 0.6 }), [KT[0], KT[1] + 1.03, KT[2] - 0.9]); // 鍋
+if (ACT.kitchen && !SLEEP) {
+  const mom = person(KT[0], KT[1], KT[2] - 0.15, '#C2557A', 1.3, Math.PI);
+  anim.push(t => { mom.position.x = KT[0] + 0.25 * Math.sin(t * 0.8); });
+  // 蒸氣
+  const steamMat = new THREE.SpriteMaterial({ map: glowTex0(), color: '#FFFFFF', transparent: true, depthWrite: false, opacity: 0.5 });
+  for (const [sx, sy] of [[KT[0] - 1.1, KT[1] + 1.25], [KT[0], KT[1] + 1.15], [KT[0] + 1.1, KT[1] + 1.32]]) for (let i = 0; i < 4; i++) {
+    const sp = new THREE.Sprite(steamMat.clone()); sp.scale.setScalar(0.22); interior.add(sp);
+    anim.push(t => { const k = (t * 0.5 + i / 4) % 1; sp.position.set(sx + 0.05 * Math.sin(t * 3 + i), sy + k * 0.6, KT[2] - 0.85);
+                     sp.material.opacity = 0.45 * (1 - k); sp.scale.setScalar(0.15 + k * 0.25); });
+  }
+}
+tag('🍳 廚房' + (ACT.kitchen ? ' · 排油煙機、氣炸鍋、電鍋' : ''), [KT[0], KT[1] + 2.6, KT[2]], ACT.kitchen && !SLEEP);
+
+// 兒童房 (2F 前段左側)：書桌、檯燈、兩個兒子
+const KD = [-2.2, F2 + 0.09, 3.4];
+IN(box(2.4, 0.06, 0.7), iMat('#C4A57A', 0.6), [KD[0], KD[1] + 0.75, KD[2] - 1.0]);
+for (const dx of [-1.1, 1.1]) IN(box(0.06, 0.75, 0.6), iMat('#A88B62'), [KD[0] + dx, KD[1] + 0.37, KD[2] - 1.0]);
+const lampOn = ACT.study && !SLEEP;
+for (const dx of [-0.6, 0.6]) {
+  IN(new THREE.CylinderGeometry(0.015, 0.015, 0.4, 8), iMat('#333'), [KD[0] + dx - 0.3, KD[1] + 0.98, KD[2] - 1.2]);
+  IN(new THREE.ConeGeometry(0.12, 0.14, 16, 1, true), lampOn ? glow('#FFE7A0', 2.5) : iMat('#9CA3AF'), [KD[0] + dx - 0.3, KD[1] + 1.18, KD[2] - 1.15]);
+  if (lampOn) { const l = new THREE.PointLight('#FFE2A8', 2.5, 2.5, 2); l.position.set(KD[0] + dx - 0.3, KD[1] + 1.05, KD[2] - 1.0); interior.add(l); }
+}
+if (lampOn) {
+  const kids = [person(KD[0] - 0.6, KD[1], KD[2] - 0.45, '#16A34A', 1.0, Math.PI), person(KD[0] + 0.6, KD[1], KD[2] - 0.45, '#EA580C', 0.95, Math.PI)];
+  kids.forEach((k, i) => anim.push(t => { k.rotation.x = 0.18 + 0.05 * Math.sin(t * 2 + i * 1.7); }));  // 低頭寫功課
+}
+tag('📚 兒童房' + (lampOn ? ' · 檯燈寫功課' : ''), [KD[0], KD[1] + 1.9, KD[2]], lampOn);
+
+// 儲熱式電熱水器 (1F 後段左側)
+const WH = [-3.3, Y0 + 0.31, -4.6];
+const tank = IN(new THREE.CylinderGeometry(0.32, 0.32, 1.3, 24), iMat('#F1F5F9', 0.4), [WH[0], WH[1] + 0.95, WH[2]]);
+const heatRing = IN(new THREE.TorusGeometry(0.34, 0.035, 8, 32), ACT.heater ? glow('#F97316', 2.5) : iMat('#94A3B8'), [WH[0], WH[1] + 0.55, WH[2]], [Math.PI / 2, 0, 0]);
+if (ACT.heater) anim.push(t => { heatRing.material.emissiveIntensity = 1.5 + 1.2 * (0.5 + 0.5 * Math.sin(t * 2.5)); });
+tag('♨️ 熱水器' + (ACT.heater ? ' · 太陽能加熱中' : ''), [WH[0], WH[1] + 2.1, WH[2]], ACT.heater);
+
+// 照明
+if (ACT.lights && !SLEEP) for (const [x, y, z] of [[LV[0], Y0 + FL - 0.1, LV[2]], [KT[0], Y0 + FL - 0.1, KT[2]], [KD[0], TOP - 0.1, KD[2]]]) {
+  IN(new THREE.CylinderGeometry(0.25, 0.25, 0.04, 20), glow('#FFF4D6', 2.2), [x, y, z]);
+  const l = new THREE.PointLight('#FFE9C2', NIGHT ? 7 : 3, 6, 2); l.position.set(x, y - 0.3, z); interior.add(l);
+}
+
+// 透視模式：房屋外殼半透明
+const SHELL = [M.wall, M.slat, M.roof, M.trim, M.frame, M.glass, M.panel, M.alu, M.wood];
+function setXray(on) {
+  for (const m of SHELL) { m.transparent = on; m.opacity = on ? (m === M.panel ? 0.55 : m === M.roof ? 0.22 : 0.16) : 1; m.depthWrite = !on; m.needsUpdate = true; }
+  interior.visible = on;
+  labels.forEach(l => l.el.style.display = on ? '' : 'none');
+  document.querySelectorAll('.mode button').forEach(b => b.classList.toggle('sel', (b.dataset.m === 'x') === on));
+  try { localStorage.setItem('pf_xray', on ? '1' : '0'); } catch (e) {}
+}
+let xray = true;
+try { xray = localStorage.getItem('pf_xray') !== '0'; } catch (e) {}
+// 透視模式預設鏡頭拉近，看得到家人
+if (xray) camera.position.lerp(controls.target, 0.25);
+const modeEl = document.createElement('div'); modeEl.className = 'mode';
+modeEl.innerHTML = '<button data-m="o">🏠 外觀</button><button data-m="x">🔍 透視</button>';
+wrap.appendChild(modeEl);
+modeEl.querySelectorAll('button').forEach(b => b.onclick = () => setXray(b.dataset.m === 'x'));
+
 // ---------- 能源流 ----------
 const C = { pv: '#10B981', load: '#F97316', bat: '#A78BFA', grid: '#38BDF8' };
 const flows = [
@@ -484,12 +608,13 @@ const flows = [
   { kw: Math.abs(D.grid), color: C.grid, rev: D.grid < 0, curve: P.grid },
 ];
 
-const glowTex = canvasTex(64, 64, (g, w, h) => {
+const glowTex = glowTex0();
+function glowTex0() { if (glowTex0.t) return glowTex0.t; return glowTex0.t = canvasTex(64, 64, (g, w, h) => {
   const r = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
   r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.25, 'rgba(255,255,255,0.75)');
   r.addColorStop(1, 'rgba(255,255,255,0)');
   g.fillStyle = r; g.fillRect(0, 0, w, h);
-});
+}); }
 
 for (const f of flows) {
   const active = f.kw >= 0.02;
@@ -580,9 +705,15 @@ function tick() {
     a.m.quaternion.setFromUnitVectors(UP, tan);
     a.m.scale.setScalar(Math.min(1, u / 0.1, (1 - u) / 0.1));
   }
+  for (const a of anim) a(t);
   controls.update();
   renderer.render(scene, camera);
   const w = wrap.clientWidth, h = wrap.clientHeight;
+  for (const l of labels) {
+    if (l.el.style.display === 'none') continue;
+    tmp.copy(l.anchor).project(camera);
+    l.el.style.transform = `translate(${(tmp.x * 0.5 + 0.5) * w - l.el.offsetWidth / 2}px, ${(-tmp.y * 0.5 + 0.5) * h - l.el.offsetHeight / 2}px)`;
+  }
   for (const c of cards) {
     tmp.copy(c.anchor).project(camera);
     const x = (tmp.x * 0.5 + 0.5) * w, y = (-tmp.y * 0.5 + 0.5) * h;
@@ -592,6 +723,7 @@ function tick() {
   }
   requestAnimationFrame(tick);
 }
+setXray(xray);
 tick();
 </script>
 <script>
@@ -603,12 +735,12 @@ setTimeout(() => { if (!document.querySelector('#wrap canvas')) {
 </body></html>"""
 
 
-def power_flow_html(pv, load, batt, soc, grid, night=False, layout="front", strings=None, grid_today=None):
+def power_flow_html(pv, load, batt, soc, grid, night=False, layout="front", strings=None, grid_today=None, hour=12.0, weekend=False):
     """pv/load: kW；batt: kW (+充電/−放電)；grid: kW (+買電/−賣電)；strings: [PV1, PV2, PV3] kW；grid_today: {"buy","sell"} 今日買賣電 kWh。"""
     data = {"pv": round(pv, 3), "load": round(load, 3), "batt": round(batt, 3),
             "soc": int(soc), "grid": round(grid, 3), "night": bool(night), "layout": layout,
             "strings": [round(x, 3) for x in strings] if strings else [],
-            "grid_today": grid_today}
+            "grid_today": grid_today, "hour": round(hour, 2), "weekend": bool(weekend)}
     sky = ("linear-gradient(180deg,#070B18 0%,#111a33 55%,#1E293B 100%)" if night
            else "linear-gradient(180deg,#5D8FC4 0%,#A9C7E3 55%,#D7E3EE 100%)")
     return (_TEMPLATE.replace("__DATA__", json.dumps(data))
