@@ -539,7 +539,9 @@ const cards = [
   card('光伏', D.pv, C.pv, '', [0.4, TOP + RISE + 1.4, 1.6], stringRows),
   card('載入 (家中負載)', D.load, C.load, '', [-5.0, Y0 + 0.1, DP / 2 + 1.2]),
   card(battLabel, Math.abs(D.batt), C.bat, `<span style="color:${C.bat};font-size:16px;margin-left:10px">${D.soc}%</span>`, P.batCard),
-  card(gridLabel, Math.abs(D.grid), C.grid, '', P.gridCard),
+  card(gridLabel, Math.abs(D.grid), C.grid, '', P.gridCard,
+       D.grid_today ? `<div class="strings"><span>今日購電 <b>${D.grid_today.buy.toFixed(1)}</b> kWh</span>`
+         + (D.grid_today.sell > 0.05 ? `<span>賣電 <b>${D.grid_today.sell.toFixed(1)}</b></span>` : '') + '</div>' : ''),
 ];
 
 // ---------- 迴圈 ----------
@@ -599,11 +601,12 @@ setTimeout(() => { if (!document.querySelector('#wrap canvas')) {
 </body></html>"""
 
 
-def power_flow_html(pv, load, batt, soc, grid, night=False, layout="front", strings=None):
-    """pv/load: kW；batt: kW (+充電/−放電)；grid: kW (+買電/−賣電)；strings: [PV1, PV2, PV3] kW。"""
+def power_flow_html(pv, load, batt, soc, grid, night=False, layout="front", strings=None, grid_today=None):
+    """pv/load: kW；batt: kW (+充電/−放電)；grid: kW (+買電/−賣電)；strings: [PV1, PV2, PV3] kW；grid_today: {"buy","sell"} 今日買賣電 kWh。"""
     data = {"pv": round(pv, 3), "load": round(load, 3), "batt": round(batt, 3),
             "soc": int(soc), "grid": round(grid, 3), "night": bool(night), "layout": layout,
-            "strings": [round(x, 3) for x in strings] if strings else []}
+            "strings": [round(x, 3) for x in strings] if strings else [],
+            "grid_today": grid_today}
     sky = ("linear-gradient(180deg,#070B18 0%,#111a33 55%,#1E293B 100%)" if night
            else "linear-gradient(180deg,#5D8FC4 0%,#A9C7E3 55%,#D7E3EE 100%)")
     return (_TEMPLATE.replace("__DATA__", json.dumps(data))
