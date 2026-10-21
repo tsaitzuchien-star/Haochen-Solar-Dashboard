@@ -576,6 +576,10 @@ with tab_dev:
         ("電網電壓 L1 / L2", f"{f('vac1'):.1f} / {f('vac2'):.1f} V"),
         ("電網頻率", f"{f('fac'):.2f} Hz"),
         ("離網輸出", f"{f('upsVac1'):.0f} V / {f('upsPac1'):.0f} W"),
+        # 電表原始讀數，用來確認「電網 0 kW」是真的沒買電，還是欄位沒資料
+        ("即時買電 / 賣電", f"{f('pacToUserTotal'):.0f} / {f('pacToGridTotal'):.0f} W"),
+        ("今日買電 / 賣電", f"{f('etoUserToday'):.1f} / {f('etoGridToday'):.1f} kWh"),
+        ("累計買電 / 賣電", f"{f('etoUserTotal'):.0f} / {f('etoGridTotal'):.0f} kWh"),
     ]), unsafe_allow_html=True)
 
 with tab_trend:
