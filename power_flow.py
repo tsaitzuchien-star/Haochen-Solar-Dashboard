@@ -534,12 +534,15 @@ function card(label, kw, color, extra, anchor, foot = '') {
 const stringRows = (D.strings || []).length ? '<div class="strings">' + D.strings.map((kw, i) =>
   `<span><i style="background:${STRING_COLORS[i]}"></i>PV${i + 1}${['西', '中', '東'][i]} <b>${kw.toFixed(2)}</b></span>`).join('') + '</div>' : '';
 const battLabel = D.batt > 0.02 ? '電池充電' : (D.batt < -0.02 ? '電池放電' : '電池待機');
+// 電網卡片下方列出今日累計買／賣電 (kWh)，即時 0 kW 時仍看得到今天取了多少電
+const gridToday = D.grid_today ? `<div class="strings"><span>今日買 <b>${D.grid_today[0].toFixed(1)}</b></span>` +
+  `<span>賣 <b>${D.grid_today[1].toFixed(1)}</b> kWh</span></div>` : '';
 const gridLabel = D.grid > 0.02 ? '電網購電' : (D.grid < -0.02 ? '賣電至電網' : '電網');
 const cards = [
   card('光伏', D.pv, C.pv, '', [0.4, TOP + RISE + 1.4, 1.6], stringRows),
   card('載入 (家中負載)', D.load, C.load, '', [-5.0, Y0 + 0.1, DP / 2 + 1.2]),
   card(battLabel, Math.abs(D.batt), C.bat, `<span style="color:${C.bat};font-size:16px;margin-left:10px">${D.soc}%</span>`, P.batCard),
-  card(gridLabel, Math.abs(D.grid), C.grid, '', P.gridCard),
+  card(gridLabel, Math.abs(D.grid), C.grid, '', P.gridCard, gridToday),
 ];
 
 // ---------- 迴圈 ----------
@@ -599,11 +602,13 @@ setTimeout(() => { if (!document.querySelector('#wrap canvas')) {
 </body></html>"""
 
 
-def power_flow_html(pv, load, batt, soc, grid, night=False, layout="front", strings=None):
-    """pv/load: kW；batt: kW (+充電/−放電)；grid: kW (+買電/−賣電)；strings: [PV1, PV2, PV3] kW。"""
+def power_flow_html(pv, load, batt, soc, grid, night=False, layout="front", strings=None, grid_today=None):
+    """pv/load: kW；batt: kW (+充電/−放電)；grid: kW (+買電/−賣電)；strings: [PV1, PV2, PV3] kW；
+    grid_today: (今日買電, 今日賣電) kWh。"""
     data = {"pv": round(pv, 3), "load": round(load, 3), "batt": round(batt, 3),
             "soc": int(soc), "grid": round(grid, 3), "night": bool(night), "layout": layout,
-            "strings": [round(x, 3) for x in strings] if strings else []}
+            "strings": [round(x, 3) for x in strings] if strings else [],
+            "grid_today": [round(x, 2) for x in grid_today] if grid_today else None}
     sky = ("linear-gradient(180deg,#070B18 0%,#111a33 55%,#1E293B 100%)" if night
            else "linear-gradient(180deg,#5D8FC4 0%,#A9C7E3 55%,#D7E3EE 100%)")
     return (_TEMPLATE.replace("__DATA__", json.dumps(data))
