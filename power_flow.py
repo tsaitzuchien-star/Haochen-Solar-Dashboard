@@ -693,9 +693,10 @@ IN(new THREE.SphereGeometry(0.45, 20, 14, 0, Math.PI * 2, 0, Math.PI / 1.6), MI.
 plant(-1.2, F2f, -4.8, 1.1);
 
 
-// ===== 家中微電網：配電盤 → 各房間電器，綠色 = 再生能源 (太陽能/電池)，紅色 = 台電 =====
+// ===== 家中微電網：配電盤 → 各房間電器，金色 = 再生能源 (太陽能/電池)，紅色 = 台電 =====
+// (綠色已代表屋頂太陽能管線，室內改用暖金色，與紅色台電電力明顯區隔)
 const greenShare = D.load > 0.02 ? Math.min(1, Math.max(0, 1 - Math.max(D.grid, 0) / D.load)) : 1;
-const G_COL = new THREE.Color('#22C55E'), R_COL = new THREE.Color('#EF4444');
+const G_COL = new THREE.Color('#FBBF24'), R_COL = new THREE.Color('#EF4444');
 const wireCol = R_COL.clone().lerp(G_COL, greenShare);
 const hub = P.panelIn || V(W / 2 - 0.25, F1 + 2.6, -3.7);
 const ceil1 = C1 - 0.12, ceil2 = C2 - 0.12;
@@ -725,7 +726,7 @@ for (const L of loads) {
   const len = curve.getLength(), n = Math.max(6, Math.round(len / 0.22));
   const speed = 0.5 + Math.min(D.load / totalOn, 2) * 0.6;
   for (let i = 0; i < n; i++) {
-    // 依再生能源比例決定每顆光點顏色 (例如 70% 綠、30% 紅)
+    // 依再生能源比例決定每顆光點顏色 (例如 70% 金、30% 紅)
     const sp = new THREE.Sprite(dotMats[((i * 0.618) % 1) < greenShare ? 0 : 1]); sp.scale.setScalar(0.18); interior.add(sp);
     anim.push(t => {
       const u = (i / n + t * speed / len) % 1;
