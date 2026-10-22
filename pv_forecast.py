@@ -7,6 +7,9 @@ import numpy as np
 import pandas as pd
 import requests
 
+# 改動預測結果的欄位或算法時加 1，讓網站的快取失效 (st.cache_data 不會偵測這個模組的變更)
+MODEL_VERSION = 3
+
 LAT, LON = 23.927693, 120.694682
 TILT = 15.0                 # 屋頂坡度 (度)
 PANEL_KWP = 0.445           # 單片容量 (24 片 = 10.68 kWp)
