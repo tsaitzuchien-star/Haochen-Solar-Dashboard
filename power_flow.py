@@ -483,7 +483,7 @@ if (!NIGHT) {
 }
 
 // ---------- 室內透視：溫馨科技風住宅 (家人與電器依時段示意，非實測分路用電) ----------
-// 1F：前段 客廳(左) / 餐廳(右)；後段 廚房(右)、洗衣與熱水器(左)、樓梯(左側)
+// 1F：前段 客廳(左) / 餐廳(右)；後段 廚房(右)、洗衣(左)、樓梯(左側)；2F 後陽台放儲熱式熱水器
 // 2F：前段 兒童房(左) / 主臥(右)；後段 浴室(右)、閱讀角(左)
 const HOUR = D.hour ?? 12, WEEKEND = !!D.weekend;
 const inRange = (a, b) => HOUR >= a && HOUR < b;
@@ -593,8 +593,8 @@ IN(box(3.4, 0.9, 0.6), MI.white, [2.1, F1 + 0.45, KZ]);
 IN(box(3.4, 0.04, 0.62), iMat('#3F4650', 0.3), [2.1, F1 + 0.92, KZ]);
 IN(box(3.4, 0.6, 0.35), MI.white, [2.1, F1 + 2.15, KZ - 0.1]);                                  // 吊櫃
 IN(box(3.3, 0.02, 0.02), accentMat, [2.1, F1 + 1.83, KZ + 0.05]);                                // 櫃下燈條
-IN(box(0.85, 1.9, 0.7), iMat('#D1D5DB', 0.3, { metalness: 0.4 }), [3.55, F1 + 0.95, -3.9]);       // 冰箱
-IN(box(0.06, 0.6, 0.02), accentMat, [3.15, F1 + 1.2, -3.55]);
+IN(box(0.85, 1.9, 0.7), iMat('#D1D5DB', 0.3, { metalness: 0.4 }), [-0.2, F1 + 0.95, -5.0]);       // 冰箱 (流理台左側，不擋配電盤下來的線)
+IN(box(0.06, 0.6, 0.02), accentMat, [0.12, F1 + 1.2, -4.64]);
 IN(box(1.8, 0.9, 0.8), MI.oak, [1.9, F1 + 0.45, -3.4]);                                          // 中島
 IN(box(1.82, 0.04, 0.82), iMat('#ECECEC', 0.25), [1.9, F1 + 0.92, -3.4]);
 IN(box(0.8, 0.4, 0.5), MI.metal, [2.1, F1 + 1.95, KZ + 0.05]);                                   // 排油煙機
@@ -614,7 +614,7 @@ if (ACT.kitchen && !SLEEP) {
   }
 }
 
-// ===== 1F 洗衣與熱水器 (後左)、樓梯 =====
+// ===== 1F 洗衣 (後左)、樓梯 =====
 IN(box(0.62, 0.85, 0.6), MI.white, [-2.1, F1 + 0.43, -5.0]);                                     // 洗衣機
 const drum = IN(new THREE.CircleGeometry(0.2, 24), ACT.laundry ? glow('#38BDF8', 0.8) : iMat('#334155', 0.2), [-2.1, F1 + 0.45, -4.68]);
 if (ACT.laundry) anim.push(t => { drum.rotation.z = t * 6; drum.material.emissiveIntensity = 0.6 + 0.3 * Math.sin(t * 6); });
@@ -691,12 +691,23 @@ IN(box(0.8, 1.9, 0.35), MI.oak, [-3.6, F2f + 0.95, -2.5]);                      
 for (let r = 0; r < 4; r++) for (let i = 0; i < 4; i++) IN(box(0.05, 0.28, 0.2), iMat(['#94A3B8', '#C084FC', '#FB923C', '#22D3EE'][(r + i) % 4], 0.8), [-3.6, F2f + 0.3 + r * 0.45, -2.75 + i * 0.12]);
 IN(new THREE.SphereGeometry(0.45, 20, 14, 0, Math.PI * 2, 0, Math.PI / 1.6), MI.cushion, [-2.3, F2f + 0.2, -3.6]);  // 懶骨頭
 plant(-1.2, F2f, -4.8, 1.1);
-// 2F 儲熱式電熱水器 (浴室旁)：白天有太陽能時加熱，水桶內水溫以紅橘色由下往上升
-const WH = [3.55, F2f, -1.3];
-IN(new THREE.CylinderGeometry(0.36, 0.36, 1.5, 28), std('#F1F5F9', 0.35, 0, { transparent: true, opacity: 0.55 }), [WH[0], WH[1] + 0.85, WH[2]]);
-const water = IN(new THREE.CylinderGeometry(0.31, 0.31, 1.0, 24), ACT.heater ? glow('#F97316', 1.2) : iMat('#60A5FA', 0.3), [WH[0], WH[1] + 0.6, WH[2]]);
-for (const dy of [0.12, 1.58]) IN(new THREE.CylinderGeometry(0.37, 0.37, 0.05, 28), MI.metal, [WH[0], WH[1] + dy, WH[2]]);
-const heatRing = IN(new THREE.TorusGeometry(0.38, 0.03, 8, 32), ACT.heater ? glow('#F97316', 2.5) : iMat('#94A3B8'), [WH[0], WH[1] + 0.35, WH[2]], [Math.PI / 2, 0, 0]);
+// 2F 後陽台 (浴室外)：落地玻璃門 + 玻璃欄杆，放儲熱式電熱水器 (屋外，外觀與透視模式都看得到)
+const OUT = (geo, mat, pos, rot) => mesh(geo, mat, pos, rot, scene);
+const BZ = -DP / 2 - 0.65;   // 陽台中心 (後牆外 1.3 m 深)
+OUT(box(2.8, 0.12, 1.3), M.concrete, [2.5, F2 + 0.03, BZ]);
+for (const x of [1.3, 3.7]) OUT(box(0.1, 0.35, 1.1), M.concrete, [x, F2 - 0.2, BZ + 0.05]);   // 托架
+const railMat = std('#CFE6F5', 0.1, 0.1, { transparent: true, opacity: 0.3, depthWrite: false });
+OUT(box(2.8, 1.0, 0.03), railMat, [2.5, F2f + 0.5, BZ - 0.64]);
+for (const x of [1.12, 3.88]) OUT(box(0.03, 1.0, 1.3), railMat, [x, F2f + 0.5, BZ]);
+OUT(box(2.84, 0.04, 0.06), M.trim, [2.5, F2f + 1.02, BZ - 0.64]);
+for (const x of [1.12, 3.88]) OUT(box(0.06, 0.04, 1.3), M.trim, [x, F2f + 1.02, BZ]);
+OUT(box(1.0, 2.1, 0.04), M.glass, [1.8, F2f + 1.05, -DP / 2 - 0.02]);                         // 落地門
+// 儲熱式電熱水器：白天有太陽能時加熱，水桶內水溫以紅橘色由下往上升
+const WH = [3.2, F2f, BZ - 0.15];
+OUT(new THREE.CylinderGeometry(0.36, 0.36, 1.5, 28), std('#F1F5F9', 0.35, 0, { transparent: true, opacity: 0.55 }), [WH[0], WH[1] + 0.85, WH[2]]);
+const water = OUT(new THREE.CylinderGeometry(0.31, 0.31, 1.0, 24), ACT.heater ? glow('#F97316', 1.2) : iMat('#60A5FA', 0.3), [WH[0], WH[1] + 0.6, WH[2]]);
+for (const dy of [0.12, 1.58]) OUT(new THREE.CylinderGeometry(0.37, 0.37, 0.05, 28), MI.metal, [WH[0], WH[1] + dy, WH[2]]);
+const heatRing = OUT(new THREE.TorusGeometry(0.38, 0.03, 8, 32), ACT.heater ? glow('#F97316', 2.5) : iMat('#94A3B8'), [WH[0], WH[1] + 0.35, WH[2]], [Math.PI / 2, 0, 0]);
 if (ACT.heater) anim.push(t => {
   const k = 0.5 + 0.5 * Math.sin(t * 1.2);
   heatRing.material.emissiveIntensity = 1.5 + 1.2 * (0.5 + 0.5 * Math.sin(t * 2.5));
@@ -757,11 +768,12 @@ const greenShare = D.load > 0.02 ? Math.min(1, Math.max(0, 1 - Math.max(D.grid, 
 const G_COL = new THREE.Color('#FBBF24'), R_COL = new THREE.Color('#EF4444');
 const wireCol = R_COL.clone().lerp(G_COL, greenShare);
 const hub = P.panelIn || V(W / 2 - 0.25, F1 + 2.6, -3.7);
-const ceil1 = C1 - 0.12, ceil2 = C2 - 0.12;
-// 走地板：每條分路由配電盤垂直下到樓板，沿外牆走到電器所在列，再橫向到電器腳下，最後沿電器/牆面上到插座
+// 配電盤先往屋內走到中央分電點 (避開外牆上的逆變器與綠色太陽能管線)，再垂直下到各樓板，沿中央走道分流到各電器
 // to = 插座端點；base = 電器在地板上的接點 (x, z)
+const CX = 0.7;
+const junction = V(CX, hub.y, hub.z);
 const loads = [
-  { on: true, base: [3.55, -3.5], to: V(3.55, F1 + 0.35, -3.5) },                      // 冰箱 (常時)
+  { on: true, base: [-0.2, -4.55], to: V(-0.2, F1 + 0.35, -4.62) },                    // 冰箱 (常時)
   { on: true, base: [-1.2, -0.8], to: V(-1.2, F1 + 1.25, -0.8) },                      // 智慧能源面板、Wi-Fi 路由器 (常時)
   { on: ACT.kitchen && !SLEEP, base: [2.1, -4.8], to: V(2.1, F1 + 0.95, -4.8) },       // 廚房流理台 (排油煙機、電鍋、氣炸鍋)
   { on: ACT.laundry, base: [-1.75, -4.65], to: V(-1.75, F1 + 0.3, -4.65) },            // 洗衣機、烘衣機
@@ -769,7 +781,7 @@ const loads = [
   { on: ACT.lights, base: [-0.9, 5.0], to: V(-0.9, F1 + 1.45, 5.0) },                  // 客廳立燈
   { on: ACT.lights, base: [2.5, 3.3], to: V(2.5, F1 + 0.78, 3.3) },                    // 餐桌 (吊燈)
   { on: ACT.vacuum, base: [0.2, 5.3], to: V(0.2, F1 + 0.12, 5.3) },                    // 掃地機器人充電座
-  { on: ACT.heater, base: [3.55, -1.3], to: V(3.55, F2f + 0.15, -1.3), up: true },     // 2F 儲熱式熱水器
+  { on: ACT.heater, base: [WH[0], WH[2] + 0.4], to: V(WH[0], F2f + 0.15, WH[2] + 0.37), up: true },  // 2F 後陽台儲熱式熱水器
   { on: true, base: [3.7, 1.5], to: V(3.7, F2f + 0.3, 1.5), up: true },               // 2F 空氣清淨機 (常時)
   { on: ACT.dehumid, base: [-0.4, 5.0], to: V(-0.4, F2f + 0.3, 5.0), up: true },       // 2F 除濕機
   { on: ACT.study && !SLEEP, base: [-0.65, 1.35], to: V(-0.65, F2f + 0.78, 1.35), up: true },  // 兒童房書桌檯燈
@@ -781,11 +793,10 @@ const offMat = std('#CBD5E1', 0.6, 0, { transparent: true, opacity: 0.12, depthW
 const glowT = glowTex0();
 const dotMats = [G_COL, R_COL].map(c => new THREE.SpriteMaterial({ map: glowT, color: c, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
 const totalOn = loads.filter(l => l.on).length || 1;
-const WALL_X = W / 2 - 0.22;
 loads.forEach((L, k) => {
   const fy = (L.up ? F2f : F1) + 0.015 + k * 0.002;      // 貼地，每條略微錯開避免重疊閃爍
-  const wx = WALL_X - (k % 4) * 0.05;                      // 沿外牆的走線並排
-  const pts = [hub, V(hub.x, fy, hub.z), V(wx, fy, hub.z), V(wx, fy, L.base[1]), V(L.base[0], fy, L.base[1]), L.to];
+  const sx = CX - (k % 4) * 0.05;                          // 中央走道的走線並排
+  const pts = [hub, junction, V(sx, hub.y, hub.z), V(sx, fy, hub.z), V(sx, fy, L.base[1]), V(L.base[0], fy, L.base[1]), L.to];
   const curve = poly(pts.filter((p, i) => i === 0 || p.distanceTo(pts[i - 1]) > 0.01));
   IN(new THREE.TubeGeometry(curve, Math.ceil(curve.getLength() * 12), 0.011, 6), L.on ? wireMat : offMat);
   if (!L.on) return;
@@ -801,7 +812,8 @@ loads.forEach((L, k) => {
     });
   }
 });
-IN(new THREE.SphereGeometry(0.05, 16, 12), std(wireCol.getStyle(), 0.3, 0, { emissive: wireCol, emissiveIntensity: 2 }), hub.toArray());
+for (const [p, r] of [[hub, 0.05], [junction, 0.08]])   // 配電盤入口與中央分電點
+  IN(new THREE.SphereGeometry(r, 16, 12), std(wireCol.getStyle(), 0.3, 0, { emissive: wireCol, emissiveIntensity: 2 }), p.toArray());
 
 // 透視模式：房屋外殼半透明
 const SHELL = [M.wall, M.slat, M.roof, M.trim, M.frame, M.glass, M.panel, M.alu, M.wood];

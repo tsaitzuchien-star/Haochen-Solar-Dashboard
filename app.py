@@ -359,8 +359,20 @@ chart_layout = dict(
 # 7.5 發電預測 (Open-Meteo ECMWF 短波輻射)
 # ==========================================
 @st.cache_data(ttl=3600)
-def fetch_pv_forecast():
-    return pv_forecast.forecast()
+def fetch_pv_forecast(soc7):
+    return pv_forecast.forecast(soc7=soc7)
+
+
+def today_soc7():
+    """今天早上 7 點的電量：7 點後取 7:00~7:30 的第一筆實測，7 點前以目前電量扣掉到 7 點的預估用電。"""
+    seven = now_tw.replace(hour=7, minute=0, second=0, microsecond=0, tzinfo=None)
+    if now_tw.hour >= 7:
+        after = curve[curve["time"] >= seven] if not curve.empty else curve
+        if not after.empty and after["time"].iloc[0] <= seven + timedelta(minutes=30):
+            return float(after["soc"].iloc[0]), "actual"
+        return None, None
+    left = sum(pv_forecast.LOAD_PROFILE[h] for h in range(now_tw.hour, 7)) - pv_forecast.LOAD_PROFILE[now_tw.hour] * now_tw.minute / 60
+    return max(soc - left / pv_forecast.BATT_KWH_PER_PCT, pv_forecast.BATT_MIN_SOC), "estimate"
 
 
 st.markdown("<div class='section-title'>🌤️ 天氣與發電預測（ECMWF 短波輻射）</div>", unsafe_allow_html=True)
@@ -368,8 +380,10 @@ st.markdown("<div class='section-title'>🌤️ 天氣與發電預測（ECMWF �
 day_opts = {"今天": now_tw.date(), "明天": (now_tw + timedelta(days=1)).date()}
 pick = st.radio("預測日", list(day_opts), index=0 if now_tw.hour < 14 else 1, horizontal=True, label_visibility="collapsed")
 tomorrow = day_opts[pick]
+soc7_val, soc7_how = today_soc7()
 try:
-    fc_hourly, fc_days = with_fallback("pv_forecast", fetch_pv_forecast)
+    fc_hourly, fc_days = with_fallback("pv_forecast", fetch_pv_forecast,
+                                       {now_tw.date(): round(soc7_val)} if soc7_val is not None else {})
     fd = fc_days.get(tomorrow)
 except Exception as e:
     fd = None
@@ -379,6 +393,15 @@ if fd:
     sky = "☀️ 晴" if fd["cloud"] < 30 else ("⛅ 多雲" if fd["cloud"] < 70 else "☁️ 陰")
     rain = f"，預估降雨 {fd['rain']:.0f} mm" if fd["rain"] >= 1 else ""
     full_txt = f"約 <b>{fd['full_at']:%H:%M}</b> 充滿" if fd["full_at"] is not None else "<b>不會充滿</b>"
+    if tomorrow == now_tw.date() and ana and ana["full_time"] is not None and ana["full_time"].hour >= 8:
+        full_txt = f"已於 <b>{ana['full_time']:%H:%M}</b> 充滿"
+    soc7_txt = {
+        "actual": f"以今早 7:00 實測電量 {fd['soc7']:.0f}% 估算",
+        "carry": f"推估今晚用電後，7 點約剩 {fd['soc7']:.0f}%",
+        "default": f"以早上 7 點電量 {fd['soc7']:.0f}%（歷史中位數）估算",
+    }[fd["soc7_src"]]
+    if fd["soc7_src"] == "actual" and soc7_how == "estimate":
+        soc7_txt = f"以目前 {soc}% 扣掉清晨用電，推估 7 點約 {fd['soc7']:.0f}%"
     hrs = fd["best_hours"]
     best = (f"💡 {pick} <b>{hrs[0]}:00–{hrs[-1] + 1}:00</b> 太陽能用不完，適合安排洗衣、烘衣、熱水器、電動車充電"
             if hrs else f"{pick}預估太陽能大多會被家用與電池用完，沒有明顯浪費的時段")
@@ -388,7 +411,7 @@ if fd:
         <div><div class="kpi-label">預估可發電量</div><div class="kpi-value" style="color:{C_PV};">{fd['pv']:.0f}<span class="kpi-unit">kWh</span></div>
           <div class="kpi-sub">{sky}{rain} · 日照 {fd['ghi']:.1f} kWh/m²</div></div>
         <div><div class="kpi-label">電池</div><div style="color:#F1F5F9; font-size:20px; margin-top:4px;">{full_txt}</div>
-          <div class="kpi-sub">以早上 7 點電量 74% 估算</div></div>
+          <div class="kpi-sub">{soc7_txt}</div></div>
         <div><div class="kpi-label">預估浪費</div><div class="kpi-value" style="color:#F59E0B;">{fd['lost']:.0f}<span class="kpi-unit">kWh</span></div>
           <div class="kpi-sub">家用 {fd['home']:.0f} · 充電 {fd['charge']:.0f} kWh</div></div>
         <div><div class="kpi-label">三組預估（kWh）</div><div style="color:#CBD5E1; font-size:14px; margin-top:8px;">{strings_txt}</div></div>
