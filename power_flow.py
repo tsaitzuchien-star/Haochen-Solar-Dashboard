@@ -389,7 +389,9 @@ if (LAYOUT === 'front') {
   addInverter(S, IX, EQ_Y); addBattery(S, IX, Y0 + 0.525, 3);
   addPanel(S, PX, PY);
   const pole = [8.6, 0, -6.6]; addPole(pole);
-  const service = at(S, PX, EQ_Y + 1.4, 0.07);
+  // 配電盤上緣分兩邊：靠後 (近電線桿) 接台電進線，靠前接往屋內的主幹線，兩條線平行不重疊
+  const IN_X = PX + 0.22, OUT_X = PX - 0.22;
+  const service = at(S, IN_X, EQ_Y + 1.4, 0.07);
   if (NIGHT) {  // 設備區壁燈：照亮逆變器、電池與配電盤
     mesh(box(0.3, 0.08, 0.14), M.trim, at(S, LX, EQ_Y + 0.95, 0.07).toArray());
     mesh(box(0.26, 0.02, 0.1), glowMat('#FFE7B0', 3), at(S, LX, EQ_Y + 0.9, 0.08).toArray(), null, scene, false);
@@ -400,12 +402,12 @@ if (LAYOUT === 'front') {
     pv: poly([V(xs[ALONG - 1] + PW / 2, roofAt(-IX), -IX), V(XW, roofAt(-IX), -IX), at(S, IX, EQ_Y + INV_H / 2 + 0.05, 0.07)]),
     load: poly([at(S, IX + INV_W / 2, EQ_Y, 0.07), at(S, PX - 0.35, EQ_Y, 0.07)]),
     bat: poly([at(S, IX, EQ_Y - INV_H / 2 - 0.05, 0.14), at(S, IX, Y0 + 1.05, 0.14)]),
-    grid: chain(wire, poly([service, at(S, PX, PY + 0.48, 0.07)])),
+    grid: chain(wire, poly([service, at(S, IN_X, PY + 0.48, 0.07)])),
     batCard: [7.6, Y0 + 0.2, -0.6], gridCard: [pole[0], Y0 + 8.0, pole[2]],
     // 主幹線由配電盤上緣往上穿過樓板，在二樓地板面的高度穿牆進屋，貼著二樓地板走到中央分電點 (家中微電網起點)；
     // 放在樓板上面而不是下面，從上方的視角才不會被樓板擋住
-    panelOut: [at(S, PX, EQ_TOP - 0.05, 0.07), at(S, PX, F2 + 0.13, 0.07)],
-    panelIn: at(S, PX, F2 + 0.13, -0.25),
+    panelOut: [at(S, OUT_X, EQ_TOP - 0.05, 0.07), at(S, OUT_X, F2 + 0.13, 0.07)],
+    panelIn: at(S, OUT_X, F2 + 0.13, -0.25),
   };
 } else if (LAYOUT === 'door') {
   // 與 front 相同，但配電盤在正面大門右手邊；家用電從逆變器沿落地窗上緣繞到正面，台電走地下管線進配電盤底部
