@@ -400,7 +400,9 @@ if (LAYOUT === 'front') {
     bat: poly([at(S, IX, EQ_Y - INV_H / 2 - 0.05, 0.14), at(S, IX, Y0 + 1.4, 0.14)]),
     grid: chain(wire, poly([service, at(S, PX, EQ_Y + 0.48, 0.07)])),
     batCard: [7.6, Y0 + 0.2, -0.6], gridCard: [pole[0], Y0 + 8.0, pole[2]],
-    panelIn: at(S, PX, EQ_Y, -0.25),  // 配電盤對應的室內位置 (家中微電網起點)
+    // 主幹線由配電盤底部往下，比逆變器 → 配電盤那條線低，再穿牆進屋 (家中微電網起點)
+    panelOut: [at(S, PX, EQ_Y - 0.47, 0.07), at(S, PX, EQ_Y - 0.9, 0.07)],
+    panelIn: at(S, PX, EQ_Y - 0.9, -0.25),
   };
 } else if (LAYOUT === 'door') {
   // 與 front 相同，但配電盤在正面大門右手邊；家用電從逆變器沿落地窗上緣繞到正面，台電走地下管線進配電盤底部
@@ -812,6 +814,19 @@ loads.forEach((L, k) => {
     });
   }
 });
+// 主幹線：配電盤穿牆進屋到中央分電點，比分路粗，接上屋外逆變器 → 配電盤那條線
+if (P.panelOut) {
+  const trunk = poly([...P.panelOut, hub, junction]);
+  const len = trunk.getLength(), n = Math.round(len / 0.18);
+  IN(new THREE.TubeGeometry(trunk, 40, 0.024, 8), wireMat);
+  for (let i = 0; i < n; i++) {
+    const sp = new THREE.Sprite(dotMats[((i * 0.618) % 1) < greenShare ? 0 : 1]); interior.add(sp);
+    anim.push(t => {
+      const u = (i / n + t * (0.6 + Math.min(D.load, 6) * 0.15) / len) % 1;
+      trunk.getPointAt(u, sp.position); sp.scale.setScalar(0.17);
+    });
+  }
+}
 for (const [p, r] of [[hub, 0.05], [junction, 0.08]])   // 配電盤入口與中央分電點
   IN(new THREE.SphereGeometry(r, 16, 12), std(wireCol.getStyle(), 0.3, 0, { emissive: wireCol, emissiveIntensity: 2 }), p.toArray());
 
