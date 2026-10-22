@@ -392,7 +392,9 @@ except Exception as e:
 if fd:
     sky = "☀️ 晴" if fd["cloud"] < 30 else ("⛅ 多雲" if fd["cloud"] < 70 else "☁️ 陰")
     rain = f"，預估降雨 {fd['rain']:.0f} mm" if fd["rain"] >= 1 else ""
-    full_txt = f"約 <b>{fd['full_at']:%H:%M}</b> 充滿" if fd["full_at"] is not None else "<b>不會充滿</b>"
+    full_txt = (f"約 <b>{fd['full_at']:%H:%M}</b> 充滿" if fd["full_at"] is not None
+                else f"最高約 <b>{fd['peak_soc']:.0f}%</b><span style='font-size:14px; color:#94A3B8;'>（{fd['peak_at']:%H:%M} 左右）</span>"
+                if fd["peak_at"] is not None else f"<b>約 {fd['soc7']:.0f}%</b><span style='font-size:14px; color:#94A3B8;'>（太陽能只夠家用，充不太進去）</span>")
     if tomorrow == now_tw.date() and ana and ana["full_time"] is not None and ana["full_time"].hour >= 8:
         full_txt = f"已於 <b>{ana['full_time']:%H:%M}</b> 充滿"
     soc7_txt = {
