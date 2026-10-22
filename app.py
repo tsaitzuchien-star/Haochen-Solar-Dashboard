@@ -392,7 +392,11 @@ except Exception as e:
     st.markdown(f'<div class="card" style="color:#94A3B8;">⏳ 天氣預報暫時讀不到（{e}），稍後會自動重試。</div>', unsafe_allow_html=True)
 
 if fd:
-    sky = "☀️ 晴" if fd["cloud"] < 30 else ("⛅ 多雲" if fd["cloud"] < 70 else "☁️ 陰")
+    # 天空狀態看會擋光的雲：低雲、中雲照算，高空卷雲很薄只算三成 (總雲量 90% 但全是高雲時，實際仍接近晴天)
+    eff = max(fd["cloud_low"], fd["cloud_mid"], fd["cloud_high"] * 0.35)
+    thin = "（高空薄雲）" if fd["cloud_high"] >= 50 and eff < 65 else ""
+    sky = ("☀️ 晴" if eff < 35 else "⛅ 多雲" if eff < 65 else "☁️ 陰") + thin
+    sky += f"<span style='color:#64748B'> · 低/中/高雲 {fd['cloud_low']:.0f}/{fd['cloud_mid']:.0f}/{fd['cloud_high']:.0f}%</span>"
     rain = f"，預估降雨 {fd['rain']:.0f} mm" if fd["rain"] >= 1 else ""
     full_txt = (f"約 <b>{fd['full_at']:%H:%M}</b> 充滿" if fd["full_at"] is not None
                 else f"最高約 <b>{fd['peak_soc']:.0f}%</b><span style='font-size:14px; color:#94A3B8;'>（{fd['peak_at']:%H:%M} 左右）</span>"

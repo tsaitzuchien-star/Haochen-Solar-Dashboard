@@ -8,7 +8,7 @@ import pandas as pd
 import requests
 
 # 改動預測結果的欄位或算法時加 1，讓網站的快取失效 (st.cache_data 不會偵測這個模組的變更)
-MODEL_VERSION = 4
+MODEL_VERSION = 5
 
 LAT, LON = 23.927693, 120.694682
 TILT = 15.0                 # 屋頂坡度 (度)
@@ -35,7 +35,7 @@ def fetch_weather(days=2):
     """今天與明天的逐時預報 (ECMWF)。輻射為「前一小時平均」，時間標記在該小時結束時。"""
     r = requests.get(API, timeout=20, params={
         "latitude": LAT, "longitude": LON, "timezone": "Asia/Taipei", "forecast_days": days, "models": "ecmwf_ifs",
-        "hourly": "shortwave_radiation,direct_radiation,diffuse_radiation,temperature_2m,cloud_cover,precipitation",
+        "hourly": "shortwave_radiation,direct_radiation,diffuse_radiation,temperature_2m,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,precipitation",
     })
     r.raise_for_status()
     h = r.json()["hourly"]
@@ -125,6 +125,8 @@ def forecast(df=None, soc7=None):
             "peak_soc": float(day_soc.max()),
             "peak_at": day_soc.idxmax() - pd.Timedelta(minutes=30) if day_soc.max() > start + 1 else None,
             "ghi": float(g["ghi"].sum() / 1000), "cloud": float(g.loc[g["ghi"] > 50, "cloud_cover"].mean() or 0),
+            # 白天的低 / 中 / 高雲量：高雲 (卷雲) 薄、擋光少，低雲厚、擋光多
+            **{f"cloud_{k}": float(g.loc[g["ghi"] > 50, f"cloud_cover_{k}"].mean() or 0) for k in ("low", "mid", "high")},
             "rain": float(g["precipitation"].sum()),
             "best_hours": [t.hour - 1 for t in sim.loc[sim["lost"] > 0.5, "time"]],
         }
