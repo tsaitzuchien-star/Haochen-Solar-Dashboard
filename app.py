@@ -1,3 +1,4 @@
+import importlib
 import math
 import os
 from datetime import datetime, timedelta, timezone
@@ -10,8 +11,14 @@ import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_autorefresh import st_autorefresh
 
-from power_flow import power_flow_html
+import power_flow
 import pv_forecast
+
+# Streamlit Cloud 更新程式後只會重跑 app.py，已載入的模組可能還是舊版 (曾因此讀不到新欄位而 KeyError)；
+# 每次重跑都重新載入這兩個小模組，確保 app.py 與它們同版
+importlib.reload(power_flow)
+importlib.reload(pv_forecast)
+power_flow_html = power_flow.power_flow_html
 
 # ==========================================
 # 1. 頁面設定與樣式
@@ -393,10 +400,11 @@ except Exception as e:
 
 if fd:
     # 天空狀態看會擋光的雲：低雲、中雲照算，高空卷雲很薄只算三成 (總雲量 90% 但全是高雲時，實際仍接近晴天)
-    eff = max(fd["cloud_low"], fd["cloud_mid"], fd["cloud_high"] * 0.35)
-    thin = "（高空薄雲）" if fd["cloud_high"] >= 50 and eff < 65 else ""
+    lo, mi, hi = (fd.get(f"cloud_{k}", fd["cloud"]) for k in ("low", "mid", "high"))
+    eff = max(lo, mi, hi * 0.35)
+    thin = "（高空薄雲）" if hi >= 50 and eff < 65 else ""
     sky = ("☀️ 晴" if eff < 35 else "⛅ 多雲" if eff < 65 else "☁️ 陰") + thin
-    sky += f"<span style='color:#64748B'> · 低/中/高雲 {fd['cloud_low']:.0f}/{fd['cloud_mid']:.0f}/{fd['cloud_high']:.0f}%</span>"
+    sky += f"<span style='color:#64748B'> · 低/中/高雲 {lo:.0f}/{mi:.0f}/{hi:.0f}%</span>"
     rain = f"，預估降雨 {fd['rain']:.0f} mm" if fd["rain"] >= 1 else ""
     full_txt = (f"約 <b>{fd['full_at']:%H:%M}</b> 充滿" if fd["full_at"] is not None
                 else f"最高約 <b>{fd['peak_soc']:.0f}%</b><span style='font-size:14px; color:#94A3B8;'>（{fd['peak_at']:%H:%M} 左右）</span>"
