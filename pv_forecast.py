@@ -111,12 +111,17 @@ def forecast(df=None, soc7=None):
             rows.append({"time": r.time, "pv_home": home, "pv_charge": charge, "lost": surplus - charge, "soc": soc})
         sim = pd.DataFrame(rows)
         out.append(sim)
+        day_soc = sim.set_index("time")["soc"].between_time("07:00", "19:00")
         carry = min(max(soc - night_pct, BATT_MIN_SOC), BATT_FULL_SOC)
         summary[day] = {
             "soc7": start, "soc7_src": src,
             "pv": float(g["pv"].sum()), **{n: float(g[n].sum()) for n in STRING_PANELS},
             "home": float(sim["pv_home"].sum()), "charge": float(sim["pv_charge"].sum()), "lost": float(sim["lost"].sum()),
-            "full_at": full_at, "ghi": float(g["ghi"].sum() / 1000), "cloud": float(g.loc[g["ghi"] > 50, "cloud_cover"].mean() or 0),
+            "full_at": full_at,
+            # 充不滿時，白天電量最高點與時間 (每小時中點)；沒有比 7 點高就不給時間
+            "peak_soc": float(day_soc.max()),
+            "peak_at": day_soc.idxmax() - pd.Timedelta(minutes=30) if day_soc.max() > start + 1 else None,
+            "ghi": float(g["ghi"].sum() / 1000), "cloud": float(g.loc[g["ghi"] > 50, "cloud_cover"].mean() or 0),
             "rain": float(g["precipitation"].sum()),
             "best_hours": [t.hour - 1 for t in sim.loc[sim["lost"] > 0.5, "time"]],
         }
