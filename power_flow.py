@@ -209,9 +209,9 @@ for (const s of [1, -1]) {
 mesh(box(W + 0.95, 0.14, 0.32), M.trim, [0, TOP + RISE + 0.22, 0]);
 
 // 太陽能板：人字屋頂兩坡各 12 片 (沿屋脊 4 片 [2+2，中間走道] x 往屋簷 3 片)。正面 (+z) 朝東。
-// 由西到東共 6 列，每 2 列一組：PV1 = 西坡下方 2 列；PV2 = 緊鄰屋脊的兩列 (東、西坡各一)；PV3 = 東坡下方 2 列
+// 每坡 12 片串成一組：PV1 = 西坡、PV3 = 東坡 (PV2 已停用)
 const PW = 1.12, PL = 1.9, GAP = 0.05, ALONG = 4, AISLE = 0.45;  // 直式長板，長邊順坡
-const STRING_COLORS = ['#3B82F6', '#14B8A6', '#F59E0B'];  // PV1 藍、PV2 青綠、PV3 金黃
+const WEST_COLOR = '#3B82F6', EAST_COLOR = '#F59E0B';  // PV1 西坡藍、PV3 東坡金黃
 // 沿屋脊 4 排分成 2 + 2，中間留支架走道
 const xs = [-1.5, -0.5, 0.5, 1.5].map(i => i * (PW + GAP) + Math.sign(i) * AISLE / 2);
 const ridgeZ = -L / 2 + 0.2;  // 屋面局部座標：靠屋脊端
@@ -235,10 +235,8 @@ function outline(roof, k0, k1, color) {
   mesh(box(t, 0.02, Math.abs(zb - za)), m, [xa, 0.165, (za + zb) / 2], null, roof, false);
   mesh(box(t, 0.02, Math.abs(zb - za)), m, [xb, 0.165, (za + zb) / 2], null, roof, false);
 }
-outline(roofs[1], 1, 2, STRING_COLORS[2]);   // PV3 東坡
-outline(roofs[-1], 1, 2, STRING_COLORS[0]);  // PV1 西坡
-outline(roofs[1], 0, 0, STRING_COLORS[1]);   // PV2 東半
-outline(roofs[-1], 0, 0, STRING_COLORS[1]);  // PV2 西半
+outline(roofs[1], 0, 2, EAST_COLOR);   // PV3 東坡 12 片
+outline(roofs[-1], 0, 2, WEST_COLOR);  // PV1 西坡 12 片
 
 // 地面方位指標 (正面 +z 朝東 → 北為 +x)
 const compassTex = canvasTex(256, 256, (g, w, h) => {
@@ -1093,8 +1091,8 @@ function card(label, kw, color, extra, anchor, foot = '') {
   return { el, anchor: V(...anchor) };
 }
 // 光伏卡片下方列出三組功率，顏色對應屋頂外框
-const stringRows = (D.strings || []).length ? '<div class="strings">' + D.strings.map((kw, i) =>
-  `<span><i style="background:${STRING_COLORS[i]}"></i>PV${i + 1}${['西', '中', '東'][i]} <b>${kw.toFixed(2)}</b></span>`).join('') + '</div>' : '';
+const stringRows = (D.strings || []).length ? '<div class="strings">' + D.strings.map(([name, color, kw]) =>
+  `<span><i style="background:${color}"></i>${name} <b>${kw.toFixed(2)}</b></span>`).join('') + '</div>' : '';
 const battLabel = D.batt > 0.02 ? '電池充電' : (D.batt < -0.02 ? '電池放電' : '電池待機');
 const gridLabel = D.grid > 0.02 ? '電網購電' : (D.grid < -0.02 ? '賣電至電網' : '電網');
 const cards = [
@@ -1166,10 +1164,10 @@ setTimeout(() => { if (!document.querySelector('#wrap canvas')) {
 
 
 def power_flow_html(pv, load, batt, soc, grid, night=False, layout="front", strings=None, grid_today=None, hour=12.0, weekend=False):
-    """pv/load: kW；batt: kW (+充電/−放電)；grid: kW (+買電/−賣電)；strings: [PV1, PV2, PV3] kW；grid_today: {"buy","sell"} 今日買賣電 kWh。"""
+    """pv/load: kW；batt: kW (+充電/−放電)；grid: kW (+買電/−賣電)；strings: [(名稱, 顏色, kW), ...]；grid_today: {"buy","sell"} 今日買賣電 kWh。"""
     data = {"pv": round(pv, 3), "load": round(load, 3), "batt": round(batt, 3),
             "soc": int(soc), "grid": round(grid, 3), "night": bool(night), "layout": layout,
-            "strings": [round(x, 3) for x in strings] if strings else [],
+            "strings": [[name, color, round(kw, 3)] for name, color, kw in strings] if strings else [],
             "grid_today": grid_today, "hour": round(hour, 2), "weekend": bool(weekend)}
     sky = ("linear-gradient(180deg,#070B18 0%,#111a33 55%,#1E293B 100%)" if night
            else "linear-gradient(180deg,#5D8FC4 0%,#A9C7E3 55%,#D7E3EE 100%)")
