@@ -1,6 +1,6 @@
 """明日發電預測：Open-Meteo ECMWF 短波輻射 → 東西坡板面日照 → 三組 PV 可發功率 → 電池充滿時間與限發估計。
 
-參數由本站 2026/7~10 的實測資料推得 (電池每 1% 約 0.7 kWh、充電上限約 5 kW、早上 7 點電量中位數約 74%)，
+參數由本站 2026/7~10 的實測資料推得 (電池每 1% 約 0.7 kWh、充電上限約 5 kW)，今天以早上 7 點實測電量起算，之後各天接續推估；
 系統效率 PR 以 430 個未限發小時的實測與 ECMWF 輻射比對校正為 0.70。
 """
 import numpy as np
@@ -18,6 +18,8 @@ INVERTER_KW = 10.0
 BATT_KWH_PER_PCT = 0.70
 BATT_MAX_CHARGE_KW = 5.0
 BATT_FULL_SOC = 99
+BATT_MIN_SOC = 10
+DEFAULT_SOC7 = 74           # 沒有實測時，早上 7 點電量用歷史中位數
 # 實測各小時平均家中用電 (kW)
 LOAD_PROFILE = {0: 0.91, 1: 0.80, 2: 0.74, 3: 0.68, 4: 0.66, 5: 0.65, 6: 0.65, 7: 0.75, 8: 0.74, 9: 0.89, 10: 1.30,
                 11: 1.45, 12: 1.74, 13: 1.33, 14: 1.29, 15: 1.22, 16: 1.44, 17: 1.37, 18: 1.31, 19: 1.33, 20: 1.46,
@@ -65,8 +67,14 @@ def plane_irradiance(df, azimuth):
     return beam + df["dhi"] * (1 + np.cos(b)) / 2 + df["ghi"] * 0.2 * (1 - np.cos(b)) / 2
 
 
-def forecast(df=None, start_soc=74):
-    """回傳 (逐時預測表, 每日摘要)。逐時表含三組 PV、總功率、家用、充電、限發 (kW = 該小時 kWh)。"""
+def forecast(df=None, soc7=None):
+    """回傳 (逐時預測表, 每日摘要)。逐時表含三組 PV、總功率、家用、充電、限發 (kW = 該小時 kWh)。
+
+    soc7: {日期: 早上 7 點實際電量}。沒有實測的日子，以前一天模擬到午夜的電量扣掉凌晨用電推估，
+    第一天也沒有實測時才用歷史中位數 74%。摘要的 soc7_src 記錄來源 (actual / carry / default)。
+    """
+    soc7 = soc7 or {}
+    night_pct = sum(LOAD_PROFILE[(h - 1) % 24] for h in range(7)) / BATT_KWH_PER_PCT  # 午夜到 7 點的放電
     df = (fetch_weather() if df is None else df).copy()
     poa = {"E": plane_irradiance(df, 90), "W": plane_irradiance(df, 270)}
     for side in ("E", "W"):
@@ -79,8 +87,15 @@ def forecast(df=None, start_soc=74):
 
     summary = {}
     out = []
+    carry = None
     for day, g in df.groupby(df["time"].dt.date):
-        soc, full_at = float(start_soc), None
+        if day in soc7:
+            start, src = float(soc7[day]), "actual"
+        elif carry is not None:
+            start, src = carry, "carry"
+        else:
+            start, src = float(DEFAULT_SOC7), "default"
+        soc, full_at = start, None
         rows = []
         for r in g.itertuples():
             home = min(r.pv, r.load)
@@ -90,12 +105,15 @@ def forecast(df=None, start_soc=74):
             soc += charge / BATT_KWH_PER_PCT
             # 夜間電池供電 (太陽能不足的部分)
             soc -= max(r.load - r.pv, 0) / BATT_KWH_PER_PCT if r.time.hour >= 7 else 0
+            soc = max(soc, BATT_MIN_SOC)
             if full_at is None and soc >= BATT_FULL_SOC - 0.5:
                 full_at = r.time - pd.Timedelta(minutes=30)
             rows.append({"time": r.time, "pv_home": home, "pv_charge": charge, "lost": surplus - charge, "soc": soc})
         sim = pd.DataFrame(rows)
         out.append(sim)
+        carry = min(max(soc - night_pct, BATT_MIN_SOC), BATT_FULL_SOC)
         summary[day] = {
+            "soc7": start, "soc7_src": src,
             "pv": float(g["pv"].sum()), **{n: float(g[n].sum()) for n in STRING_PANELS},
             "home": float(sim["pv_home"].sum()), "charge": float(sim["pv_charge"].sum()), "lost": float(sim["lost"].sum()),
             "full_at": full_at, "ghi": float(g["ghi"].sum() / 1000), "cloud": float(g.loc[g["ghi"] > 50, "cloud_cover"].mean() or 0),
