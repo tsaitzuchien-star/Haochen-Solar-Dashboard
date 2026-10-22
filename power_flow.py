@@ -714,9 +714,13 @@ OUT(box(1.0, 2.1, 0.04), M.glass, [1.8, F2f + 1.05, -DP / 2 - 0.02]);           
 const WH = [3.2, F2f, BZ - 0.15];
 const HEATING = ACT.heater, HOT = !HEATING && inRange(15, 22);
 OUT(new THREE.CylinderGeometry(0.36, 0.36, 1.5, 28), std('#F1F5F9', 0.35, 0, { transparent: true, opacity: 0.45, depthWrite: false }), [WH[0], WH[1] + 0.85, WH[2]]);
-const waterMat = HEATING ? glow('#F97316', 1.9) : HOT ? glow('#FB923C', 0.45) : iMat('#60A5FA', 0.3);
-const water = OUT(new THREE.CylinderGeometry(0.31, 0.31, 1.0, 24), waterMat, [WH[0], WH[1] + 0.6, WH[2]]);
-const coldTop = HEATING ? OUT(new THREE.CylinderGeometry(0.305, 0.305, 1.0, 24), iMat('#60A5FA', 0.3), [WH[0], WH[1] + 0.85, WH[2]]) : null;
+// 水體：透明淺藍；加熱與否用氣泡、水面翻滾、加熱管與溫度表表現
+const SURF = WH[1] + 1.45;
+const water = OUT(new THREE.CylinderGeometry(0.31, 0.31, 1.3, 28),
+  std('#93D5F5', 0.05, 0, { transparent: true, opacity: 0.55, depthWrite: false, emissive: new THREE.Color('#38BDF8'), emissiveIntensity: 0.25 }),
+  [WH[0], WH[1] + 0.8, WH[2]]);
+const surface = OUT(new THREE.CircleGeometry(0.305, 28), std('#E0F2FE', 0.05, 0, { transparent: true, opacity: 0.7, depthWrite: false }),
+  [WH[0], SURF + 0.002, WH[2]], [-Math.PI / 2, 0, 0]);
 for (const dy of [0.12, 1.58]) OUT(new THREE.CylinderGeometry(0.37, 0.37, 0.05, 28), MI.metal, [WH[0], WH[1] + dy, WH[2]]);
 const heatRing = OUT(new THREE.TorusGeometry(0.38, 0.03, 8, 32), HEATING ? glow('#F97316', 2.5) : iMat('#94A3B8'), [WH[0], WH[1] + 0.35, WH[2]], [Math.PI / 2, 0, 0]);
 // 桶底 U 型加熱管
@@ -732,26 +736,37 @@ function drawTemp(v) {
   g.fillText(`${Math.round(v)}°C`, 64, 34); tempTex.needsUpdate = true;
 }
 drawTemp(HEATING ? 45 : HOT ? 65 : 38);
-if (HEATING) {
-  // 熱水區由下往上漲，上方冷水區跟著縮
-  anim.push(t => {
-    const k = 0.5 + 0.5 * Math.sin(t * 0.6);
-    heatRing.material.emissiveIntensity = 1.5 + 1.2 * (0.5 + 0.5 * Math.sin(t * 2.5));
-    coil.material.emissiveIntensity = 2.2 + 1.2 * Math.sin(t * 6);
-    water.scale.y = 0.5 + 0.5 * k; water.position.y = WH[1] + 0.1 + 0.5 * water.scale.y;
-    coldTop.scale.y = Math.max(1 - water.scale.y, 0.001); coldTop.position.y = WH[1] + 1.1 - 0.5 * coldTop.scale.y;
-    if (Math.floor(t * 4) !== drawTemp.last) { drawTemp.last = Math.floor(t * 4); drawTemp(45 + 20 * k); }
-  });
-  // 氣泡：從加熱管冒出、翻滾上升
-  const bubbleMat = std('#FFFFFF', 0.1, 0, { emissive: new THREE.Color('#FFF7ED'), emissiveIntensity: 1.2 });
-  for (let i = 0; i < 26; i++) {
-    const b = OUT(new THREE.SphereGeometry(0.024 + (i % 3) * 0.01, 8, 6), bubbleMat, [WH[0], WH[1], WH[2]]);
-    const a = i * 2.4, r = 0.315 + (i * 0.37 % 1) * 0.03, sp = 0.35 + (i * 0.61 % 1) * 0.35;   // 貼著水面外緣，透過外殼看得到
+if (HEATING) anim.push(t => {
+  heatRing.material.emissiveIntensity = 1.5 + 1.2 * (0.5 + 0.5 * Math.sin(t * 2.5));
+  coil.material.emissiveIntensity = 2.2 + 1.2 * Math.sin(t * 6);
+  surface.position.y = SURF + 0.002 + 0.008 * Math.sin(t * 11);   // 水面輕微翻騰
+  const k = 0.5 + 0.5 * Math.sin(t * 0.4);
+  if (Math.floor(t * 4) !== drawTemp.last) { drawTemp.last = Math.floor(t * 4); drawTemp(45 + 20 * k); }
+});
+if (HEATING || HOT) {
+  // 氣泡：從桶底加熱管冒出、邊晃邊往上，愈上面愈大；加熱中又多又快，保溫時零星幾顆
+  const bubbleMat = std('#FFFFFF', 0.05, 0, { transparent: true, opacity: 0.85, emissive: new THREE.Color('#F0F9FF'), emissiveIntensity: 0.5 });
+  const NB = HEATING ? 34 : 6;
+  for (let i = 0; i < NB; i++) {
+    const b = OUT(new THREE.SphereGeometry(0.016 + (i % 3) * 0.007, 10, 8), bubbleMat, [WH[0], WH[1], WH[2]]);
+    const a = i * 2.4, r = 0.04 + (i * 0.37 % 1) * 0.24, sp = (HEATING ? 0.45 : 0.15) + (i * 0.61 % 1) * 0.3;
     anim.push(t => {
-      const u = (t * sp + i / 26) % 1;
-      b.position.set(WH[0] + r * Math.cos(a + t * 1.5) + 0.02 * Math.sin(t * 9 + i),
-                     WH[1] + 0.3 + u * 0.95 * water.scale.y, WH[2] + r * Math.sin(a + t * 1.5));
-      b.scale.setScalar(0.6 + u * 0.8);
+      const u = (t * sp + i / NB) % 1;
+      b.position.set(WH[0] + r * Math.cos(a) + 0.025 * Math.sin(t * 8 + i), WH[1] + 0.3 + u * (SURF - WH[1] - 0.3), WH[2] + r * Math.sin(a) + 0.025 * Math.cos(t * 7 + i));
+      b.scale.setScalar(0.6 + u * 1.0);
+    });
+  }
+}
+if (HEATING) {
+  // 水面滾泡：小水泡在水面鼓起後破掉
+  const domeMat = std('#F0F9FF', 0.05, 0, { transparent: true, opacity: 0.8, depthWrite: false });
+  for (let i = 0; i < 16; i++) {
+    const d = OUT(new THREE.SphereGeometry(0.045, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), domeMat, [WH[0], SURF, WH[2]]);
+    const a = i * 2.39, r = 0.05 + (i * 0.53 % 1) * 0.22, sp = 1.2 + (i * 0.71 % 1) * 1.3;
+    d.position.set(WH[0] + r * Math.cos(a), SURF, WH[2] + r * Math.sin(a));
+    anim.push(t => {
+      const u = (t * sp + i / 16) % 1;
+      d.scale.setScalar(u < 0.85 ? 0.3 + u * 0.9 : 0.001);   // 慢慢鼓起，最後瞬間破掉
     });
   }
 }
