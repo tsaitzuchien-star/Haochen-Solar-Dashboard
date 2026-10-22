@@ -340,12 +340,13 @@ function addInverter(g, x, y) {
   for (const dx of [-0.22, -0.11, -0.02, 0.07, 0.16, 0.23])
     mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.05, 10), M.dark, [x + dx, y - INV_H / 2 - 0.02, 0.14], null, g);
 }
-function addBattery(g, x, y) {  // y 為電池中心高度
-  mesh(new RoundedBoxGeometry(0.8, 1.4, 0.38, 4, 0.05), M.white, [x, y, 0.22], null, g);
-  for (let i = 1; i < 4; i++) mesh(box(0.78, 0.012, 0.01), std('#CBD5E1', 0.6), [x, y - 0.7 + i * 0.35, 0.41], null, g, false);
-  const h = 1.1 * Math.max(D.soc, 3) / 100;
-  mesh(box(0.06, 1.1, 0.01), std('#CBD5E1', 0.6), [x - 0.28, y, 0.415], null, g, false);
-  mesh(box(0.06, h, 0.012), glowMat('#8B5CF6', 1.6), [x - 0.28, y - 0.55 + h / 2, 0.42], null, g, false);
+function addBattery(g, x, y, cells = 4) {  // y 為電池中心高度；每格模組高 0.35 m
+  const BH = cells * 0.35, bar = BH - 0.3;
+  mesh(new RoundedBoxGeometry(0.8, BH, 0.38, 4, 0.05), M.white, [x, y, 0.22], null, g);
+  for (let i = 1; i < cells; i++) mesh(box(0.78, 0.012, 0.01), std('#CBD5E1', 0.6), [x, y - BH / 2 + i * 0.35, 0.41], null, g, false);
+  const h = bar * Math.max(D.soc, 3) / 100;
+  mesh(box(0.06, bar, 0.01), std('#CBD5E1', 0.6), [x - 0.28, y, 0.415], null, g, false);
+  mesh(box(0.06, h, 0.012), glowMat('#8B5CF6', 1.6), [x - 0.28, y - bar / 2 + h / 2, 0.42], null, g, false);
 }
 function addPole(pos) {
   mesh(new THREE.CylinderGeometry(0.11, 0.15, 7.4, 12), M.pole, [pos[0], Y0 + 3.7, pos[2]]);
@@ -382,10 +383,11 @@ if (LAYOUT === 'front') {
   const S = frame([W / 2, 0, 0], Math.PI / 2);
   // 設備組置中於木紋牆：IX = 逆變器/電池、PX = 配電盤 (牆面局部座標，往後為正)
   const WOOD_C = DP / 4 - 0.3, IX = WOOD_C - 1.1, PX = WOOD_C + 1.1, LX = WOOD_C;
-  // 逆變器與配電盤同高 (EQ_Y)，抬高後與下方電池間距約 0.9 m
-  const EQ_Y = Y0 + 2.9;
-  addInverter(S, IX, EQ_Y); addBattery(S, IX, Y0 + 0.7);
-  addPanel(S, PX, EQ_Y);
+  // 逆變器與配電盤上緣都貼齊二樓樓板底 (EQ_TOP)；EQ_Y = 逆變器中心，PY = 配電盤中心
+  const EQ_TOP = F2 - 0.05, EQ_Y = EQ_TOP - INV_H / 2, PY = EQ_TOP - 0.475;
+  // 電池 3 格 (1.05 m) 貼地，與逆變器底部相距約 1.2 m
+  addInverter(S, IX, EQ_Y); addBattery(S, IX, Y0 + 0.525, 3);
+  addPanel(S, PX, PY);
   const pole = [8.6, 0, -6.6]; addPole(pole);
   const service = at(S, PX, EQ_Y + 1.4, 0.07);
   if (NIGHT) {  // 設備區壁燈：照亮逆變器、電池與配電盤
@@ -397,12 +399,12 @@ if (LAYOUT === 'front') {
   P = {
     pv: poly([V(xs[ALONG - 1] + PW / 2, roofAt(-IX), -IX), V(XW, roofAt(-IX), -IX), at(S, IX, EQ_Y + INV_H / 2 + 0.05, 0.07)]),
     load: poly([at(S, IX + INV_W / 2, EQ_Y, 0.07), at(S, PX - 0.35, EQ_Y, 0.07)]),
-    bat: poly([at(S, IX, EQ_Y - INV_H / 2 - 0.05, 0.14), at(S, IX, Y0 + 1.4, 0.14)]),
-    grid: chain(wire, poly([service, at(S, PX, EQ_Y + 0.48, 0.07)])),
+    bat: poly([at(S, IX, EQ_Y - INV_H / 2 - 0.05, 0.14), at(S, IX, Y0 + 1.05, 0.14)]),
+    grid: chain(wire, poly([service, at(S, PX, PY + 0.48, 0.07)])),
     batCard: [7.6, Y0 + 0.2, -0.6], gridCard: [pole[0], Y0 + 8.0, pole[2]],
-    // 主幹線由配電盤在二樓地板面的高度穿牆進屋，貼著二樓地板走到中央分電點 (家中微電網起點)；
+    // 主幹線由配電盤上緣往上穿過樓板，在二樓地板面的高度穿牆進屋，貼著二樓地板走到中央分電點 (家中微電網起點)；
     // 放在樓板上面而不是下面，從上方的視角才不會被樓板擋住
-    panelOut: [at(S, PX, F2 + 0.13, 0.07)],
+    panelOut: [at(S, PX, EQ_TOP - 0.05, 0.07), at(S, PX, F2 + 0.13, 0.07)],
     panelIn: at(S, PX, F2 + 0.13, -0.25),
   };
 } else if (LAYOUT === 'door') {
