@@ -21,9 +21,9 @@ st.set_page_config(page_title="澔宸小窩 - 智慧能源", layout="wide", init
 st_autorefresh(interval=300000, key="datarefresh")  # 5 分鐘刷新 (官方資料約每 5 分鐘更新一次)
 
 C_PV, C_LOAD, C_BAT, C_GRID = "#10B981", "#F97316", "#A78BFA", "#38BDF8"
-# 人字屋頂、正面朝東：東西兩坡各 12 片，由西到東每 2 列 8 片為一組 (顏色與 3D 屋頂外框一致)
-STRINGS = [("PV1", "西坡 8 片 · 下午較強", "#3B82F6"), ("PV2", "東西坡各 4 片 · 全天平均", "#14B8A6"),
-           ("PV3", "東坡 8 片 · 上午較強", "#F59E0B")]
+# 人字屋頂、正面朝東：2026/10 起改為東西兩坡各 12 片一串 (PV1 = 西坡、PV3 = 東坡，PV2 停用)
+# (逆變器輸入編號, 名稱, 說明, 顏色)；顏色與 3D 屋頂外框一致
+STRINGS = [(1, "PV1", "西坡 12 片 · 下午較強", "#3B82F6"), (3, "PV3", "東坡 12 片 · 上午較強", "#F59E0B")]
 
 st.markdown("""
 <style>
@@ -239,8 +239,8 @@ p_buy, p_sell = f("pacToUserTotal") / 1000, f("pacToGridTotal") / 1000
 soc = int(f("soc"))
 inv_temp = f("temp1") or f("invTemp")
 bat_temp = f("bmsBatteryTemp")
-str_kw = [(f(f"ppv{i}") or f(f"vpv{i}") * f(f"ipv{i}")) / 1000 for i in (1, 2, 3)]
-str_today = [f(f"epv{i}Today") for i in (1, 2, 3)]
+str_kw = [(f(f"ppv{n}") or f(f"vpv{n}") * f(f"ipv{n}")) / 1000 for n, *_ in STRINGS]
+str_today = [f(f"epv{n}Today") for n, *_ in STRINGS]
 is_limited = (pv_kw > 0.05 and soc >= 95 and p_charge < 0.1 and p_sell < 0.05
               and 8 <= last_update.hour < 16)
 
@@ -304,7 +304,8 @@ col_main, col_side = st.columns([1.55, 1], gap="medium")
 with col_main:
     is_night = pv_kw < 0.05 and not (6 <= last_update.hour < 18)
     components.html(power_flow_html(pv=pv_kw, load=load_kw, batt=p_charge - p_discharge, soc=soc,
-                                    grid=p_buy - p_sell, night=is_night, strings=str_kw,
+                                    grid=p_buy - p_sell, night=is_night,
+                                    strings=[(f"{name} {where[:2]}", color, kw) for (_, name, where, color), kw in zip(STRINGS, str_kw)],
                                     grid_today={"buy": f("etoUserToday"), "sell": f("etoGridToday")},
                                     hour=last_update.hour + last_update.minute / 60, weekend=last_update.weekday() >= 5), height=520)
 
@@ -408,7 +409,7 @@ if fd:
     hrs = fd["best_hours"]
     best = (f"💡 {pick} <b>{hrs[0]}:00–{hrs[-1] + 1}:00</b> 太陽能用不完，適合安排洗衣、烘衣、熱水器、電動車充電"
             if hrs else f"{pick}預估太陽能大多會被家用與電池用完，沒有明顯浪費的時段")
-    strings_txt = "　".join(f'<span style="color:{c}">{n}</span> {fd[n]:.1f}' for n, _, c in STRINGS)
+    strings_txt = "　".join(f'<span style="color:{c}">{n}</span> {fd[n]:.1f}' for _, n, _, c in STRINGS)
     st.markdown(f"""<div class="card">
       <div style="display:flex; flex-wrap:wrap; gap:16px 36px; align-items:flex-end;">
         <div><div class="kpi-label">預估可發電量</div><div class="kpi-value" style="color:{C_PV};">{fd['pv']:.0f}<span class="kpi-unit">kWh</span></div>
@@ -417,7 +418,7 @@ if fd:
           <div class="kpi-sub">{soc7_txt}</div></div>
         <div><div class="kpi-label">預估浪費</div><div class="kpi-value" style="color:#F59E0B;">{fd['lost']:.0f}<span class="kpi-unit">kWh</span></div>
           <div class="kpi-sub">家用 {fd['home']:.0f} · 充電 {fd['charge']:.0f} kWh</div></div>
-        <div><div class="kpi-label">三組預估（kWh）</div><div style="color:#CBD5E1; font-size:14px; margin-top:8px;">{strings_txt}</div></div>
+        <div><div class="kpi-label">東西兩組預估（kWh）</div><div style="color:#CBD5E1; font-size:14px; margin-top:8px;">{strings_txt}</div></div>
       </div>
       <div style="margin-top:12px; padding-top:10px; border-top:1px solid #334155; color:#E2E8F0; font-size:14px;">{best}</div>
     </div>""", unsafe_allow_html=True)
@@ -437,7 +438,7 @@ if fd:
                      yaxis2=dict(overlaying="y", side="right", showgrid=False, title="W/m²", rangemode="tozero"))
     st.plotly_chart(ff, width="stretch", theme=None)
     st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:-6px;">資料來源：Open-Meteo ECMWF 逐時短波輻射預報（與中創需量預測同源），'
-                "換算到東西坡板面後估算三組發電；電池與用電依本站實測平均推估。依 7–10 月實測校正，逐時誤差中位數約 10%；午後雷陣雨或雲量多的日子誤差可能達 30% 以上。</div>",
+                "換算到東西坡板面後估算兩組發電；電池與用電依本站實測平均推估。依 7–10 月實測校正，逐時誤差中位數約 10%；午後雷陣雨或雲量多的日子誤差可能達 30% 以上。</div>",
                 unsafe_allow_html=True)
 
 # ==========================================
@@ -493,50 +494,53 @@ else:
       今日賣電 {f('etoGridToday'):.1f} kWh。</div>""", unsafe_allow_html=True)
 
 # ==========================================
-# 8.5 三組太陽能板 (PV1 / PV2 / PV3)
+# 8.5 東西兩組太陽能板 (PV1 西坡 / PV3 東坡)
 # ==========================================
-st.markdown("<div class='section-title'>☀️ 三組太陽能板</div>", unsafe_allow_html=True)
-string_kwp = CAPACITY_KWP / 3
+st.markdown("<div class='section-title'>☀️ 東西兩組太陽能板</div>", unsafe_allow_html=True)
+string_kwp = CAPACITY_KWP / len(STRINGS)
 total_today = sum(str_today)
 best = max(str_today) if str_today else 0
 cards_html = ""
-for i, (name, where, color) in enumerate(STRINGS):
+for i, (n, name, where, color) in enumerate(STRINGS):
     kw, today = str_kw[i], str_today[i]
     share = today / total_today * 100 if total_today > 0 else 0
-    # 三組朝向不同 (東坡 / 西坡 / 各半)，即時功率差異屬正常；只標示目前最強的一組
+    # 兩組朝向相反 (東坡 / 西坡)，即時功率差異屬正常；只標示目前較強的一組
     note = ('<div class="kpi-sub" style="margin-top:4px; color:#2DD4BF;">☀️ 目前發電最強</div>'
             if kw > 0.05 and kw == max(str_kw) else "")
     cards_html += f"""<div class="card" style="border-top:3px solid {color};">
       <div style="display:flex; justify-content:space-between; align-items:baseline;">
         <span style="color:{color}; font-weight:700;">{name}</span><span class="kpi-sub">{where}</span></div>
       <div class="kpi-value">{kw:.2f}<span class="kpi-unit">kW</span></div>
-      <div class="kpi-sub">{f(f'vpv{i + 1}'):.0f} V · {f(f'ipv{i + 1}'):.1f} A</div>
+      <div class="kpi-sub">{f(f'vpv{n}'):.0f} V · {f(f'ipv{n}'):.1f} A</div>
       <div style="color:#CBD5E1; font-size:13px; margin-top:6px;">今日 <b>{today:.1f}</b> kWh（{share:.0f}%）</div>
       <div class="kpi-sub">{today / string_kwp:.2f} kWh/kWp</div>{note}</div>"""
-st.markdown(f'<div class="grid3">{cards_html}</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="grid2">{cards_html}</div>', unsafe_allow_html=True)
 
 if not curve.empty and curve[["pv1", "pv2", "pv3"]].to_numpy().sum() > 0:
-    # 每小時三組堆疊長條：總高度 = 該小時總發電，顏色看出各組占比
+    # 每小時堆疊長條：總高度 = 該小時總發電，顏色看出東西兩組占比；改線當天 PV2 還有資料時另以灰色顯示
     hs = curve.set_index("time")[["pv1", "pv2", "pv3"]].resample("1h").sum() * 5 / 60
     hs = hs[(hs.index.hour >= 5) & (hs.index.hour <= 19)]
     hx = hs.index + pd.Timedelta(minutes=30)
     fh = go.Figure()
-    for i, (name, where, color) in enumerate(STRINGS):
-        fh.add_trace(go.Bar(x=hx, y=hs[f"pv{i + 1}"], name=f"{name} {['西坡', '屋脊兩側', '東坡'][i]}",
+    for n, name, where, color in STRINGS:
+        fh.add_trace(go.Bar(x=hx, y=hs[f"pv{n}"], name=f"{name} {where.split(' ')[0]}",
                             marker=dict(color=color, line=dict(color="#1E293B", width=1)),
                             hovertemplate=f"{name}：%{{y:.2f}} kWh<extra></extra>"))
+    if hs["pv2"].sum() > 0.05:
+        fh.add_trace(go.Bar(x=hx, y=hs["pv2"], name="PV2（已停用）", marker=dict(color="#64748B", line=dict(color="#1E293B", width=1)),
+                            hovertemplate="PV2：%{y:.2f} kWh<extra></extra>"))
     fh.update_layout(**{**chart_layout, "height": 300, "margin": dict(l=50, r=20, t=70, b=40)}, barmode="stack", bargap=0.15,
-                     title=dict(text="每小時發電（三組堆疊）", font=dict(color="#E2E8F0", size=15), x=0.01, y=0.97),
+                     title=dict(text="每小時發電（東西兩組堆疊）", font=dict(color="#E2E8F0", size=15), x=0.01, y=0.97),
                      xaxis=dict(showgrid=False, tickformat="%H時", dtick=2 * 3600000),
                      yaxis=dict(gridcolor="#334155", title="kWh", rangemode="tozero"))
     st.plotly_chart(fh, width="stretch", theme=None)
 
     # 每組一條橫向長條，切成上午 / 下午，直接看出朝向造成的差異
     noon = curve["time"].dt.hour < 12
-    halves = [(float(curve.loc[noon, f"pv{i}"].sum() * 5 / 60), float(curve.loc[~noon, f"pv{i}"].sum() * 5 / 60)) for i in (1, 2, 3)]
+    halves = [(float(curve.loc[noon, f"pv{n}"].sum() * 5 / 60), float(curve.loc[~noon, f"pv{n}"].sum() * 5 / 60)) for n, *_ in STRINGS]
     vmax = max(am + pm for am, pm in halves) or 1
     rows = ""
-    for (name, where, color), (am, pm) in zip(STRINGS, halves):
+    for (_, name, where, color), (am, pm) in zip(STRINGS, halves):
         tot = am + pm
         am_pct = am / tot * 100 if tot > 0 else 0
         width = tot / vmax * 100
@@ -550,7 +554,7 @@ if not curve.empty and curve[["pv1", "pv2", "pv3"]].to_numpy().sum() > 0:
             <div class="kpi-sub" style="margin-top:3px;">共 {tot:.1f} kWh · 上午占 {am_pct:.0f}%</div>
           </div></div>"""
     full_t = ana["full_time"] if ana else None
-    curtail_note = (f'<div style="color:#FBBF24; font-size:12px; margin-top:4px;">⚠️ 電池在 {full_t:%H:%M} 充滿後三組一起被限發，'
+    curtail_note = (f'<div style="color:#FBBF24; font-size:12px; margin-top:4px;">⚠️ 電池在 {full_t:%H:%M} 充滿後兩組一起被限發，'
                     "下午的數字會偏低；要比較朝向差異，請看電池未充滿的日子。</div>") if full_t is not None and full_t.hour < 15 else ""
     st.markdown(f"""<div class="card" style="margin-top:10px;">
       <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px;">
@@ -559,10 +563,10 @@ if not curve.empty and curve[["pv1", "pv2", "pv3"]].to_numpy().sum() > 0:
         　<span style="display:inline-block; width:10px; height:10px; background:#64748B; border-radius:2px;"></span> 下午</span></div>
       {rows}{curtail_note}</div>""", unsafe_allow_html=True)
 
-st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:10px;">屋頂為人字型、正面朝東，三組容量相同（各 8 片、約 3.56 kWp）但朝向不同：'
-            "<b style='color:#F59E0B'>PV3 在東坡</b>，上午日照直射發電較多；<b style='color:#3B82F6'>PV1 在西坡</b>，下午較多；"
-            "<b style='color:#14B8A6'>PV2 東西坡各半</b>，全天較平均。正午前後三組會接近。"
-            "若同一時段某組長期明顯低於往常，再檢查是否有遮蔭、落葉或髒污。電池充滿限發時三組會一起被壓低。</div>",
+st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:10px;">屋頂為人字型、正面朝東，東西兩坡各 12 片串成一組（各約 5.34 kWp）：'
+            "<b style='color:#F59E0B'>PV3 = 東坡</b>，上午日照直射發電較多；<b style='color:#3B82F6'>PV1 = 西坡</b>，下午較多；正午前後兩組會接近。"
+            "PV2 輸入已停用（原本東西各 4 片混串，早晚會被較弱的一邊拖累）。"
+            "若同一時段某組長期明顯低於往常，再檢查是否有遮蔭、落葉或髒污。電池充滿限發時兩組會一起被壓低。</div>",
             unsafe_allow_html=True)
 
 # ==========================================
