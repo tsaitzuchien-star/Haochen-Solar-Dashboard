@@ -709,17 +709,65 @@ for (const x of [1.12, 3.88]) OUT(box(0.03, 1.0, 1.3), railMat, [x, F2f + 0.5, B
 OUT(box(2.84, 0.04, 0.06), M.trim, [2.5, F2f + 1.02, BZ - 0.64]);
 for (const x of [1.12, 3.88]) OUT(box(0.06, 0.04, 1.3), M.trim, [x, F2f + 1.02, BZ]);
 OUT(box(1.0, 2.1, 0.04), M.glass, [1.8, F2f + 1.05, -DP / 2 - 0.02]);                         // 落地門
-// 儲熱式電熱水器：白天有太陽能時加熱，水桶內水溫以紅橘色由下往上升
+// 儲熱式電熱水器：白天有太陽能時加熱 (水由下往上變橘紅、加熱管發光、氣泡翻滾、頂部冒蒸氣)；
+// 傍晚到洗澡前為保溫的熱水；洗完澡後到隔天早上為冷水
 const WH = [3.2, F2f, BZ - 0.15];
-OUT(new THREE.CylinderGeometry(0.36, 0.36, 1.5, 28), std('#F1F5F9', 0.35, 0, { transparent: true, opacity: 0.55 }), [WH[0], WH[1] + 0.85, WH[2]]);
-const water = OUT(new THREE.CylinderGeometry(0.31, 0.31, 1.0, 24), ACT.heater ? glow('#F97316', 1.2) : iMat('#60A5FA', 0.3), [WH[0], WH[1] + 0.6, WH[2]]);
+const HEATING = ACT.heater, HOT = !HEATING && inRange(15, 22);
+OUT(new THREE.CylinderGeometry(0.36, 0.36, 1.5, 28), std('#F1F5F9', 0.35, 0, { transparent: true, opacity: 0.45, depthWrite: false }), [WH[0], WH[1] + 0.85, WH[2]]);
+const waterMat = HEATING ? glow('#F97316', 1.9) : HOT ? glow('#FB923C', 0.45) : iMat('#60A5FA', 0.3);
+const water = OUT(new THREE.CylinderGeometry(0.31, 0.31, 1.0, 24), waterMat, [WH[0], WH[1] + 0.6, WH[2]]);
+const coldTop = HEATING ? OUT(new THREE.CylinderGeometry(0.305, 0.305, 1.0, 24), iMat('#60A5FA', 0.3), [WH[0], WH[1] + 0.85, WH[2]]) : null;
 for (const dy of [0.12, 1.58]) OUT(new THREE.CylinderGeometry(0.37, 0.37, 0.05, 28), MI.metal, [WH[0], WH[1] + dy, WH[2]]);
-const heatRing = OUT(new THREE.TorusGeometry(0.38, 0.03, 8, 32), ACT.heater ? glow('#F97316', 2.5) : iMat('#94A3B8'), [WH[0], WH[1] + 0.35, WH[2]], [Math.PI / 2, 0, 0]);
-if (ACT.heater) anim.push(t => {
-  const k = 0.5 + 0.5 * Math.sin(t * 1.2);
-  heatRing.material.emissiveIntensity = 1.5 + 1.2 * (0.5 + 0.5 * Math.sin(t * 2.5));
-  water.scale.y = 0.55 + 0.45 * k; water.position.y = WH[1] + 0.12 + 0.5 * water.scale.y;   // 熱水由下往上加熱
-});
+const heatRing = OUT(new THREE.TorusGeometry(0.38, 0.03, 8, 32), HEATING ? glow('#F97316', 2.5) : iMat('#94A3B8'), [WH[0], WH[1] + 0.35, WH[2]], [Math.PI / 2, 0, 0]);
+// 桶底 U 型加熱管
+const coil = OUT(new THREE.TorusGeometry(0.16, 0.025, 8, 24, Math.PI * 1.6), HEATING ? glow('#EF4444', 3) : iMat('#9CA3AF', 0.4), [WH[0], WH[1] + 0.26, WH[2]], [Math.PI / 2, 0, 0]);
+// 側面溫度顯示 (朝向屋子右側，從預設視角看得到)
+const tempTex = canvasTex(128, 64, () => {});
+const tempScreen = OUT(new THREE.PlaneGeometry(0.36, 0.18), new THREE.MeshBasicMaterial({ map: tempTex }), [WH[0] + 0.37, WH[1] + 1.15, WH[2]], [0, Math.PI / 2, 0]);
+function drawTemp(v) {
+  const g = tempTex.image.getContext('2d');
+  g.fillStyle = '#0B1220'; g.fillRect(0, 0, 128, 64);
+  g.fillStyle = HEATING ? '#FB923C' : HOT ? '#FDBA74' : '#93C5FD';
+  g.font = 'bold 40px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(`${Math.round(v)}°C`, 64, 34); tempTex.needsUpdate = true;
+}
+drawTemp(HEATING ? 45 : HOT ? 65 : 38);
+if (HEATING) {
+  // 熱水區由下往上漲，上方冷水區跟著縮
+  anim.push(t => {
+    const k = 0.5 + 0.5 * Math.sin(t * 0.6);
+    heatRing.material.emissiveIntensity = 1.5 + 1.2 * (0.5 + 0.5 * Math.sin(t * 2.5));
+    coil.material.emissiveIntensity = 2.2 + 1.2 * Math.sin(t * 6);
+    water.scale.y = 0.5 + 0.5 * k; water.position.y = WH[1] + 0.1 + 0.5 * water.scale.y;
+    coldTop.scale.y = Math.max(1 - water.scale.y, 0.001); coldTop.position.y = WH[1] + 1.1 - 0.5 * coldTop.scale.y;
+    if (Math.floor(t * 4) !== drawTemp.last) { drawTemp.last = Math.floor(t * 4); drawTemp(45 + 20 * k); }
+  });
+  // 氣泡：從加熱管冒出、翻滾上升
+  const bubbleMat = std('#FFFFFF', 0.1, 0, { emissive: new THREE.Color('#FFF7ED'), emissiveIntensity: 1.2 });
+  for (let i = 0; i < 26; i++) {
+    const b = OUT(new THREE.SphereGeometry(0.024 + (i % 3) * 0.01, 8, 6), bubbleMat, [WH[0], WH[1], WH[2]]);
+    const a = i * 2.4, r = 0.315 + (i * 0.37 % 1) * 0.03, sp = 0.35 + (i * 0.61 % 1) * 0.35;   // 貼著水面外緣，透過外殼看得到
+    anim.push(t => {
+      const u = (t * sp + i / 26) % 1;
+      b.position.set(WH[0] + r * Math.cos(a + t * 1.5) + 0.02 * Math.sin(t * 9 + i),
+                     WH[1] + 0.3 + u * 0.95 * water.scale.y, WH[2] + r * Math.sin(a + t * 1.5));
+      b.scale.setScalar(0.6 + u * 0.8);
+    });
+  }
+}
+if (HEATING || HOT) {
+  // 頂部洩壓閥冒蒸氣
+  OUT(new THREE.CylinderGeometry(0.03, 0.03, 0.18, 10), MI.metal, [WH[0] - 0.12, WH[1] + 1.69, WH[2]]);
+  const steamTex = glowTex0();
+  for (let i = 0; i < 7; i++) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: steamTex, color: '#FFFFFF', transparent: true, depthWrite: false })); scene.add(sp);
+    anim.push(t => {
+      const k = (t * (HEATING ? 0.45 : 0.25) + i / 7) % 1;
+      sp.position.set(WH[0] - 0.12 + 0.08 * Math.sin(t * 2 + i), WH[1] + 1.8 + k * 0.9, WH[2] + 0.06 * Math.cos(t * 1.7 + i));
+      sp.material.opacity = (HEATING ? 0.7 : 0.35) * (1 - k); sp.scale.setScalar(0.12 + k * 0.4);
+    });
+  }
+}
 // 2F 除濕機 (兒童房，白天運轉)
 IN(box(0.38, 0.6, 0.28), MI.white, [-0.4, F2f + 0.3, 5.0]);
 const dh = IN(box(0.25, 0.04, 0.02), ACT.dehumid ? glow('#38BDF8', 1.5) : MI.dark, [-0.4, F2f + 0.5, 5.15]);
@@ -788,7 +836,7 @@ const loads = [
   { on: ACT.lights, base: [-0.9, 5.0], to: V(-0.9, F1 + 1.45, 5.0) },                  // 客廳立燈
   { on: ACT.lights, base: [2.5, 3.3], to: V(2.5, F1 + 0.78, 3.3) },                    // 餐桌 (吊燈)
   { on: ACT.vacuum, base: [0.2, 5.3], to: V(0.2, F1 + 0.12, 5.3) },                    // 掃地機器人充電座
-  { on: ACT.heater, base: [WH[0], WH[2] + 0.4], to: V(WH[0], F2f + 0.15, WH[2] + 0.37), up: true },  // 2F 後陽台儲熱式熱水器
+  { on: ACT.heater, base: [2.7, -DP / 2 + 0.2], to: V(2.7, F2f + 0.2, -DP / 2), up: true },  // 2F 後陽台儲熱式熱水器 (到後牆，屋外段另外畫)
   { on: true, base: [3.7, 1.5], to: V(3.7, F2f + 0.3, 1.5), up: true },               // 2F 空氣清淨機 (常時)
   { on: ACT.dehumid, base: [-0.4, 5.0], to: V(-0.4, F2f + 0.3, 5.0), up: true },       // 2F 除濕機
   { on: ACT.study && !SLEEP, base: [-0.65, 1.35], to: V(-0.65, F2f + 0.78, 1.35), up: true },  // 兒童房書桌檯燈
@@ -830,6 +878,20 @@ if (P.panelOut) {
       const u = (i / n + t * (0.6 + Math.min(D.load, 6) * 0.15) / len) % 1;
       trunk.getPointAt(u, sp.position); sp.scale.setScalar(0.17);
     });
+  }
+}
+// 熱水器電源線 (屋外段，外觀模式也看得到)：從後牆穿出，沿陽台地面接到熱水器側邊的接線盒
+{
+  const y0 = F2f + 0.03, zw = -DP / 2 - 0.04;
+  const cable = poly([V(2.7, F2f + 0.2, zw), V(2.7, y0, zw), V(2.7, y0, WH[2]), V(WH[0] - 0.36, y0, WH[2]), V(WH[0] - 0.36, F2f + 0.35, WH[2])]);
+  mesh(new THREE.TubeGeometry(cable, 40, 0.014, 6), ACT.heater ? wireMat : M.dark, null, null, scene, false);
+  mesh(box(0.06, 0.14, 0.12), MI.white, [WH[0] - 0.39, F2f + 0.4, WH[2]], null, scene, false);
+  if (ACT.heater) {
+    const len = cable.getLength(), n = Math.round(len / 0.16);
+    for (let i = 0; i < n; i++) {
+      const sp = new THREE.Sprite(dotMats[((i * 0.618) % 1) < greenShare ? 0 : 1]); scene.add(sp);
+      anim.push(t => { cable.getPointAt((i / n + t * 0.9 / len) % 1, sp.position); sp.scale.setScalar(0.12); });
+    }
   }
 }
 for (const [p, r] of [[hub, 0.05], [junction, 0.08]])   // 配電盤入口與中央分電點
