@@ -400,9 +400,10 @@ if (LAYOUT === 'front') {
     bat: poly([at(S, IX, EQ_Y - INV_H / 2 - 0.05, 0.14), at(S, IX, Y0 + 1.4, 0.14)]),
     grid: chain(wire, poly([service, at(S, PX, EQ_Y + 0.48, 0.07)])),
     batCard: [7.6, Y0 + 0.2, -0.6], gridCard: [pole[0], Y0 + 8.0, pole[2]],
-    // 主幹線由配電盤在二樓樓板下緣的高度穿牆進屋，沿樓板底走到中央分電點 (家中微電網起點)
-    panelOut: [at(S, PX, F2 - 0.06, 0.07)],
-    panelIn: at(S, PX, F2 - 0.06, -0.25),
+    // 主幹線由配電盤在二樓地板面的高度穿牆進屋，貼著二樓地板走到中央分電點 (家中微電網起點)；
+    // 放在樓板上面而不是下面，從上方的視角才不會被樓板擋住
+    panelOut: [at(S, PX, F2 + 0.13, 0.07)],
+    panelIn: at(S, PX, F2 + 0.13, -0.25),
   };
 } else if (LAYOUT === 'door') {
   // 與 front 相同，但配電盤在正面大門右手邊；家用電從逆變器沿落地窗上緣繞到正面，台電走地下管線進配電盤底部
