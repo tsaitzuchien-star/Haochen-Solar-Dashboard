@@ -498,7 +498,7 @@ const SLEEP = HOUR >= 23 || HOUR < 6;
 const ACT = {
   lights: (HOUR >= 17 || HOUR < 6.5 || NIGHT) && !SLEEP,
   kitchen: inRange(6, 7.5) || inRange(11, 12.5) || inRange(17, 19),
-  tv: inRange(19, 23) || (WEEKEND && inRange(13, 17)),
+  tv: inRange(7, 8) || inRange(12, 13) || inRange(19, 23) || (WEEKEND && inRange(13, 17)),
   study: (!WEEKEND && inRange(18.5, 22)) || (WEEKEND && inRange(9, 11)),
   heater: inRange(9, 15) && D.pv > 0.8,   // 白天用太陽能加熱洗澡熱水
   vacuum: inRange(9, 15),
@@ -569,7 +569,33 @@ IN(box(3.0, 0.02, 2.2), MI.rug, [-2.2, F1 + 0.01, 3.6]);
 IN(box(3.4, 2.5, 0.12), iMat('#2A2F37', 0.6), [-2.2, F1 + 1.25, 1.75]);                         // 電視牆
 IN(box(3.2, 0.03, 0.03), accentMat, [-2.2, F1 + 0.42, 1.83]);                                    // 電視櫃下藍綠燈條
 IN(box(2.6, 0.4, 0.45), MI.walnut, [-2.2, F1 + 0.2, 2.05]);
-const tv = IN(box(1.9, 1.05, 0.05), ACT.tv && !SLEEP ? glow('#7CB7FF', 1.3) : MI.dark, [-2.2, F1 + 1.35, 1.83]);
+const TV_ON = ACT.tv && !SLEEP;
+IN(box(1.96, 1.11, 0.05), MI.dark, [-2.2, F1 + 1.35, 1.82]);                                      // 電視外框
+const tvTex = canvasTex(320, 180, () => {});
+const tv = IN(new THREE.PlaneGeometry(1.9, 1.05), TV_ON ? new THREE.MeshBasicMaterial({ map: tvTex }) : MI.dark, [-2.2, F1 + 1.35, 1.85]);
+function drawTV(t) {   // 自然生態節目：日出山景、飄動的雲、跳出水面的魚，下方新聞跑馬燈
+  const g = tvTex.image.getContext('2d'), w = 320, h = 180;
+  const sky = g.createLinearGradient(0, 0, 0, h * 0.6); sky.addColorStop(0, '#60A5FA'); sky.addColorStop(1, '#FDE68A');
+  g.fillStyle = sky; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#FDBA74'; g.beginPath(); g.arc(250, 70, 22, 0, Math.PI * 2); g.fill();
+  g.fillStyle = 'rgba(255,255,255,0.9)';
+  for (const [cx, cy, sp] of [[40, 30, 9], [150, 50, 6], [260, 25, 11]]) {
+    const x = (cx + t * sp) % (w + 80) - 40;
+    g.beginPath(); g.arc(x, cy, 12, 0, Math.PI * 2); g.arc(x + 14, cy - 6, 14, 0, Math.PI * 2); g.arc(x + 30, cy, 11, 0, Math.PI * 2); g.fill();
+  }
+  g.fillStyle = '#4D7C0F'; g.beginPath(); g.moveTo(0, 110); g.lineTo(70, 60); g.lineTo(140, 105); g.lineTo(210, 70); g.lineTo(320, 112); g.lineTo(320, 150); g.lineTo(0, 150); g.fill();
+  g.fillStyle = '#0EA5E9'; g.fillRect(0, 112, w, 38);
+  g.fillStyle = 'rgba(255,255,255,0.5)'; for (let i = 0; i < 6; i++) g.fillRect((i * 60 + t * 20) % w, 120 + (i % 3) * 9, 24, 2);
+  const fx = (t * 40) % (w + 40) - 20, fy = 118 - Math.abs(Math.sin(t * 2.2)) * 28;
+  g.fillStyle = '#F97316'; g.beginPath(); g.ellipse(fx, fy, 9, 4, -0.4, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#1E293B'; g.fillRect(0, 150, w, 30);
+  g.fillStyle = '#DC2626'; g.fillRect(0, 150, 54, 30);
+  g.fillStyle = '#FFFFFF'; g.font = 'bold 16px system-ui, sans-serif'; g.textBaseline = 'middle';
+  g.fillText('LIVE', 8, 166);
+  g.font = '15px system-ui, sans-serif';
+  g.fillText('南投 今日晴 31°C ・ 太陽能發電順暢 ・ 晚間有短暫陣雨', w - ((t * 45) % (w + 420)), 166);
+  tvTex.needsUpdate = true;
+}
 IN(box(2.6, 0.42, 0.9), MI.fabric, [-2.2, F1 + 0.21, 4.75]); IN(box(2.6, 0.5, 0.22), MI.fabric, [-2.2, F1 + 0.6, 5.1]);
 IN(box(0.9, 0.42, 1.6), MI.fabric, [-3.45, F1 + 0.21, 4.2]);                                     // L 型沙發
 for (const dx of [-0.8, 0.1]) IN(box(0.45, 0.35, 0.15), MI.cushion, [-2.2 + dx, F1 + 0.6, 4.95]);
@@ -577,8 +603,36 @@ IN(new THREE.CylinderGeometry(0.45, 0.45, 0.35, 32), MI.oak, [-2.2, F1 + 0.18, 3
 plant(-3.7, F1, 2.3, 1.2);
 IN(new THREE.CylinderGeometry(0.02, 0.02, 1.5, 8), MI.metal, [-0.9, F1 + 0.75, 5.0]);            // 立燈
 IN(new THREE.SphereGeometry(0.16, 16, 12), ACT.lights ? glow('#FFD49A', 2.5) : MI.white, [-0.9, F1 + 1.55, 5.0]);
-if (ACT.tv && !SLEEP) {
-  anim.push(t => { tv.material.emissiveIntensity = 1.0 + 0.4 * Math.sin(t * 7) * Math.sin(t * 2.3); });
+if (TV_ON) {
+  drawTV(0);
+  const tvLight = new THREE.PointLight('#9CC8FF', 1.6, 3.5, 2); tvLight.position.set(-2.2, F1 + 1.3, 2.4); interior.add(tvLight);
+  anim.push(t => { if (Math.floor(t * 15) !== drawTV.f) { drawTV.f = Math.floor(t * 15); drawTV(t); } tvLight.intensity = 1.3 + 0.4 * Math.sin(t * 5); });
+}
+// 茶几上：茶盤與茶具、水果盤 (有人在客廳時茶壺冒熱氣)
+{
+  const TY = F1 + 0.355, TX = -2.2, TZ = 3.55;
+  IN(box(0.42, 0.03, 0.28), MI.walnut, [TX - 0.12, TY + 0.015, TZ - 0.05]);                        // 茶盤
+  const pot = iMat('#7C2D12', 0.45);
+  IN(new THREE.SphereGeometry(0.075, 16, 12), pot, [TX - 0.2, TY + 0.1, TZ - 0.05]);                 // 紫砂壺
+  IN(new THREE.CylinderGeometry(0.012, 0.018, 0.09, 8), pot, [TX - 0.12, TY + 0.11, TZ - 0.05], [0, 0, -0.9]);
+  IN(new THREE.CylinderGeometry(0.025, 0.03, 0.02, 12), pot, [TX - 0.2, TY + 0.18, TZ - 0.05]);
+  for (const [dx, dz] of [[-0.02, -0.14], [0.06, -0.14], [-0.02, 0.04], [0.06, 0.04]]) {
+    IN(new THREE.CylinderGeometry(0.028, 0.022, 0.04, 12), iMat('#F5F5F0', 0.3), [TX + dx, TY + 0.05, TZ + dz]);
+    IN(new THREE.CircleGeometry(0.024, 12), iMat('#B45309', 0.3), [TX + dx, TY + 0.068, TZ + dz], [-Math.PI / 2, 0, 0]);   // 茶湯
+  }
+  IN(new THREE.CylinderGeometry(0.16, 0.1, 0.06, 24), iMat('#F8FAFC', 0.3), [TX + 0.2, TY + 0.03, TZ + 0.12]);   // 水果盤
+  for (const [dx, dz, c, r] of [[0.15, 0.08, '#F97316', 0.05], [0.24, 0.1, '#F97316', 0.05], [0.2, 0.18, '#DC2626', 0.048], [0.12, 0.16, '#84CC16', 0.045]])
+    IN(new THREE.SphereGeometry(r, 14, 10), iMat(c, 0.5), [TX + dx, TY + 0.09, TZ + dz]);
+  IN(new THREE.CapsuleGeometry(0.022, 0.13, 4, 8), iMat('#FACC15', 0.5), [TX + 0.27, TY + 0.1, TZ + 0.17], [0.3, 0.4, 1.3]);   // 香蕉
+  for (let i = 0; i < 6; i++) IN(new THREE.SphereGeometry(0.018, 8, 6), iMat('#7E22CE', 0.4), [TX + 0.18 + (i % 3) * 0.025, TY + 0.13 + Math.floor(i / 3) * 0.02, TZ + 0.06]);   // 葡萄
+  if (!SLEEP && (HOUR >= 19 || WEEKEND)) {
+    const st = glowTex0();
+    for (let i = 0; i < 3; i++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: st, color: '#FFFFFF', transparent: true, depthWrite: false })); interior.add(sp);
+      anim.push(t => { const k = (t * 0.35 + i / 3) % 1; sp.position.set(TX - 0.2 + 0.03 * Math.sin(t * 2 + i), TY + 0.22 + k * 0.35, TZ - 0.05);
+                       sp.material.opacity = 0.35 * (1 - k); sp.scale.setScalar(0.05 + k * 0.12); });
+    }
+  }
 }
 
 // ===== 1F 餐廳 (前右) =====
@@ -614,7 +668,26 @@ if (ACT.kitchen && !SLEEP) {
   const mom = person(2.1, F1, -4.45, '#C2557A', 1.3, Math.PI);
   anim.push(t => { mom.position.x = 2.1 + 0.35 * Math.sin(t * 0.7); });
   const steamTex = glowTex0();
-  for (const [sx, sy] of [[0.9, F1 + 1.25], [2.1, F1 + 1.12], [3.2, F1 + 1.3]]) for (let i = 0; i < 4; i++) {
+  // 炒鍋裡的青菜、紅蘿蔔、玉米、肉片，隨翻炒跳動
+  const food = [];
+  for (let i = 0; i < 14; i++) {
+    const c = ['#16A34A', '#22C55E', '#F97316', '#FACC15', '#B45309'][i % 5];
+    food.push(IN(i % 5 === 4 ? box(0.06, 0.015, 0.04) : new THREE.SphereGeometry(0.022, 8, 6), iMat(c, 0.6), [2.1, F1 + 1.08, KZ]));
+  }
+  anim.push(t => food.forEach((f, i) => {
+    const a = i * 2.4 + t * 0.8, r = 0.04 + (i * 0.37 % 1) * 0.1, hop = Math.max(0, Math.sin(t * 5 + i)) ** 4 * 0.08;
+    f.position.set(2.1 + r * Math.cos(a), F1 + 1.075 + hop, KZ + r * Math.sin(a));
+  }));
+  const flame = IN(new THREE.TorusGeometry(0.13, 0.025, 8, 24), glow('#3B82F6', 3), [2.1, F1 + 0.955, KZ], [Math.PI / 2, 0, 0]);   // 瓦斯爐火
+  anim.push(t => { flame.material.emissiveIntensity = 2.5 + Math.sin(t * 13) * 0.8; });
+  IN(new THREE.CylinderGeometry(0.15, 0.15, 0.02, 20), iMat('#FFFFFF', 0.4), [0.9, F1 + 1.225, KZ]);   // 電鍋蓋上的飯香
+  // 炒菜油煙：灰白色往上被排油煙機吸走
+  for (let i = 0; i < 8; i++) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: steamTex, color: '#E5E7EB', transparent: true, depthWrite: false })); interior.add(sp);
+    anim.push(t => { const k = (t * 0.6 + i / 8) % 1; sp.position.set(2.1 + 0.12 * Math.sin(t * 2 + i) * (1 - k), F1 + 1.12 + k * 0.62, KZ + 0.05 * (1 - k));
+                     sp.material.opacity = 0.6 * (1 - k * 0.7); sp.scale.setScalar(0.12 + k * 0.3); });
+  }
+  for (const [sx, sy] of [[0.9, F1 + 1.25], [3.2, F1 + 1.3]]) for (let i = 0; i < 4; i++) {
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: steamTex, color: '#FFFFFF', transparent: true, depthWrite: false })); interior.add(sp);
     anim.push(t => { const k = (t * 0.5 + i / 4) % 1; sp.position.set(sx + 0.05 * Math.sin(t * 3 + i), sy + k * 0.6, KZ);
                      sp.material.opacity = 0.45 * (1 - k); sp.scale.setScalar(0.15 + k * 0.25); });
@@ -689,11 +762,43 @@ plant(3.7, F2f, 5.2, 0.9);
 const purifier = IN(box(0.35, 0.65, 0.35), MI.white, [3.7, F2f + 0.33, 1.5]);                     // 空氣清淨機 (常時)
 IN(new THREE.CircleGeometry(0.1, 20), glow('#5EEAD4', 1.2), [3.7, F2f + 0.6, 1.68]);
 
+// 衛浴元件：馬桶 (rotY = 面向方向)、洗手台 + 發光鏡、毛巾
+function toilet(x, y, z, rotY) {
+  const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = rotY; interior.add(g);
+  const por = iMat('#FAFAFA', 0.25);
+  mesh(new THREE.CylinderGeometry(0.19, 0.15, 0.38, 20), por, [0, 0.19, 0.05], null, g);
+  mesh(new THREE.TorusGeometry(0.16, 0.035, 8, 20), por, [0, 0.4, 0.05], [Math.PI / 2, 0, 0], g);
+  mesh(box(0.4, 0.4, 0.17), por, [0, 0.6, -0.2], null, g);
+  mesh(box(0.06, 0.02, 0.03), MI.metal, [0.12, 0.82, -0.2], null, g);
+}
+function sink(x, y, z, rotY, w = 0.8) {
+  const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = rotY; interior.add(g);
+  mesh(box(w, 0.8, 0.48), MI.oak, [0, 0.4, 0], null, g);
+  mesh(new THREE.CylinderGeometry(0.17, 0.13, 0.1, 24), iMat('#FAFAFA', 0.2), [0, 0.86, 0.02], null, g);
+  mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.2, 8), MI.metal, [0, 0.98, -0.17], null, g);
+  mesh(box(0.02, 0.02, 0.1), MI.metal, [0, 1.07, -0.12], null, g);
+  mesh(box(w - 0.1, 0.6, 0.03), glow('#E0F2FE', ACT.lights ? 0.9 : 0.25), [0, 1.55, -0.23], null, g);   // 發光鏡
+}
+const towel = (x, y, z, c, rotY = 0) => IN(box(0.35, 0.5, 0.04), iMat(c, 0.95), [x, y, z], [0, rotY, 0]);
+
+// ===== 1F 客用衛浴 (樓梯與廚房之間，半透明隔間，門朝前) =====
+wallZ(-1.0, 0.35, -3.95, F1, FL - 0.35); wallX(-3.95, -1.9, 0.35, F1, FL - 0.35); wallX(-3.95, -1.9, -1.0, F1, FL - 0.35);
+wallZ(-1.0, -0.65, -1.9, F1, FL - 0.35); wallZ(0.05, 0.35, -1.9, F1, FL - 0.35);
+toilet(0.0, F1, -3.5, 0);
+sink(-0.6, F1, -3.66, 0, 0.6);
+towel(-0.95, F1 + 1.2, -2.9, '#93C5FD', Math.PI / 2);
+IN(box(0.6, 0.02, 0.4), iMat('#CBD5E1', 0.9), [-0.3, F1 + 0.01, -2.4]);                           // 腳踏墊
+
 // ===== 2F 浴室 (後右)、閱讀角 (後左) =====
-IN(box(1.7, 0.55, 0.8), MI.white, [2.6, F2f + 0.28, -4.8]);
-IN(box(1.5, 0.05, 0.6), iMat('#A5D8F0', 0.1, { transparent: true, opacity: 0.8 }), [2.6, F2f + 0.5, -4.8]);
-IN(box(1.0, 0.8, 0.5), MI.oak, [1.6, F2f + 0.4, -2.0]);
-IN(box(0.8, 0.6, 0.03), glow('#E0F2FE', ACT.lights ? 0.9 : 0.25), [1.6, F2f + 1.5, -2.25]);       // 發光鏡
+IN(box(1.7, 0.55, 0.8), MI.white, [3.05, F2f + 0.28, -4.8]);                                   // 浴缸 (讓出陽台門)
+IN(box(1.5, 0.05, 0.6), iMat('#A5D8F0', 0.1, { transparent: true, opacity: 0.8 }), [3.05, F2f + 0.5, -4.8]);
+IN(new THREE.CylinderGeometry(0.015, 0.015, 1.6, 8), MI.metal, [3.85, F2f + 1.0, -4.5]);       // 淋浴桿 + 蓮蓬頭
+IN(new THREE.CylinderGeometry(0.08, 0.06, 0.03, 16), MI.metal, [3.75, F2f + 1.8, -4.5], [0, 0, 0.4]);
+IN(box(0.03, 1.6, 0.9), MI.glassPart, [2.15, F2f + 1.05, -4.8]);                               // 淋浴玻璃
+sink(1.6, F2f, -2.0, 0, 1.0);
+toilet(3.7, F2f, -3.2, -Math.PI / 2);
+towel(3.95, F2f + 1.3, -2.3, '#FDE68A', -Math.PI / 2);
+towel(3.95, F2f + 1.3, -1.8, '#FCA5A5', -Math.PI / 2);
 IN(box(0.8, 1.9, 0.35), MI.oak, [-3.6, F2f + 0.95, -2.5]);                                      // 書櫃
 for (let r = 0; r < 4; r++) for (let i = 0; i < 4; i++) IN(box(0.05, 0.28, 0.2), iMat(['#94A3B8', '#C084FC', '#FB923C', '#22D3EE'][(r + i) % 4], 0.8), [-3.6, F2f + 0.3 + r * 0.45, -2.75 + i * 0.12]);
 IN(new THREE.SphereGeometry(0.45, 20, 14, 0, Math.PI * 2, 0, Math.PI / 1.6), MI.cushion, [-2.3, F2f + 0.2, -3.6]);  // 懶骨頭
@@ -708,18 +813,81 @@ OUT(box(2.8, 1.0, 0.03), railMat, [2.5, F2f + 0.5, BZ - 0.64]);
 for (const x of [1.12, 3.88]) OUT(box(0.03, 1.0, 1.3), railMat, [x, F2f + 0.5, BZ]);
 OUT(box(2.84, 0.04, 0.06), M.trim, [2.5, F2f + 1.02, BZ - 0.64]);
 for (const x of [1.12, 3.88]) OUT(box(0.06, 0.04, 1.3), M.trim, [x, F2f + 1.02, BZ]);
-OUT(box(1.0, 2.1, 0.04), M.glass, [1.8, F2f + 1.05, -DP / 2 - 0.02]);                         // 落地門
-// 儲熱式電熱水器：白天有太陽能時加熱，水桶內水溫以紅橘色由下往上升
+OUT(box(0.9, 2.1, 0.04), M.glass, [1.45, F2f + 1.05, -DP / 2 - 0.02]);                        // 落地門
+// 儲熱式電熱水器：白天有太陽能時加熱 (水由下往上變橘紅、加熱管發光、氣泡翻滾、頂部冒蒸氣)；
+// 傍晚到洗澡前為保溫的熱水；洗完澡後到隔天早上為冷水
 const WH = [3.2, F2f, BZ - 0.15];
-OUT(new THREE.CylinderGeometry(0.36, 0.36, 1.5, 28), std('#F1F5F9', 0.35, 0, { transparent: true, opacity: 0.55 }), [WH[0], WH[1] + 0.85, WH[2]]);
-const water = OUT(new THREE.CylinderGeometry(0.31, 0.31, 1.0, 24), ACT.heater ? glow('#F97316', 1.2) : iMat('#60A5FA', 0.3), [WH[0], WH[1] + 0.6, WH[2]]);
+const HEATING = ACT.heater, HOT = !HEATING && inRange(15, 22);
+OUT(new THREE.CylinderGeometry(0.36, 0.36, 1.5, 28), std('#F1F5F9', 0.35, 0, { transparent: true, opacity: 0.45, depthWrite: false }), [WH[0], WH[1] + 0.85, WH[2]]);
+// 水體：透明淺藍；加熱與否用氣泡、水面翻滾、加熱管與溫度表表現
+const SURF = WH[1] + 1.45;
+const water = OUT(new THREE.CylinderGeometry(0.31, 0.31, 1.3, 28),
+  std('#93D5F5', 0.05, 0, { transparent: true, opacity: 0.55, depthWrite: false, emissive: new THREE.Color('#38BDF8'), emissiveIntensity: 0.25 }),
+  [WH[0], WH[1] + 0.8, WH[2]]);
+const surface = OUT(new THREE.CircleGeometry(0.305, 28), std('#E0F2FE', 0.05, 0, { transparent: true, opacity: 0.7, depthWrite: false }),
+  [WH[0], SURF + 0.002, WH[2]], [-Math.PI / 2, 0, 0]);
 for (const dy of [0.12, 1.58]) OUT(new THREE.CylinderGeometry(0.37, 0.37, 0.05, 28), MI.metal, [WH[0], WH[1] + dy, WH[2]]);
-const heatRing = OUT(new THREE.TorusGeometry(0.38, 0.03, 8, 32), ACT.heater ? glow('#F97316', 2.5) : iMat('#94A3B8'), [WH[0], WH[1] + 0.35, WH[2]], [Math.PI / 2, 0, 0]);
-if (ACT.heater) anim.push(t => {
-  const k = 0.5 + 0.5 * Math.sin(t * 1.2);
+const heatRing = OUT(new THREE.TorusGeometry(0.38, 0.03, 8, 32), HEATING ? glow('#F97316', 2.5) : iMat('#94A3B8'), [WH[0], WH[1] + 0.35, WH[2]], [Math.PI / 2, 0, 0]);
+// 桶底 U 型加熱管
+const coil = OUT(new THREE.TorusGeometry(0.16, 0.025, 8, 24, Math.PI * 1.6), HEATING ? glow('#EF4444', 3) : iMat('#9CA3AF', 0.4), [WH[0], WH[1] + 0.26, WH[2]], [Math.PI / 2, 0, 0]);
+// 側面溫度顯示 (朝向屋子右側，從預設視角看得到)
+const tempTex = canvasTex(128, 64, () => {});
+const tempScreen = OUT(new THREE.PlaneGeometry(0.36, 0.18), new THREE.MeshBasicMaterial({ map: tempTex }), [WH[0] + 0.37, WH[1] + 1.15, WH[2]], [0, Math.PI / 2, 0]);
+function drawTemp(v) {
+  const g = tempTex.image.getContext('2d');
+  g.fillStyle = '#0B1220'; g.fillRect(0, 0, 128, 64);
+  g.fillStyle = HEATING ? '#FB923C' : HOT ? '#FDBA74' : '#93C5FD';
+  g.font = 'bold 40px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(`${Math.round(v)}°C`, 64, 34); tempTex.needsUpdate = true;
+}
+drawTemp(HEATING ? 45 : HOT ? 65 : 38);
+if (HEATING) anim.push(t => {
   heatRing.material.emissiveIntensity = 1.5 + 1.2 * (0.5 + 0.5 * Math.sin(t * 2.5));
-  water.scale.y = 0.55 + 0.45 * k; water.position.y = WH[1] + 0.12 + 0.5 * water.scale.y;   // 熱水由下往上加熱
+  coil.material.emissiveIntensity = 2.2 + 1.2 * Math.sin(t * 6);
+  surface.position.y = SURF + 0.002 + 0.008 * Math.sin(t * 11);   // 水面輕微翻騰
+  const k = 0.5 + 0.5 * Math.sin(t * 0.4);
+  if (Math.floor(t * 4) !== drawTemp.last) { drawTemp.last = Math.floor(t * 4); drawTemp(45 + 20 * k); }
 });
+if (HEATING || HOT) {
+  // 氣泡：從桶底加熱管冒出、邊晃邊往上，愈上面愈大；加熱中又多又快，保溫時零星幾顆
+  const bubbleMat = std('#FFFFFF', 0.05, 0, { transparent: true, opacity: 0.85, emissive: new THREE.Color('#F0F9FF'), emissiveIntensity: 0.5 });
+  const NB = HEATING ? 34 : 6;
+  for (let i = 0; i < NB; i++) {
+    const b = OUT(new THREE.SphereGeometry(0.016 + (i % 3) * 0.007, 10, 8), bubbleMat, [WH[0], WH[1], WH[2]]);
+    const a = i * 2.4, r = 0.04 + (i * 0.37 % 1) * 0.24, sp = (HEATING ? 0.45 : 0.15) + (i * 0.61 % 1) * 0.3;
+    anim.push(t => {
+      const u = (t * sp + i / NB) % 1;
+      b.position.set(WH[0] + r * Math.cos(a) + 0.025 * Math.sin(t * 8 + i), WH[1] + 0.3 + u * (SURF - WH[1] - 0.3), WH[2] + r * Math.sin(a) + 0.025 * Math.cos(t * 7 + i));
+      b.scale.setScalar(0.6 + u * 1.0);
+    });
+  }
+}
+if (HEATING) {
+  // 水面滾泡：小水泡在水面鼓起後破掉
+  const domeMat = std('#F0F9FF', 0.05, 0, { transparent: true, opacity: 0.8, depthWrite: false });
+  for (let i = 0; i < 16; i++) {
+    const d = OUT(new THREE.SphereGeometry(0.045, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), domeMat, [WH[0], SURF, WH[2]]);
+    const a = i * 2.39, r = 0.05 + (i * 0.53 % 1) * 0.22, sp = 1.2 + (i * 0.71 % 1) * 1.3;
+    d.position.set(WH[0] + r * Math.cos(a), SURF, WH[2] + r * Math.sin(a));
+    anim.push(t => {
+      const u = (t * sp + i / 16) % 1;
+      d.scale.setScalar(u < 0.85 ? 0.3 + u * 0.9 : 0.001);   // 慢慢鼓起，最後瞬間破掉
+    });
+  }
+}
+if (HEATING || HOT) {
+  // 頂部洩壓閥冒蒸氣
+  OUT(new THREE.CylinderGeometry(0.03, 0.03, 0.18, 10), MI.metal, [WH[0] - 0.12, WH[1] + 1.69, WH[2]]);
+  const steamTex = glowTex0();
+  for (let i = 0; i < 7; i++) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: steamTex, color: '#FFFFFF', transparent: true, depthWrite: false })); scene.add(sp);
+    anim.push(t => {
+      const k = (t * (HEATING ? 0.45 : 0.25) + i / 7) % 1;
+      sp.position.set(WH[0] - 0.12 + 0.08 * Math.sin(t * 2 + i), WH[1] + 1.8 + k * 0.9, WH[2] + 0.06 * Math.cos(t * 1.7 + i));
+      sp.material.opacity = (HEATING ? 0.7 : 0.35) * (1 - k); sp.scale.setScalar(0.12 + k * 0.4);
+    });
+  }
+}
 // 2F 除濕機 (兒童房，白天運轉)
 IN(box(0.38, 0.6, 0.28), MI.white, [-0.4, F2f + 0.3, 5.0]);
 const dh = IN(box(0.25, 0.04, 0.02), ACT.dehumid ? glow('#38BDF8', 1.5) : MI.dark, [-0.4, F2f + 0.5, 5.15]);
@@ -788,7 +956,7 @@ const loads = [
   { on: ACT.lights, base: [-0.9, 5.0], to: V(-0.9, F1 + 1.45, 5.0) },                  // 客廳立燈
   { on: ACT.lights, base: [2.5, 3.3], to: V(2.5, F1 + 0.78, 3.3) },                    // 餐桌 (吊燈)
   { on: ACT.vacuum, base: [0.2, 5.3], to: V(0.2, F1 + 0.12, 5.3) },                    // 掃地機器人充電座
-  { on: ACT.heater, base: [WH[0], WH[2] + 0.4], to: V(WH[0], F2f + 0.15, WH[2] + 0.37), up: true },  // 2F 後陽台儲熱式熱水器
+  { on: ACT.heater, base: [2.7, -DP / 2 + 0.2], to: V(2.7, F2f + 0.2, -DP / 2), up: true },  // 2F 後陽台儲熱式熱水器 (到後牆，屋外段另外畫)
   { on: true, base: [3.7, 1.5], to: V(3.7, F2f + 0.3, 1.5), up: true },               // 2F 空氣清淨機 (常時)
   { on: ACT.dehumid, base: [-0.4, 5.0], to: V(-0.4, F2f + 0.3, 5.0), up: true },       // 2F 除濕機
   { on: ACT.study && !SLEEP, base: [-0.65, 1.35], to: V(-0.65, F2f + 0.78, 1.35), up: true },  // 兒童房書桌檯燈
@@ -830,6 +998,20 @@ if (P.panelOut) {
       const u = (i / n + t * (0.6 + Math.min(D.load, 6) * 0.15) / len) % 1;
       trunk.getPointAt(u, sp.position); sp.scale.setScalar(0.17);
     });
+  }
+}
+// 熱水器電源線 (屋外段，外觀模式也看得到)：從後牆穿出，沿陽台地面接到熱水器側邊的接線盒
+{
+  const y0 = F2f + 0.03, zw = -DP / 2 - 0.04;
+  const cable = poly([V(2.7, F2f + 0.2, zw), V(2.7, y0, zw), V(2.7, y0, WH[2]), V(WH[0] - 0.36, y0, WH[2]), V(WH[0] - 0.36, F2f + 0.35, WH[2])]);
+  mesh(new THREE.TubeGeometry(cable, 40, 0.014, 6), ACT.heater ? wireMat : M.dark, null, null, scene, false);
+  mesh(box(0.06, 0.14, 0.12), MI.white, [WH[0] - 0.39, F2f + 0.4, WH[2]], null, scene, false);
+  if (ACT.heater) {
+    const len = cable.getLength(), n = Math.round(len / 0.16);
+    for (let i = 0; i < n; i++) {
+      const sp = new THREE.Sprite(dotMats[((i * 0.618) % 1) < greenShare ? 0 : 1]); scene.add(sp);
+      anim.push(t => { cable.getPointAt((i / n + t * 0.9 / len) % 1, sp.position); sp.scale.setScalar(0.12); });
+    }
   }
 }
 for (const [p, r] of [[hub, 0.05], [junction, 0.08]])   // 配電盤入口與中央分電點
