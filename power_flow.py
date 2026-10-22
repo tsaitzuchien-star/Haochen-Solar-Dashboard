@@ -370,6 +370,7 @@ function chain(...curves) {
 }
 
 const eaveY = TOP + RISE - halfRun * Math.tan(slope) + 0.05;
+const roofAt = z => TOP + RISE + 0.32 - Math.abs(z) * Math.tan(slope);  // 屋面 (板面) 在 z 處的高度
 const XW = W / 2 + 0.07;   // 右側牆面外側
 const ZW = DP / 2 + 0.07;  // 正面牆面外側
 const pvDrop = [V(3.4, eaveY + 0.35, DP / 2 + 0.1), V(3.4, eaveY - 0.05, DP / 2 + OVER - 0.05)];
@@ -377,7 +378,7 @@ let P;  // 管線與標籤位置
 
 if (LAYOUT === 'front') {
   // 正面只留門窗；右側牆後段 (木紋) 中央由前往後：逆變器 (電池在正下方) → 約 2 m 後為配電盤。
-  // 太陽能沿二樓牆頂走到逆變器正上方後垂直往下；家用電由逆變器水平直達配電盤；台電由右後方電線桿架空接到二樓牆面再下到配電盤
+  // 太陽能由屋頂板陣邊緣沿屋面拉到逆變器正上方，再一直線垂直往下；家用電由逆變器水平直達配電盤；台電由右後方電線桿架空接到二樓牆面再下到配電盤
   const S = frame([W / 2, 0, 0], Math.PI / 2);
   // 設備組置中於木紋牆：IX = 逆變器/電池、PX = 配電盤 (牆面局部座標，往後為正)
   const WOOD_C = DP / 4 - 0.3, IX = WOOD_C - 1.1, PX = WOOD_C + 1.1, LX = WOOD_C;
@@ -394,13 +395,14 @@ if (LAYOUT === 'front') {
   }
   const wire = sagWire(V(pole[0] - 0.6, Y0 + 7.0, pole[2] + 0.35), service, 1.0);
   P = {
-    pv: poly([V(3.9, eaveY + 0.35, DP / 2 + 0.1), V(3.9, eaveY - 0.05, DP / 2 + OVER - 0.05), V(3.9, TOP - 0.3, ZW), V(XW, TOP - 0.3, ZW),
-              at(S, IX, TOP - 0.3, 0.07), at(S, IX, EQ_Y + INV_H / 2 + 0.05, 0.07)]),
+    pv: poly([V(xs[ALONG - 1] + PW / 2, roofAt(-IX), -IX), V(XW, roofAt(-IX), -IX), at(S, IX, EQ_Y + INV_H / 2 + 0.05, 0.07)]),
     load: poly([at(S, IX + INV_W / 2, EQ_Y, 0.07), at(S, PX - 0.35, EQ_Y, 0.07)]),
     bat: poly([at(S, IX, EQ_Y - INV_H / 2 - 0.05, 0.14), at(S, IX, Y0 + 1.4, 0.14)]),
     grid: chain(wire, poly([service, at(S, PX, EQ_Y + 0.48, 0.07)])),
     batCard: [7.6, Y0 + 0.2, -0.6], gridCard: [pole[0], Y0 + 8.0, pole[2]],
-    panelIn: at(S, PX, EQ_Y, -0.25),  // 配電盤對應的室內位置 (家中微電網起點)
+    // 主幹線由配電盤在二樓樓板下緣的高度穿牆進屋，沿樓板底走到中央分電點 (家中微電網起點)
+    panelOut: [at(S, PX, F2 - 0.06, 0.07)],
+    panelIn: at(S, PX, F2 - 0.06, -0.25),
   };
 } else if (LAYOUT === 'door') {
   // 與 front 相同，但配電盤在正面大門右手邊；家用電從逆變器沿落地窗上緣繞到正面，台電走地下管線進配電盤底部
@@ -812,6 +814,19 @@ loads.forEach((L, k) => {
     });
   }
 });
+// 主幹線：配電盤穿牆進屋到中央分電點，比分路粗，接上屋外逆變器 → 配電盤那條線
+if (P.panelOut) {
+  const trunk = poly([...P.panelOut, hub, junction]);
+  const len = trunk.getLength(), n = Math.round(len / 0.18);
+  IN(new THREE.TubeGeometry(trunk, 40, 0.024, 8), wireMat);
+  for (let i = 0; i < n; i++) {
+    const sp = new THREE.Sprite(dotMats[((i * 0.618) % 1) < greenShare ? 0 : 1]); interior.add(sp);
+    anim.push(t => {
+      const u = (i / n + t * (0.6 + Math.min(D.load, 6) * 0.15) / len) % 1;
+      trunk.getPointAt(u, sp.position); sp.scale.setScalar(0.17);
+    });
+  }
+}
 for (const [p, r] of [[hub, 0.05], [junction, 0.08]])   // 配電盤入口與中央分電點
   IN(new THREE.SphereGeometry(r, 16, 12), std(wireCol.getStyle(), 0.3, 0, { emissive: wireCol, emissiveIntensity: 2 }), p.toArray());
 
