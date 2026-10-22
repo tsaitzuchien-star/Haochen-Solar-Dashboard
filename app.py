@@ -359,7 +359,7 @@ chart_layout = dict(
 # 7.5 發電預測 (Open-Meteo ECMWF 短波輻射)
 # ==========================================
 @st.cache_data(ttl=3600)
-def fetch_pv_forecast(soc7):
+def fetch_pv_forecast(soc7, version):
     return pv_forecast.forecast(soc7=soc7)
 
 
@@ -382,8 +382,9 @@ pick = st.radio("預測日", list(day_opts), index=0 if now_tw.hour < 14 else 1,
 tomorrow = day_opts[pick]
 soc7_val, soc7_how = today_soc7()
 try:
-    fc_hourly, fc_days = with_fallback("pv_forecast", fetch_pv_forecast,
-                                       {now_tw.date(): round(soc7_val)} if soc7_val is not None else {})
+    fc_hourly, fc_days = with_fallback(f"pv_forecast-v{pv_forecast.MODEL_VERSION}", fetch_pv_forecast,
+                                       {now_tw.date(): round(soc7_val)} if soc7_val is not None else {},
+                                       pv_forecast.MODEL_VERSION)
     fd = fc_days.get(tomorrow)
 except Exception as e:
     fd = None
