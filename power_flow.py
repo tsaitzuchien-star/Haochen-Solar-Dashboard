@@ -639,27 +639,68 @@ const TV_ON = ACT.tv && !SLEEP;
 IN(box(1.96, 1.11, 0.05), MI.dark, [-2.2, F1 + 1.35, 1.82]);                                      // 電視外框
 const tvTex = canvasTex(320, 180, () => {});
 const tv = IN(new THREE.PlaneGeometry(1.9, 1.05), TV_ON ? new THREE.MeshBasicMaterial({ map: tvTex }) : MI.dark, [-2.2, F1 + 1.35, 1.85]);
-function drawTV(t) {   // 自然生態節目：日出山景、飄動的雲、跳出水面的魚，下方新聞跑馬燈
+function drawTV(t) {   // Roblox 風格的方塊遊戲實況：跑酷闖關 / 舞會兩個畫面輪播，下方跑馬燈
   const g = tvTex.image.getContext('2d'), w = 320, h = 180;
-  const sky = g.createLinearGradient(0, 0, 0, h * 0.6); sky.addColorStop(0, '#60A5FA'); sky.addColorStop(1, '#FDE68A');
-  g.fillStyle = sky; g.fillRect(0, 0, w, h);
-  g.fillStyle = '#FDBA74'; g.beginPath(); g.arc(250, 70, 22, 0, Math.PI * 2); g.fill();
-  g.fillStyle = 'rgba(255,255,255,0.9)';
-  for (const [cx, cy, sp] of [[40, 30, 9], [150, 50, 6], [260, 25, 11]]) {
-    const x = (cx + t * sp) % (w + 80) - 40;
-    g.beginPath(); g.arc(x, cy, 12, 0, Math.PI * 2); g.arc(x + 14, cy - 6, 14, 0, Math.PI * 2); g.arc(x + 30, cy, 11, 0, Math.PI * 2); g.fill();
+  // 方塊小人：黃色方頭、上衣、褲子；k = 跑步擺動
+  const avatar = (x, y, sc, shirt, pants, k = 0, face = 1) => {
+    g.save(); g.translate(x, y); g.scale(sc, sc);
+    g.fillStyle = pants; g.fillRect(-7, -14 + k * 2, 6, 14 - k * 2); g.fillRect(1, -14 - k * 2, 6, 14 + k * 2);   // 雙腳
+    g.fillStyle = shirt; g.fillRect(-8, -30, 16, 16);                                                              // 身體
+    g.fillStyle = '#FACC15'; g.fillRect(-13, -30 - k * 3, 5, 13); g.fillRect(8, -30 + k * 3, 5, 13);              // 手臂
+    g.fillRect(-6, -42, 12, 12);                                                                                  // 頭
+    g.fillStyle = '#111827'; g.fillRect(-3 * face, -38, 2, 2); g.fillRect(1 * face, -38, 2, 2); g.fillRect(-2, -34, 4, 1);
+    g.restore();
+  };
+  const block = (x, y, bw, bh, c) => {
+    g.fillStyle = c; g.fillRect(x, y, bw, bh);
+    g.fillStyle = 'rgba(255,255,255,0.25)'; g.fillRect(x, y, bw, 3);
+    g.fillStyle = 'rgba(0,0,0,0.18)'; g.fillRect(x, y + bh - 3, bw, 3);
+  };
+  const scene = Math.floor(t / 9) % 2;
+  if (scene === 0) {   // 跑酷闖關：在彩色浮台間跳躍、吃金幣
+    const sky = g.createLinearGradient(0, 0, 0, 150); sky.addColorStop(0, '#38BDF8'); sky.addColorStop(1, '#BAE6FD');
+    g.fillStyle = sky; g.fillRect(0, 0, w, 150);
+    g.fillStyle = 'rgba(255,255,255,0.95)';
+    for (const [cx, cy, sp] of [[30, 28, 6], [170, 40, 4], [280, 20, 8]]) { const x = (cx + t * sp) % (w + 60) - 30; g.fillRect(x, cy, 46, 12); g.fillRect(x + 10, cy - 8, 24, 8); }
+    g.fillStyle = '#16A34A'; g.fillRect(0, 132, w, 18);                               // 綠色底板
+    const run = t * 26, n = Math.floor(run / 80), ph = run / 80 - n;               // 每 80 px 一座浮台
+    const top = k => (k % 2 ? 78 : 100), cols = ['#EF4444', '#F59E0B', '#22C55E', '#3B82F6', '#A855F7'];
+    for (let k = n - 2; k <= n + 4; k++) block(k * 80 - run + 110 - 23, top(k), 46, 12, cols[((k % 5) + 5) % 5]);
+    const jump = Math.sin(ph * Math.PI);                                             // 小人站在 x=110，從這座跳到下一座
+    avatar(110, top(n) + (top(n + 1) - top(n)) * ph - jump * 30, 1, '#2563EB', '#1E3A8A', Math.sin(t * 14) * (1 - jump));
+    const scroll = run % 320;
+    // 旋轉金幣
+    const cw = Math.abs(Math.cos(t * 4)) * 7 + 1;
+    for (const cx of [190, 260]) { const x = (cx - scroll * 1 + 320) % 320; g.fillStyle = '#FDE047'; g.beginPath(); g.ellipse(x, 62, cw, 8, 0, 0, Math.PI * 2); g.fill(); g.strokeStyle = '#CA8A04'; g.lineWidth = 1.5; g.stroke(); }
+    g.fillStyle = 'rgba(15,23,42,0.6)'; g.fillRect(8, 8, 92, 20);
+    g.fillStyle = '#FDE047'; g.font = 'bold 13px system-ui, sans-serif'; g.textBaseline = 'middle';
+    g.fillText(`🪙 ${120 + Math.floor(t * 2) % 900}`, 14, 18);
+    g.fillStyle = '#FFFFFF'; g.fillText(`第 ${3 + Math.floor(t / 18) % 20} 關`, 62, 18);
+  } else {             // 舞會：彩色燈光、一群方塊小人跳舞
+    g.fillStyle = '#1E1B4B'; g.fillRect(0, 0, w, 150);
+    for (let i = 0; i < 5; i++) {                                                      // 掃動的舞台燈
+      const a = Math.sin(t * 1.5 + i * 1.3) * 0.5, x0 = 30 + i * 65;
+      g.fillStyle = ['rgba(236,72,153,0.25)', 'rgba(56,189,248,0.25)', 'rgba(250,204,21,0.22)', 'rgba(34,197,94,0.22)', 'rgba(168,85,247,0.25)'][i];
+      g.beginPath(); g.moveTo(x0, 0); g.lineTo(x0 + Math.tan(a) * 150 - 25, 150); g.lineTo(x0 + Math.tan(a) * 150 + 25, 150); g.fill();
+    }
+    for (let i = 0; i < 8; i++) for (let j = 0; j < 2; j++) {                         // 發光舞池
+      g.fillStyle = (i + j + Math.floor(t * 3)) % 3 ? '#312E81' : ['#EC4899', '#22D3EE', '#FACC15'][(i + j) % 3];
+      g.fillRect(i * 40, 122 + j * 14, 39, 13);
+    }
+    const crew = [['#EC4899', '#831843'], ['#22C55E', '#14532D'], ['#F97316', '#7C2D12'], ['#8B5CF6', '#4C1D95'], ['#06B6D4', '#164E63']];
+    crew.forEach(([sh, pa], i) => {
+      const hop = Math.abs(Math.sin(t * 5 + i)) * 8;
+      avatar(45 + i * 58, 124 - hop, 1.05, sh, pa, Math.sin(t * 10 + i), i % 2 ? 1 : -1);
+    });
+    g.fillStyle = 'rgba(255,255,255,0.9)'; g.font = 'bold 13px system-ui, sans-serif'; g.textBaseline = 'middle';
+    g.fillText('🎵 方塊舞會進行中', 10, 16);
   }
-  g.fillStyle = '#4D7C0F'; g.beginPath(); g.moveTo(0, 110); g.lineTo(70, 60); g.lineTo(140, 105); g.lineTo(210, 70); g.lineTo(320, 112); g.lineTo(320, 150); g.lineTo(0, 150); g.fill();
-  g.fillStyle = '#0EA5E9'; g.fillRect(0, 112, w, 38);
-  g.fillStyle = 'rgba(255,255,255,0.5)'; for (let i = 0; i < 6; i++) g.fillRect((i * 60 + t * 20) % w, 120 + (i % 3) * 9, 24, 2);
-  const fx = (t * 40) % (w + 40) - 20, fy = 118 - Math.abs(Math.sin(t * 2.2)) * 28;
-  g.fillStyle = '#F97316'; g.beginPath(); g.ellipse(fx, fy, 9, 4, -0.4, 0, Math.PI * 2); g.fill();
   g.fillStyle = '#1E293B'; g.fillRect(0, 150, w, 30);
+  g.fillStyle = '#FFFFFF'; g.font = '15px system-ui, sans-serif'; g.textBaseline = 'middle';   // 跑馬燈先畫，LIVE 標籤蓋在上面
+  g.fillText('Roblox 遊戲實況 ・ 跑酷闖關挑戰 ・ 金幣 +10 ・ 下一場：方塊舞會', w - ((t * 45) % (w + 420)), 166);
   g.fillStyle = '#DC2626'; g.fillRect(0, 150, 54, 30);
-  g.fillStyle = '#FFFFFF'; g.font = 'bold 16px system-ui, sans-serif'; g.textBaseline = 'middle';
+  g.fillStyle = '#FFFFFF'; g.font = 'bold 16px system-ui, sans-serif';
   g.fillText('LIVE', 8, 166);
-  g.font = '15px system-ui, sans-serif';
-  g.fillText('南投 今日晴 31°C ・ 太陽能發電順暢 ・ 晚間有短暫陣雨', w - ((t * 45) % (w + 420)), 166);
   tvTex.needsUpdate = true;
 }
 IN(box(2.6, 0.42, 0.9), MI.fabric, [-2.2, F1 + 0.21, 4.75]); IN(box(2.6, 0.5, 0.22), MI.fabric, [-2.2, F1 + 0.6, 5.1]);
