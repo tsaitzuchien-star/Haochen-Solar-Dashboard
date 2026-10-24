@@ -1325,11 +1325,32 @@ function tick() {
 {
   const N_CLOUD = { sunny: 2, cloudy: 7, overcast: 12, rain: 14 }[WX.kind] ?? 2;
   const cCol = NIGHT ? (RAIN ? '#2B3240' : '#3A4252') : { sunny: '#FFFFFF', cloudy: '#F4F6F8', overcast: '#C3C9D1', rain: '#8A94A0' }[WX.kind];
-  // 自帶一點亮度，雲的底部不會黑成一團
-  // 圓潤柔和的棉花糖雲：平滑球面、自帶亮度讓陰影很淡
-  const cMat = std(cCol, 1, 0, { transparent: true, opacity: RAIN || WX.kind === 'overcast' ? 0.96 : 0.92, envMapIntensity: 0.3,
-                               emissive: new THREE.Color(cCol), emissiveIntensity: NIGHT ? 0.12 : 0.5 });
-  const puff = new THREE.SphereGeometry(1, 32, 20);
+  // 自然的蓬鬆雲：每朵雲由多張半透明「雲團貼圖」(永遠面向鏡頭) 疊成，邊緣柔和、上亮下暗
+  const heavy = RAIN || WX.kind === 'overcast';
+  // 以多個柔和圓斑隨機疊出一團雲，再用徑向漸層把邊緣淡出，做出不規則的棉絮邊
+  function puffTexture(seed) {
+    let r = seed * 9301 + 49297;
+    const rnd = () => ((r = (r * 9301 + 49297) % 233280) / 233280);
+    const S = 256, cv = document.createElement('canvas'); cv.width = cv.height = S;
+    const g = cv.getContext('2d');
+    for (let i = 0; i < 70; i++) {
+      const a = rnd() * Math.PI * 2, d = Math.pow(rnd(), 0.7) * S * 0.3;
+      const x = S / 2 + Math.cos(a) * d, y = S / 2 + Math.sin(a) * d * 0.8;
+      const rad = S * (0.06 + rnd() * 0.14);
+      const gr = g.createRadialGradient(x, y, 0, x, y, rad);
+      gr.addColorStop(0, `rgba(255,255,255,${0.3 + rnd() * 0.25})`);
+      gr.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = gr; g.beginPath(); g.arc(x, y, rad, 0, Math.PI * 2); g.fill();
+    }
+    g.globalCompositeOperation = 'destination-in';   // 外圈漸淡，不會出現方形邊
+    const m = g.createRadialGradient(S / 2, S / 2, S * 0.18, S / 2, S / 2, S * 0.5);
+    m.addColorStop(0, 'rgba(0,0,0,1)'); m.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = m; g.fillRect(0, 0, S, S);
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+  const puffTex = [1, 2, 3, 4].map(puffTexture);
+  const top = new THREE.Color(NIGHT ? (RAIN ? '#3A4252' : '#4C566A') : cCol), bottom = top.clone().multiplyScalar(NIGHT ? 0.7 : (heavy ? 0.74 : 0.86));
   const sky = new THREE.Group(); scene.add(sky);
   let placed = 0;
   for (let i = 0; placed < N_CLOUD && i < 80; i++) {
@@ -1337,12 +1358,25 @@ function tick() {
     const x = r * Math.cos(a), z = r * Math.sin(a);
     if (x > 2 && z > 2) continue;          // 鏡頭方向 (前右) 不放雲，免得擋住房子
     const c = new THREE.Group(); c.position.set(x, 9.6 + (i % 4) * 0.6, z); sky.add(c);   // 高度在屋頂上方，預設視角看得到
-    const s = (RAIN || WX.kind === 'overcast') ? 1.5 : 1.1;
-    // 中間一大顆、兩側小顆往下收，底部壓平，像卡通雲
-    for (const [dx, dy, dz, k] of [[0, 0.25, 0, 1.15], [1.05, 0, 0.15, 0.85], [-1.05, -0.02, -0.1, 0.8], [1.85, -0.25, 0, 0.55],
-                                   [-1.8, -0.25, 0.1, 0.55], [0.45, 0.55, -0.35, 0.75], [-0.5, 0.45, 0.4, 0.7], [0, -0.3, 0.3, 0.9]]) {
-      const p = mesh(puff, cMat, [dx * s, dy * s, dz * s], null, c, false);
-      p.scale.set(k * s, k * s * 0.82, k * s);
+    const s = heavy ? 1.5 : 1.1, len = 2.2 + (i % 3) * 0.6;   // 每朵雲長短不一
+    let q = i * 131 + 7;
+    const rnd = () => ((q = (q * 9301 + 49297) % 233280) / 233280);
+    const n = 9 + (i % 4) * 2;
+    for (let k = 0; k < n; k++) {
+      const u = rnd() * 2 - 1;                               // -1~1：雲的左右位置
+      const hump = 1 - u * u;                                // 中間較高、兩端收細
+      const dy = (rnd() * 0.9 - 0.15) * hump;
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: puffTex[k % 4], transparent: true, depthWrite: false, fog: true,
+        opacity: (NIGHT ? 0.85 : 1) * (0.75 + rnd() * 0.25),
+        color: bottom.clone().lerp(top, Math.min(1, Math.max(0, (dy + 0.3) / 1.0))),   // 上亮下暗
+        rotation: rnd() * Math.PI * 2,
+      }));
+      const size = (2.0 + rnd() * 1.5) * (0.55 + 0.45 * hump) * s;
+      sp.scale.set(size * 1.25, size, 1);
+      sp.position.set(u * len * s, dy * s, (rnd() - 0.5) * 1.2 * s);
+      sp.renderOrder = 2;
+      c.add(sp);
     }
     placed++;
   }
