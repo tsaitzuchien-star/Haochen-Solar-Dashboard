@@ -51,6 +51,10 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 
 const D = __DATA__;
 const NIGHT = D.night;
+// 天氣：sunny / cloudy / overcast / rain (由網站依實測發電與 ECMWF 雲量、降雨判斷)
+const WX = D.weather || { kind: 'sunny' };
+const RAIN = WX.kind === 'rain';
+const DIM = { sunny: 1, cloudy: 0.72, overcast: 0.42, rain: 0.3 }[WX.kind] ?? 1;   // 直射陽光強度比例
 const wrap = document.getElementById('wrap');
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -58,7 +62,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = NIGHT ? 1.0 : 1.05;
+renderer.toneMappingExposure = NIGHT ? 1.0 : 0.95 + 0.1 * DIM;
 wrap.prepend(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -466,12 +470,13 @@ if (LAYOUT === 'front') {
 
 // ---------- 光源 ----------
 if (!NIGHT) {
-  scene.add(new THREE.HemisphereLight('#DCEBFF', '#5B6B4E', 0.9));
-  const sun = new THREE.DirectionalLight('#FFF1DC', 3.0);
+  // 陰雨天：直射光變弱、天空散射光偏灰，影子變淡 (陰天時關閉)
+  scene.add(new THREE.HemisphereLight(DIM < 0.6 ? '#C7CED6' : '#DCEBFF', '#5B6B4E', 0.9 + (1 - DIM) * 0.35));
+  const sun = new THREE.DirectionalLight(DIM < 0.6 ? '#E6E9EE' : '#FFF1DC', 3.0 * DIM);
   sun.position.set(9, 16, 10);
   Object.assign(sun.shadow.camera, { left: -14, right: 14, top: 14, bottom: -14, near: 1, far: 50 });
   sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0004; sun.shadow.radius = 4;
-  sun.castShadow = true; scene.add(sun);
+  sun.castShadow = DIM > 0.5; scene.add(sun);
   const fill = new THREE.DirectionalLight('#BFD7FF', 0.5); fill.position.set(-10, 6, -4); scene.add(fill);
 } else {
   scene.add(new THREE.HemisphereLight('#3B5BA9', '#0B1120', 0.45));
@@ -550,8 +555,8 @@ if (ACT.lights) for (const [x, y, z] of [[-2.2, C1 - 0.3, 3.4], [2.5, C1 - 0.3, 
   const l = new THREE.PointLight('#FFE3B8', NIGHT ? 6 : 3, 6.5, 2); l.position.set(x, y, z); interior.add(l);
 }
 
-function person(x, y, z, shirt, scale = 1, rotY = 0, sit = false) {
-  const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = rotY; g.scale.setScalar(scale); interior.add(g);
+function person(x, y, z, shirt, scale = 1, rotY = 0, sit = false, parent = interior) {
+  const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = rotY; g.scale.setScalar(scale); parent.add(g);
   mesh(new THREE.CapsuleGeometry(0.2, sit ? 0.35 : 0.55, 6, 12), iMat(shirt, 0.7), [0, sit ? 0.4 : 0.5, 0], null, g);
   mesh(new THREE.SphereGeometry(0.17, 16, 12), iMat('#F1C9A5', 0.6), [0, sit ? 0.88 : 1.05, 0], null, g);
   mesh(new THREE.SphereGeometry(0.175, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2), iMat('#2B2118', 0.8), [0, sit ? 0.92 : 1.09, -0.01], null, g);
@@ -902,6 +907,55 @@ function screen(x, y, z, rotY = 0) {   // 筆電 / 平板發光螢幕
   anim.push(t => { m.material.emissiveIntensity = 1.1 + 0.3 * Math.sin(t * 3); });
 }
 const eat = inRange(6, 7.5) || inRange(12, 13) || inRange(17.5, 19);
+// 兄弟倆在門口玩：週末上午、下午，平日放學後；下雨、晚上不出去
+const OUTDOOR = !RAIN && !NIGHT && !SLEEP && ((WEEKEND && (inRange(9, 11.5) || inRange(15, 17.5))) || (!WEEKEND && inRange(16, 17.5)));
+function outdoorPlay(kind) {   // 0 羽毛球、1 棒球、2 踢足球；地點在大門前草地 (屋外，外觀模式也看得到)
+  const gy = Y0 + 0.03, Z = 9.4;
+  const k1 = person(-1.8, gy, Z, SON1, 0.95, Math.PI / 2, false, scene);
+  const k2 = person(1.8, gy, Z, SON2, 0.9, -Math.PI / 2, false, scene);
+  const arc = (u, h) => 4 * u * (1 - u) * h;
+  if (kind === 0) {
+    const rk = [k1, k2].map(k => {
+      const r = new THREE.Group(); r.position.set(0, 0.75, 0.18); k.add(r);
+      mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.35, 6), MI.dark, [0, 0.17, 0], null, r);
+      mesh(new THREE.TorusGeometry(0.1, 0.012, 6, 18), MI.white, [0, 0.42, 0], null, r);
+      return r;
+    });
+    const sh = new THREE.Group(); scene.add(sh);
+    mesh(new THREE.SphereGeometry(0.03, 8, 6), MI.white, [0, 0, 0], null, sh);
+    mesh(new THREE.ConeGeometry(0.05, 0.08, 10, 1, true), MI.white, [0, 0.05, 0], null, sh);
+    const P = 1.5;
+    anim.push(t => {
+      const seg = Math.floor(t / P), u = (t % P) / P, dir = seg % 2 ? -1 : 1;
+      sh.position.set(dir * (-1.45 + 2.9 * u), gy + 1.25 + arc(u, 1.8), Z);
+      sh.rotation.z = -dir * (u - 0.5) * 2.5;
+      rk.forEach((r, i) => { const hit = (i === 0) === (dir === 1) ? u : 1 - u; r.rotation.x = -1.6 * Math.exp(-hit * 14); });
+    });
+  } else if (kind === 1) {
+    const bat = new THREE.Group(); bat.position.set(0, 0.7, 0.15); k1.add(bat);
+    mesh(new THREE.CylinderGeometry(0.035, 0.018, 0.75, 10), MI.oak, [0, 0.37, 0], null, bat);
+    const ball = mesh(new THREE.SphereGeometry(0.045, 12, 8), MI.white, [0, 0, 0], null, scene);
+    const P = 3.2;
+    anim.push(t => {
+      const c = t % P;
+      if (c < 0.8) { const u = c / 0.8; ball.position.set(1.5 - 3.0 * u, gy + 0.95 + arc(u, 0.25), Z); }   // 投球
+      else if (c < 2.6) { const u = (c - 0.8) / 1.8; ball.position.set(-1.5 + 7 * u, gy + 0.95 + arc(u, 4.2), Z + 2.2 * u); }   // 擊出高飛球
+      else ball.position.y = -5;
+      const sw = c < 0.65 ? 0 : Math.min((c - 0.65) / 0.25, 1);   // 揮棒
+      bat.rotation.set(-1.2 + 1.0 * sw, 0, 0); bat.rotation.y = -2.6 * sw;
+      k2.rotation.z = c < 0.25 ? -0.25 * Math.sin(c / 0.25 * Math.PI) : 0;   // 投手出手
+    });
+  } else {
+    const ball = mesh(new THREE.IcosahedronGeometry(0.11, 1), std('#F8FAFC', 0.6, 0, { flatShading: true }), [0, 0, 0], null, scene);
+    const P = 1.3;
+    anim.push(t => {
+      const seg = Math.floor(t / P), u = (t % P) / P, dir = seg % 2 ? -1 : 1;
+      ball.position.set(dir * (-1.5 + 3.0 * u), gy + 0.11 + arc(u, 0.18), Z + 0.15 * Math.sin(seg));
+      ball.rotation.z -= 0.15 * dir;
+      [k1, k2].forEach((k, i) => { const kick = (i === 0) === (dir === 1) ? u : 1 - u; k.rotation.x = 0.35 * Math.exp(-kick * 10) * (i ? -1 : 1); });
+    });
+  }
+}
 
 // 爸爸
 if (SLEEP) lie(2.05, F2f + 0.62, 3.9, DAD, 1.2);
@@ -923,6 +977,7 @@ else if (ACT.study) {
   [sit(-2.5, F2f + 0.15, 1.95, SON1, 1.0, Math.PI), sit(-1.3, F2f + 0.15, 1.95, SON2, 0.95, Math.PI)]
     .forEach((k, i) => anim.push(t => { k.rotation.x = 0.18 + 0.05 * Math.sin(t * 2 + i * 1.7); }));   // 低頭寫功課
 } else if (eat) { sit(2.95, F1 + 0.25, 4.05, SON1, 1.0, Math.PI); sit(2.05, F1 + 0.25, 2.55, SON2, 0.95, 0); }
+else if (OUTDOOR) outdoorPlay(Math.floor(HOUR) % 3);                                   // 不下雨的白天：門口草地玩球，每小時換一種
 else if (inRange(13, 17.5) || HOUR >= 18.5) {                                          // 客廳地毯：一個玩平板、一個玩球
   sit(-2.7, F1 - 0.05, 3.3, SON1, 0.95, Math.PI / 2); screen(-2.35, F1 + 0.42, 3.3, Math.PI / 2);
   const s2 = person(-1.6, F1, 3.0, SON2, 0.9, -Math.PI / 2);
@@ -1151,6 +1206,58 @@ function tick() {
   }
   requestAnimationFrame(tick);
 }
+// ---------- 天氣場景 ----------
+{
+  const N_CLOUD = { sunny: 2, cloudy: 7, overcast: 12, rain: 14 }[WX.kind] ?? 2;
+  const cCol = NIGHT ? (RAIN ? '#2B3240' : '#3A4252') : { sunny: '#FFFFFF', cloudy: '#F4F6F8', overcast: '#C3C9D1', rain: '#8A94A0' }[WX.kind];
+  // 自帶一點亮度，雲的底部不會黑成一團
+  // 圓潤柔和的棉花糖雲：平滑球面、自帶亮度讓陰影很淡
+  const cMat = std(cCol, 1, 0, { transparent: true, opacity: RAIN || WX.kind === 'overcast' ? 0.96 : 0.92, envMapIntensity: 0.3,
+                               emissive: new THREE.Color(cCol), emissiveIntensity: NIGHT ? 0.12 : 0.5 });
+  const puff = new THREE.SphereGeometry(1, 32, 20);
+  const sky = new THREE.Group(); scene.add(sky);
+  let placed = 0;
+  for (let i = 0; placed < N_CLOUD && i < 80; i++) {
+    const a = i * 2.39996, r = 10 + (i * 37 % 7);
+    const x = r * Math.cos(a), z = r * Math.sin(a);
+    if (x > 2 && z > 2) continue;          // 鏡頭方向 (前右) 不放雲，免得擋住房子
+    const c = new THREE.Group(); c.position.set(x, 9.6 + (i % 4) * 0.6, z); sky.add(c);   // 高度在屋頂上方，預設視角看得到
+    const s = (RAIN || WX.kind === 'overcast') ? 1.5 : 1.1;
+    // 中間一大顆、兩側小顆往下收，底部壓平，像卡通雲
+    for (const [dx, dy, dz, k] of [[0, 0.25, 0, 1.15], [1.05, 0, 0.15, 0.85], [-1.05, -0.02, -0.1, 0.8], [1.85, -0.25, 0, 0.55],
+                                   [-1.8, -0.25, 0.1, 0.55], [0.45, 0.55, -0.35, 0.75], [-0.5, 0.45, 0.4, 0.7], [0, -0.3, 0.3, 0.9]]) {
+      const p = mesh(puff, cMat, [dx * s, dy * s, dz * s], null, c, false);
+      p.scale.set(k * s, k * s * 0.82, k * s);
+    }
+    placed++;
+  }
+  anim.push(t => { sky.rotation.y = t * 0.012; });
+  if (RAIN || WX.kind === 'overcast') scene.fog = new THREE.Fog(NIGHT ? '#0B1120' : (RAIN ? '#9AA3AD' : '#BCC3CB'), 34, 85);
+  if (RAIN) {
+    // 地面與步道變濕：顏色變深、較光滑
+    M.grass.color.set('#47703A'); M.path.color.set('#8C877F'); M.path.roughness = 0.35; M.concrete.color.set('#AFAAA2');
+    const NR = 1600, H = 18, pos = new Float32Array(NR * 6), spd = new Float32Array(NR);
+    const inHouse = (x, z) => Math.abs(x) < W / 2 + 0.6 && Math.abs(z) < DP / 2 + 0.6;   // 屋子底下不下雨
+    const seed = i => { let x, z; do { const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * 12.3; x = r * Math.cos(a); z = r * Math.sin(a); } while (inHouse(x, z)); return [x, z]; };
+    for (let i = 0; i < NR; i++) {
+      const [x, z] = seed(i), y = Y0 + Math.random() * H;
+      pos.set([x, y, z, x - 0.04, y + 0.38, z], i * 6); spd[i] = 9 + Math.random() * 4;
+    }
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const drops = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: NIGHT ? '#7C8DA6' : '#DCE7F2', transparent: true, opacity: 0.55 }));
+    drops.frustumCulled = false; scene.add(drops);
+    let last = 0;
+    anim.push(t => {
+      const dt = Math.min(t - last, 0.05); last = t;
+      for (let i = 0; i < NR; i++) {
+        let y = pos[i * 6 + 1] - spd[i] * dt;
+        if (y < Y0) { const [x, z] = seed(i); y = Y0 + H; pos[i * 6] = x; pos[i * 6 + 2] = z; pos[i * 6 + 3] = x - 0.04; pos[i * 6 + 5] = z; }
+        pos[i * 6 + 1] = y; pos[i * 6 + 4] = y + 0.38;
+      }
+      geo.attributes.position.needsUpdate = true;
+    });
+  }
+}
 setXray(xray);
 tick();
 </script>
@@ -1163,13 +1270,29 @@ setTimeout(() => { if (!document.querySelector('#wrap canvas')) {
 </body></html>"""
 
 
-def power_flow_html(pv, load, batt, soc, grid, night=False, layout="front", strings=None, grid_today=None, hour=12.0, weekend=False):
-    """pv/load: kW；batt: kW (+充電/−放電)；grid: kW (+買電/−賣電)；strings: [(名稱, 顏色, kW), ...]；grid_today: {"buy","sell"} 今日買賣電 kWh。"""
+SKIES = {   # 白天天空依天氣變化；夜晚雨天更暗
+    "sunny": "linear-gradient(180deg,#5D8FC4 0%,#A9C7E3 55%,#D7E3EE 100%)",
+    "cloudy": "linear-gradient(180deg,#7E9BB8 0%,#B5C5D5 55%,#DCE3E9 100%)",
+    "overcast": "linear-gradient(180deg,#8D97A2 0%,#B9C0C8 55%,#D3D7DC 100%)",
+    "rain": "linear-gradient(180deg,#5E6873 0%,#838D97 55%,#A7AEB5 100%)",
+}
+
+
+def power_flow_html(pv, load, batt, soc, grid, night=False, layout="front", strings=None, grid_today=None, hour=12.0, weekend=False,
+                    weather=None):
+    """pv/load: kW；batt: kW (+充電/−放電)；grid: kW (+買電/−賣電)；strings: [(名稱, 顏色, kW), ...]；grid_today: {"buy","sell"} 今日買賣電 kWh；
+    weather: {"kind": sunny/cloudy/overcast/rain, ...} 讓 3D 場景跟著天氣變化。"""
     data = {"pv": round(pv, 3), "load": round(load, 3), "batt": round(batt, 3),
             "soc": int(soc), "grid": round(grid, 3), "night": bool(night), "layout": layout,
             "strings": [[name, color, round(kw, 3)] for name, color, kw in strings] if strings else [],
-            "grid_today": grid_today, "hour": round(hour, 2), "weekend": bool(weekend)}
-    sky = ("linear-gradient(180deg,#070B18 0%,#111a33 55%,#1E293B 100%)" if night
-           else "linear-gradient(180deg,#5D8FC4 0%,#A9C7E3 55%,#D7E3EE 100%)")
+            "grid_today": grid_today, "hour": round(hour, 2), "weekend": bool(weekend),
+            "weather": weather or {"kind": "sunny"}}
+    kind = data["weather"]["kind"]
+    if night:
+        sky = ("linear-gradient(180deg,#05070D 0%,#0C1222 55%,#161E2C 100%)" if kind in ("rain", "overcast")
+               else "linear-gradient(180deg,#070B18 0%,#111a33 55%,#1E293B 100%)")
+    else:
+        sky = SKIES.get(kind, SKIES["sunny"])
+    stars = "1" if night and kind in ("sunny", "cloudy") else "0"   # 陰雨夜看不到星星
     return (_TEMPLATE.replace("__DATA__", json.dumps(data))
-            .replace("__SKY__", sky).replace("__STARS__", "1" if night else "0"))
+            .replace("__SKY__", sky).replace("__STARS__", stars))
