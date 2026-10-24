@@ -102,6 +102,15 @@ def fetch_realtime():
     return rows[0]
 
 
+def grid_buy_kw(meter_w, load_w, pv_w, dis_w, chg_w):
+    """向台電購電 (kW)。這台的即時欄位 pacToUserTotal 恆為 0 (每日的 etoUserToday 才有值)，
+    所以用能量平衡推算：家用 − 太陽能 − 電池放電 + 電池充電；0.1 kW 以下視為量測誤差。"""
+    if meter_w > 0:
+        return meter_w / 1000
+    bal = (load_w - pv_w - dis_w + chg_w) / 1000
+    return bal if bal > 0.1 else 0.0
+
+
 @st.cache_data(ttl=600)
 def fetch_day_curve(day):
     rows = api_v4("queryHistoricalData", deviceSn=DEVICE_SN, deviceType=DEVICE_TYPE, date=day)["datas"] or []
@@ -110,7 +119,8 @@ def fetch_day_curve(day):
         "time": datetime.fromtimestamp(x["calendar"] / 1000, TW_TZ).replace(tzinfo=None),
         "pv": g(x, "ppv") / 1000, "load": g(x, "plocalLoadTotal") / 1000,
         "charge": g(x, "pcharge1") / 1000, "discharge": g(x, "pdischarge1") / 1000,
-        "buy": g(x, "pacToUserTotal") / 1000, "sell": g(x, "pacToGridTotal") / 1000,
+        "buy": grid_buy_kw(g(x, "pacToUserTotal"), g(x, "plocalLoadTotal"), g(x, "ppv"), g(x, "pdischarge1"), g(x, "pcharge1")),
+        "sell": g(x, "pacToGridTotal") / 1000,
         "soc": g(x, "soc"),
         # 逆變器溫度在 temp1/temp2 (歷史資料的 invTemp 恆為 0)
         "inv_temp": g(x, "temp1"), "inv_temp2": g(x, "temp2"), "bat_temp": g(x, "bmsBatteryTemp"),
@@ -243,7 +253,8 @@ age_min = max(int((now_tw - last_update).total_seconds() // 60), 0)
 stale = age_min > 20
 pv_kw, load_kw = f("ppv") / 1000, f("plocalLoadTotal") / 1000
 p_charge, p_discharge = f("pcharge1") / 1000, f("pdischarge1") / 1000
-p_buy, p_sell = f("pacToUserTotal") / 1000, f("pacToGridTotal") / 1000
+p_buy = grid_buy_kw(f("pacToUserTotal"), f("plocalLoadTotal"), f("ppv"), f("pdischarge1"), f("pcharge1"))
+p_sell = f("pacToGridTotal") / 1000
 soc = int(f("soc"))
 inv_temp = f("temp1") or f("invTemp")
 bat_temp = f("bmsBatteryTemp")
@@ -287,6 +298,8 @@ elif pv_kw > 0.05 and p_charge > 0.05:
     status = f"☀️ 太陽能供電中，同時為電池充電 {p_charge:.1f} kW（電量 {soc}%）"
 elif pv_kw > 0.05:
     status = f"☀️ 太陽能供電中（{pv_kw:.1f} kW）"
+elif p_buy > 0.05 and p_buy >= p_discharge:
+    status = f"🔌 電池剩 {soc}%，主要改由台電供電（購電 {p_buy:.1f} kW）"
 elif p_discharge > 0.05:
     status = f"🔋 電池供電中，剩餘 {soc}%，正在提供 {p_discharge:.1f} kW"
 elif p_buy > 0.05:
