@@ -1250,7 +1250,7 @@ function card(label, kw, color, extra, anchor, foot = '') {
 }
 // 光伏卡片下方列出三組功率，顏色對應屋頂外框
 const stringRows = (D.strings || []).length ? '<div class="strings">' + D.strings.map(([name, color, kw]) =>
-  `<span><i style="background:${color}"></i>${name} <b>${kw.toFixed(2)}</b> ${Math.round(Math.max(0, kw) / STRING_KWP * 100)}%</span>`).join('') + '</div>' : '';
+  `<span><i style="background:${color}"></i>${name} <b>${kw.toFixed(2)}</b></span>`).join('') + '</div>' : '';
 const battLabel = D.batt > 0.02 ? '電池充電' : (D.batt < -0.02 ? '電池放電' : '電池待機');
 const gridLabel = D.grid > 0.02 ? '電網購電' : (D.grid < -0.02 ? '賣電至電網' : '電網');
 const cards = [
