@@ -1260,7 +1260,8 @@ const stringRows = (D.strings || []).length ? '<div class="strings">' + D.string
 const stringVA = (D.strings || []).filter(s => s.length >= 5).map(([name, color, , v, a]) =>
   `<div><i style="background:${color}"></i>${name.replace(/^PV\d\s*/, '').slice(0, 1)} <b>${v.toFixed(0)}</b>V <b>${a.toFixed(1)}</b>A</div>`).join('');
 // 電池卡片標籤旁：電壓、溫度
-const battSub = D.battery && D.battery.v ? `<span class="sub"><b>${D.battery.v.toFixed(1)}</b>V` +
+const vCol = D.battery && D.battery.v ? (D.battery.v < 48.5 ? '#F87171' : D.battery.v < 49 ? '#FBBF24' : '') : '';   // 低電壓：黃 < 49 V、紅 < 48.5 V
+const battSub = D.battery && D.battery.v ? `<span class="sub"><b${vCol ? ` style="color:${vCol}"` : ''}>${D.battery.v.toFixed(1)}</b>V` +
   (D.battery.temp != null ? ` · <b>${D.battery.temp.toFixed(0)}</b>°C` : '') + '</span>' : '';
 const battLabel = (D.batt > 0.02 ? '電池充電' : (D.batt < -0.02 ? '電池放電' : '電池待機')) + battSub;
 const gridLabel = D.grid > 0.02 ? '電網購電' : (D.grid < -0.02 ? '賣電至電網' : '電網');

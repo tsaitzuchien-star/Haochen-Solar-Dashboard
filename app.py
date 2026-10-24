@@ -310,6 +310,21 @@ else:
 st.markdown(f'<div style="color:#F1F5F9; font-size:19px; font-weight:600; margin:2px 0 12px;">{status}</div>',
             unsafe_allow_html=True)
 
+# 電池低電壓提醒：這組電池電壓跌破約 48 V 時，BMS 會把電量直接歸零 (不論當時顯示幾 %)，
+# 所以接近時提醒提高放電下限 (SOC) 讓台電接手
+vbat = f("vbat")
+if 0 < vbat < 49 and not stale and p_buy > 0.05 and p_buy > p_discharge:   # 已達放電下限、台電成為主要供電
+    st.markdown(f'<div style="background:#38BDF81A; border:1px solid #38BDF8; color:#7DD3FC; border-radius:10px; padding:10px 14px; '
+                f'font-size:15px; font-weight:600; margin:-4px 0 12px;">🔌 電池電壓 {vbat:.1f} V（電量 {soc}%），已由台電接手供電，電池暫停放電</div>',
+                unsafe_allow_html=True)
+elif 0 < vbat < 49 and not stale:
+    red = vbat < 48.5
+    c = "#EF4444" if red else "#F59E0B"
+    msg = (f"電池電壓 {vbat:.1f} V，已接近 48 V 歸零點，請立即把放電下限 (SOC) 調高到目前電量 {soc}% 附近，讓台電接手供電"
+           if red else f"電池電壓 {vbat:.1f} V 偏低（電量 {soc}%），建議把放電下限 (SOC) 調高一些，避免跌破 48 V 電量歸零")
+    st.markdown(f'<div style="background:{c}1F; border:1px solid {c}; color:{c}; border-radius:10px; padding:10px 14px; '
+                f'font-size:15px; font-weight:600; margin:-4px 0 12px;">{"🔴" if red else "🟡"} {msg}</div>', unsafe_allow_html=True)
+
 if is_limited and not stale:
     spare = f"，估計還有約 <b>{ana['lost_now']:.1f} kW</b> 用不到" if ana and ana["lost_now"] >= 0.3 else ""
     st.markdown(f"""<div class="card" style="border-color:#10B98166; background:linear-gradient(90deg,#064E3B66,#1E293B); margin-bottom:14px;">
