@@ -28,6 +28,11 @@ html, body { margin:0; padding:0; background:transparent; overflow:hidden;
 .card .strings { display:flex; gap:10px; margin-top:5px; padding-top:5px; border-top:1px solid rgba(148,163,184,0.25); font-size:11px; color:#94A3B8; }
 .card .strings i { display:inline-block; width:7px; height:7px; border-radius:2px; margin-right:4px; }
 .card .strings b { color:#F1F5F9; font-weight:600; }
+.card .side { position:absolute; right:12px; top:9px; font-size:10px; line-height:1.5; color:#94A3B8; text-align:right; }
+.card .side b { color:#E2E8F0; font-weight:600; }
+.card .side i { display:inline-block; width:6px; height:6px; border-radius:2px; margin-right:3px; }
+.card .sub { font-size:10px; color:#94A3B8; margin-left:8px; }
+.card .sub b { color:#E2E8F0; font-weight:600; }
 .card .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; vertical-align:middle; }
 .hint { position:absolute; right:12px; bottom:10px; font-size:11px; color:rgba(226,232,240,0.55); pointer-events:none; }
 .tag { position:absolute; left:0; top:0; padding:3px 8px; border-radius:8px; font-size:11px; pointer-events:none; white-space:nowrap;
@@ -1242,19 +1247,25 @@ for (const f of flows) {
 }
 
 // ---------- 標籤 ----------
-function card(label, kw, color, extra, anchor, foot = '') {
+function card(label, kw, color, extra, anchor, foot = '', side = '') {
   const el = document.createElement('div'); el.className = 'card';
-  el.innerHTML = `<div class="v">${kw.toFixed(2)}<small>kW</small>${extra || ''}</div><div class="t"><span class="dot" style="background:${color};box-shadow:0 0 8px ${color}"></span>${label}</div>${foot}`;
+  el.innerHTML = (side ? `<div class="side">${side}</div>` : '') + `<div class="v">${kw.toFixed(2)}<small>kW</small>${extra || ''}</div><div class="t"><span class="dot" style="background:${color};box-shadow:0 0 8px ${color}"></span>${label}</div>${foot}`;
   wrap.appendChild(el);
   return { el, anchor: V(...anchor) };
 }
 // 光伏卡片下方列出三組功率，顏色對應屋頂外框
 const stringRows = (D.strings || []).length ? '<div class="strings">' + D.strings.map(([name, color, kw]) =>
   `<span><i style="background:${color}"></i>${name} <b>${kw.toFixed(2)}</b></span>`).join('') + '</div>' : '';
-const battLabel = D.batt > 0.02 ? '電池充電' : (D.batt < -0.02 ? '電池放電' : '電池待機');
+// 光伏卡片右上空白處：兩組的電壓、電流
+const stringVA = (D.strings || []).filter(s => s.length >= 5).map(([name, color, , v, a]) =>
+  `<div><i style="background:${color}"></i>${name.replace(/^PV\d\s*/, '').slice(0, 1)} <b>${v.toFixed(0)}</b>V <b>${a.toFixed(1)}</b>A</div>`).join('');
+// 電池卡片標籤旁：電壓、溫度
+const battSub = D.battery && D.battery.v ? `<span class="sub"><b>${D.battery.v.toFixed(1)}</b>V` +
+  (D.battery.temp != null ? ` · <b>${D.battery.temp.toFixed(0)}</b>°C` : '') + '</span>' : '';
+const battLabel = (D.batt > 0.02 ? '電池充電' : (D.batt < -0.02 ? '電池放電' : '電池待機')) + battSub;
 const gridLabel = D.grid > 0.02 ? '電網購電' : (D.grid < -0.02 ? '賣電至電網' : '電網');
 const cards = [
-  card('光伏', D.pv, C.pv, '', [0.4, TOP + RISE + 1.4, 1.6], stringRows),
+  card('光伏', D.pv, C.pv, '', [0.4, TOP + RISE + 1.4, 1.6], stringRows, stringVA),
   card('載入 (家中負載)', D.load, C.load, '', [-5.0, Y0 + 0.1, DP / 2 + 1.2]),
   card(battLabel, Math.abs(D.batt), C.bat, `<span style="color:${C.bat};font-size:16px;margin-left:10px">${D.soc}%</span>`, P.batCard),
   card(gridLabel, Math.abs(D.grid), C.grid, '', P.gridCard,
@@ -1382,12 +1393,13 @@ SKIES = {   # 白天天空依天氣變化；夜晚雨天更暗
 
 
 def power_flow_html(pv, load, batt, soc, grid, night=False, layout="front", strings=None, grid_today=None, hour=12.0, weekend=False,
-                    weather=None):
-    """pv/load: kW；batt: kW (+充電/−放電)；grid: kW (+買電/−賣電)；strings: [(名稱, 顏色, kW), ...]；grid_today: {"buy","sell"} 今日買賣電 kWh；
+                    weather=None, battery=None):
+    """pv/load: kW；batt: kW (+充電/−放電)；grid: kW (+買電/−賣電)；strings: [(名稱, 顏色, kW[, V, A]), ...]；battery: {"v", "temp"}；grid_today: {"buy","sell"} 今日買賣電 kWh；
     weather: {"kind": sunny/cloudy/overcast/rain, ...} 讓 3D 場景跟著天氣變化。"""
     data = {"pv": round(pv, 3), "load": round(load, 3), "batt": round(batt, 3),
             "soc": int(soc), "grid": round(grid, 3), "night": bool(night), "layout": layout,
-            "strings": [[name, color, round(kw, 3)] for name, color, kw in strings] if strings else [],
+            "strings": [[s[0], s[1], round(s[2], 3), *(round(x, 1) for x in s[3:5])] for s in strings] if strings else [],
+            "battery": battery,
             "grid_today": grid_today, "hour": round(hour, 2), "weekend": bool(weekend),
             "weather": weather or {"kind": "sunny"}}
     kind = data["weather"]["kind"]
