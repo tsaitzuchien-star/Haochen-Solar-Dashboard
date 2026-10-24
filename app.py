@@ -103,12 +103,26 @@ def fetch_realtime():
 
 
 def grid_buy_kw(meter_w, load_w, pv_w, dis_w, chg_w):
-    """向台電購電 (kW)。這台的即時欄位 pacToUserTotal 恆為 0 (每日的 etoUserToday 才有值)，
-    所以用能量平衡推算：家用 − 太陽能 − 電池放電 + 電池充電；0.1 kW 以下視為量測誤差。"""
+    """能量平衡推算的購電 (kW)：逆變器輸出 − 太陽能 − 電池放電 + 電池充電；0.1 kW 以下視為量測誤差。
+    注意 plocalLoadTotal 是「逆變器輸出」，台電直接供給家裡的電不算在內，所以這個值只抓得到經過逆變器的少量購電，
+    台電接手供電時要靠 grid_rate_kw 從購電累計量推算。"""
     if meter_w > 0:
         return meter_w / 1000
     bal = (load_w - pv_w - dis_w + chg_w) / 1000
     return bal if bal > 0.1 else 0.0
+
+
+GRID_WINDOW = pd.Timedelta(minutes=20)
+
+
+def grid_rate_kw(t0, e0, t1, e1):
+    """由今日購電累計 (etoUserToday，0.1 kWh 一格) 的增加速度推算購電功率 (kW)。
+    這台的即時購電欄位與 CT 欄位恆為 0，這是唯一可靠的來源；20 分鐘內增加至少 0.2 kWh (約 0.6 kW 以上) 才採用，
+    避免白天零星的 0.1 kWh 被誤判。"""
+    hrs = (t1 - t0).total_seconds() / 3600
+    if hrs < 10 / 60 or e1 - e0 < 0.2 - 1e-6:
+        return 0.0
+    return (e1 - e0) / hrs
 
 
 @st.cache_data(ttl=600)
@@ -127,8 +141,19 @@ def fetch_day_curve(day):
         # 歷史資料的 ppv1~3 恆為 0，各組功率以電壓 x 電流計算
         **{f"pv{i}": g(x, f"vpv{i}") * g(x, f"ipv{i}") / 1000 for i in (1, 2, 3)},
         **{f"{k}{i}": g(x, f"{k}{i}") for k in ("vpv", "ipv") for i in (1, 2, 3)},
+        "eto_user": g(x, "etoUserToday"),
     } for x in rows])
-    return df.sort_values("time").reset_index(drop=True) if not df.empty else df
+    if df.empty:
+        return df
+    df = df.sort_values("time").reset_index(drop=True)
+    # 台電接手供電時，購電改由累計量推算 (往前 20 分鐘的平均，再往回移半個視窗對齊時間)，家中負載 = 逆變器輸出 + 台電
+    j = df["time"].searchsorted(df["time"] - GRID_WINDOW)
+    rate = pd.Series([grid_rate_kw(df["time"][k], df["eto_user"][k], df["time"][i], df["eto_user"][i]) for i, k in enumerate(j)])
+    rate = rate.shift(-2).fillna(rate)
+    extra = (rate - df["buy"]).clip(lower=0)
+    df["buy"] += extra
+    df["load"] += extra
+    return df
 
 
 @st.cache_resource
@@ -254,6 +279,14 @@ stale = age_min > 20
 pv_kw, load_kw = f("ppv") / 1000, f("plocalLoadTotal") / 1000
 p_charge, p_discharge = f("pcharge1") / 1000, f("pdischarge1") / 1000
 p_buy = grid_buy_kw(f("pacToUserTotal"), f("plocalLoadTotal"), f("ppv"), f("pdischarge1"), f("pcharge1"))
+# 台電接手供電：用今日購電累計與約 20 分鐘前的紀錄比較，推算目前購電，並補進家中負載
+if not curve.empty and "eto_user" in curve:
+    ref = curve[curve["time"] <= last_update.replace(tzinfo=None) - pd.Timedelta(minutes=15)]
+    if not ref.empty and last_update.replace(tzinfo=None) - ref["time"].iloc[-1] <= pd.Timedelta(minutes=40):
+        rate = grid_rate_kw(ref["time"].iloc[-1], ref["eto_user"].iloc[-1], last_update.replace(tzinfo=None), f("etoUserToday"))
+        if rate > p_buy:
+            load_kw += rate - p_buy
+            p_buy = rate
 p_sell = f("pacToGridTotal") / 1000
 soc = int(f("soc"))
 inv_temp = f("temp1") or f("invTemp")
@@ -315,7 +348,7 @@ st.markdown(f'<div style="color:#F1F5F9; font-size:19px; font-weight:600; margin
 vbat = f("vbat")
 if 0 < vbat < 49 and not stale and p_buy > 0.05 and p_buy > p_discharge:   # 已達放電下限、台電成為主要供電
     st.markdown(f'<div style="background:#38BDF81A; border:1px solid #38BDF8; color:#7DD3FC; border-radius:10px; padding:10px 14px; '
-                f'font-size:15px; font-weight:600; margin:-4px 0 12px;">🔌 電池電壓 {vbat:.1f} V（電量 {soc}%），已由台電接手供電，電池暫停放電</div>',
+                f'font-size:15px; font-weight:600; margin:-4px 0 12px;">🔌 電池電壓 {vbat:.1f} V（電量 {soc}%），已由台電接手主要供電</div>',
                 unsafe_allow_html=True)
 elif 0 < vbat < 49 and not stale:
     red = vbat < 48.5
