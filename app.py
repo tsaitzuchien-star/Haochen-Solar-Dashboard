@@ -304,6 +304,8 @@ soc = int(f("soc"))
 inv_temp = f("temp1") or f("invTemp")
 bat_temp = f("bmsBatteryTemp")
 str_kw = [(f(f"ppv{n}") or f(f"vpv{n}") * f(f"ipv{n}")) / 1000 for n, *_ in STRINGS]
+# PV 電流：沒在發電 (電壓低於 50 V) 時，電流感測器有固定 0.2~0.3 A 的零點偏移，不是真的有電流，顯示為 0
+ipv = lambda n: f(f"ipv{n}") if f(f"vpv{n}") >= 50 else 0.0
 str_today = [f(f"epv{n}Today") for n, *_ in STRINGS]
 is_limited = (pv_kw > 0.05 and soc >= 95 and p_charge < 0.1 and p_sell < 0.05
               and 8 <= last_update.hour < 16)
@@ -437,7 +439,7 @@ with col_main:
     is_night = pv_kw < 0.05 and not (6 <= last_update.hour < 18)
     components.html(power_flow_html(pv=pv_kw, load=load_kw, batt=p_charge - p_discharge, soc=soc,
                                     grid=p_buy - p_sell, night=is_night,
-                                    strings=[(f"{name} {where[:2]}", color, kw, f(f"vpv{n}"), f(f"ipv{n}"))
+                                    strings=[(f"{name} {where[:2]}", color, kw, f(f"vpv{n}"), ipv(n))
                                              for (n, name, where, color), kw in zip(STRINGS, str_kw)],
                                     battery={"v": f("vbat"), "temp": bat_temp or None},
                                     grid_today={"buy": f("etoUserToday"), "sell": f("etoGridToday")},
@@ -628,7 +630,7 @@ for i, (n, name, where, color) in enumerate(STRINGS):
       <div style="display:flex; justify-content:space-between; align-items:baseline;">
         <span style="color:{color}; font-weight:700;">{name}</span><span class="kpi-sub">{where}</span></div>
       <div class="kpi-value">{kw:.2f}<span class="kpi-unit">kW</span></div>
-      <div class="kpi-sub">{f(f'vpv{n}'):.0f} V · {f(f'ipv{n}'):.1f} A</div>
+      <div class="kpi-sub">{f(f'vpv{n}'):.0f} V · {ipv(n):.1f} A</div>
       <div style="color:#CBD5E1; font-size:13px; margin-top:6px;">今日 <b>{today:.1f}</b> kWh（{share:.0f}%）</div>
       <div class="kpi-sub">{today / string_kwp:.2f} kWh/kWp</div>{note}</div>"""
 st.markdown(f'<div class="grid2">{cards_html}</div>', unsafe_allow_html=True)
@@ -736,10 +738,14 @@ with tab_dev:
         ("今日充 / 放電", f"{f('echarge1Today'):.1f} / {f('edischarge1Today'):.1f} kWh"),
         ("溫度", f"{bat_temp:.1f} °C"),
     ]), unsafe_allow_html=True)
-    d3.markdown(diag_card("⚡ 市電 / 離網", C_GRID, [
+    # 家裡的負載接在逆變器的備援 (EPS) 輸出：平常家中用電都經過這裡 (L1 + L2)；
+    # 電池到放電下限時逆變器切到旁路，台電經內部繼電器直接供電給家裡，這裡就量不到 (接近 0)
+    eps_w = f("upsPac1") + f("upsPac2")
+    eps_txt = f"{eps_w:.0f} W" + ("（台電旁路直供中）" if eps_w < 50 and p_buy > 0.05 else "")
+    d3.markdown(diag_card("⚡ 市電 / 備援輸出", C_GRID, [
         ("電網電壓 L1 / L2", f"{f('vac1'):.1f} / {f('vac2'):.1f} V"),
         ("電網頻率", f"{f('fac'):.2f} Hz"),
-        ("離網輸出", f"{f('upsVac1'):.0f} V / {f('upsPac1'):.0f} W"),
+        ("備援輸出 L1 + L2", eps_txt),
     ]), unsafe_allow_html=True)
 
 with tab_trend:
