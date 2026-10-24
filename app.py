@@ -332,7 +332,7 @@ elif pv_kw > 0.05 and p_charge > 0.05:
 elif pv_kw > 0.05:
     status = f"☀️ 太陽能供電中（{pv_kw:.1f} kW）"
 elif p_buy > 0.05 and p_buy >= p_discharge:
-    status = f"🔌 電池剩 {soc}%，改由台電即時供電 {p_buy:.1f} kW"
+    status = f"🪫 電池剩 {soc}%，改由台電即時供電 {p_buy:.1f} kW"
 elif p_discharge > 0.05:
     status = f"🔋 電池供電中，剩餘 {soc}%，正在提供 {p_discharge:.1f} kW"
 elif p_buy > 0.05:
@@ -348,7 +348,7 @@ st.markdown(f'<div style="color:#F1F5F9; font-size:19px; font-weight:600; margin
 vbat = f("vbat")
 if 0 < vbat < 49 and not stale and p_buy > 0.05 and p_buy > p_discharge:   # 已達放電下限、台電成為主要供電
     st.markdown(f'<div style="background:#38BDF81A; border:1px solid #38BDF8; color:#7DD3FC; border-radius:10px; padding:10px 14px; '
-                f'font-size:15px; font-weight:600; margin:-4px 0 12px;">🔌 電池電壓 {vbat:.1f} V（電量 {soc}%），已由台電接手主要供電</div>',
+                f'font-size:15px; font-weight:600; margin:-4px 0 12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">🪫 電池 {vbat:.1f} V（{soc}%），台電已接手供電</div>',
                 unsafe_allow_html=True)
 elif 0 < vbat < 49 and not stale:
     red = vbat < 48.5
