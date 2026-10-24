@@ -116,7 +116,7 @@ def fetch_day_curve(day):
         "inv_temp": g(x, "temp1"), "inv_temp2": g(x, "temp2"), "bat_temp": g(x, "bmsBatteryTemp"),
         # 歷史資料的 ppv1~3 恆為 0，各組功率以電壓 x 電流計算
         **{f"pv{i}": g(x, f"vpv{i}") * g(x, f"ipv{i}") / 1000 for i in (1, 2, 3)},
-        **{f"{k}{i}": g(x, f"{k}{i}") for k in ("vpv", "ipv") for i in (1, 3)},
+        **{f"{k}{i}": g(x, f"{k}{i}") for k in ("vpv", "ipv") for i in (1, 2, 3)},
     } for x in rows])
     return df.sort_values("time").reset_index(drop=True) if not df.empty else df
 
@@ -614,7 +614,8 @@ with st.expander("📥 下載逐 5 分鐘明細（CSV）"):
     try:
         dl = curve if dl_day == now_tw.date() else with_fallback(f"curve-{dl_day}", fetch_day_curve, dl_day.strftime("%Y-%m-%d"))
         cols = {"time": "時間", "pv": "總發電kW", "pv1": "PV1西坡kW", "vpv1": "PV1電壓V", "ipv1": "PV1電流A",
-                "pv3": "PV3東坡kW", "vpv3": "PV3電壓V", "ipv3": "PV3電流A", "load": "用電kW", "charge": "充電kW",
+                "pv3": "PV3東坡kW", "vpv3": "PV3電壓V", "ipv3": "PV3電流A",
+                "pv2": "PV2kW(改線前東西混串)", "vpv2": "PV2電壓V", "ipv2": "PV2電流A", "load": "用電kW", "charge": "充電kW",
                 "discharge": "放電kW", "buy": "買電kW", "sell": "賣電kW", "soc": "電池%"}
         out = dl[[c for c in cols if c in dl.columns]].rename(columns=cols)
         st.download_button(f"下載 {dl_day} 明細（{len(out)} 筆）", out.to_csv(index=False).encode("utf-8-sig"),
