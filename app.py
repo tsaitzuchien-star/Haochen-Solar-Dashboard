@@ -361,7 +361,9 @@ with col_main:
     is_night = pv_kw < 0.05 and not (6 <= last_update.hour < 18)
     components.html(power_flow_html(pv=pv_kw, load=load_kw, batt=p_charge - p_discharge, soc=soc,
                                     grid=p_buy - p_sell, night=is_night,
-                                    strings=[(f"{name} {where[:2]}", color, kw) for (_, name, where, color), kw in zip(STRINGS, str_kw)],
+                                    strings=[(f"{name} {where[:2]}", color, kw, f(f"vpv{n}"), f(f"ipv{n}"))
+                                             for (n, name, where, color), kw in zip(STRINGS, str_kw)],
+                                    battery={"v": f("vbat"), "temp": bat_temp or None},
                                     grid_today={"buy": f("etoUserToday"), "sell": f("etoGridToday")},
                                     hour=last_update.hour + last_update.minute / 60, weekend=last_update.weekday() >= 5,
                                     weather=current_weather()), height=520)
