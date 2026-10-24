@@ -515,6 +515,64 @@ const IN = (geo, mat, pos, rot) => mesh(geo, mat, pos, rot, interior);
 const anim = [];
 const F1 = Y0 + 0.31, F2f = F2 + 0.09, C1 = Y0 + FL - 0.05, C2 = TOP - 0.05;
 
+// ---------- 發電水位：每坡 12 片 (5.34 kWp) 由屋簷往屋脊依發電比例「注滿」發光 ----------
+const STRING_KWP = 12 * 0.445;
+const levelTex = canvasTex(8, 128, (g, w, h) => {  // 上緣 (水面) 最亮，往下漸淡
+  const gr = g.createLinearGradient(0, 0, 0, h);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.12, 'rgba(255,255,255,0.8)'); gr.addColorStop(1, 'rgba(255,255,255,0.5)');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+});
+function levelLabel(text, color) {
+  const tex = canvasTex(256, 96, (g, w, h) => {
+    g.font = 'bold 64px -apple-system, "Segoe UI", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.lineWidth = 10; g.strokeStyle = 'rgba(15,23,42,0.85)'; g.strokeText(text, w / 2, h / 2);
+    g.fillStyle = color; g.fillText(text, w / 2, h / 2);
+  });
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, fog: false }));
+  s.scale.set(1.6, 0.6, 1); s.renderOrder = 10;
+  return s;
+}
+for (const [name, color, kw] of D.strings || []) {
+  const roof = /東/.test(name) ? roofs[1] : /西/.test(name) ? roofs[-1] : null;
+  if (!roof) continue;
+  const frac = Math.min(1, Math.max(0, kw) / STRING_KWP);
+  const xa = xs[0] - PW / 2, xb = xs[ALONG - 1] + PW / 2, width = xb - xa, cx = (xa + xb) / 2;
+  const span = 3 * PL + 2 * GAP;
+  const eave = toward(roof, ridgeZ + span), dir = Math.sign(toward(roof, -1));  // dir：屋簷往屋脊的方向
+  const h = frac > 0.003 ? Math.max(frac, 0.03) * span : 0;
+  const lab = levelLabel(`${Math.round(frac * 100)}%`, color);
+  lab.position.set(cx, 0.55, eave - dir * 0.55); roof.add(lab);  // 標在屋簷外側，不被資訊卡擋住
+  const col = new THREE.Color(color);
+  // 空杯：整片 12 片的範圍淡淡標出 100% 的容量
+  const empty = mesh(new THREE.PlaneGeometry(width, span), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.12, depthWrite: false, fog: false }),
+       [cx, 0.15, eave + dir * span / 2], [-Math.PI / 2, 0, 0], roof, false);
+  empty.renderOrder = 4;  // 透視模式下板子半透明，水位要畫在板子之後才看得到
+  if (!h) continue;
+  const fillMat = new THREE.MeshBasicMaterial({ map: levelTex, color: col.clone().lerp(new THREE.Color('#FFFFFF'), 0.15), transparent: true,
+    opacity: 0.85, depthWrite: false, side: THREE.DoubleSide, toneMapped: false, fog: false });
+  const fill = mesh(new THREE.PlaneGeometry(width, h), fillMat, [cx, 0.155, eave + dir * h / 2], [-Math.PI / 2, 0, roof === roofs[-1] ? Math.PI : 0], roof, false);
+  const surfMat = new THREE.MeshBasicMaterial({ color: col.clone().lerp(new THREE.Color('#FFFFFF'), 0.5), transparent: true,
+    depthWrite: false, toneMapped: false, fog: false });
+  const surf = mesh(box(width + 0.08, 0.03, 0.1), surfMat, [cx, 0.17, eave + dir * h], null, roof, false);
+  fill.renderOrder = 5; surf.renderOrder = 6;
+  // 水位內往上冒的光點，功率越大越多、越快
+  const sMat = new THREE.SpriteMaterial({ map: glowTex0(), color: col, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false });
+  const bubbles = Array.from({ length: 4 + Math.round(frac * 14) }, () => {
+    const s = new THREE.Sprite(sMat); s.renderOrder = 6; roof.add(s);
+    return { s, x: xa + Math.random() * width, ph: Math.random(), sp: 0.25 + frac * 0.6 + Math.random() * 0.15 };
+  });
+  anim.push(t => {
+    const pulse = 0.5 + 0.5 * Math.sin(t * 2.2);
+    fillMat.opacity = 0.7 + 0.25 * pulse;
+    surfMat.opacity = 0.7 + 0.3 * pulse;
+    for (const b of bubbles) {
+      const u = (b.ph + t * b.sp * 0.3) % 1;
+      b.s.position.set(b.x, 0.2, eave + dir * u * h);
+      b.s.scale.setScalar(0.22 * Math.min(1, u / 0.15, (1 - u) / 0.15));
+    }
+  });
+}
+
 // 材質：木地板、溫暖布料、深色科技面板
 const floorTex = canvasTex(256, 256, (g, w, h) => {
   for (let i = 0; i < 8; i++) { g.fillStyle = ['#C8A27A', '#BF9870', '#CDA982', '#C29C74'][i % 4]; g.fillRect(0, i * h / 8, w, h / 8 - 2);
@@ -1147,7 +1205,7 @@ function card(label, kw, color, extra, anchor, foot = '') {
 }
 // 光伏卡片下方列出三組功率，顏色對應屋頂外框
 const stringRows = (D.strings || []).length ? '<div class="strings">' + D.strings.map(([name, color, kw]) =>
-  `<span><i style="background:${color}"></i>${name} <b>${kw.toFixed(2)}</b></span>`).join('') + '</div>' : '';
+  `<span><i style="background:${color}"></i>${name} <b>${kw.toFixed(2)}</b> ${Math.round(Math.max(0, kw) / STRING_KWP * 100)}%</span>`).join('') + '</div>' : '';
 const battLabel = D.batt > 0.02 ? '電池充電' : (D.batt < -0.02 ? '電池放電' : '電池待機');
 const gridLabel = D.grid > 0.02 ? '電網購電' : (D.grid < -0.02 ? '賣電至電網' : '電網');
 const cards = [
