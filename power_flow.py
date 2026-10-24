@@ -500,7 +500,7 @@ const inRange = (a, b) => HOUR >= a && HOUR < b;
 const SLEEP = HOUR >= 23 || HOUR < 6;
 const ACT = {
   lights: (HOUR >= 17 || HOUR < 6.5 || NIGHT) && !SLEEP,
-  kitchen: inRange(6, 7.5) || inRange(11, 12.5) || inRange(17, 19),
+  kitchen: inRange(6, 6.75) || inRange(11, 12) || inRange(17, 18),   // 先下廚，煮好再上桌吃 (見 eat)
   tv: inRange(7, 8) || inRange(12, 13) || inRange(19, 23) || (WEEKEND && inRange(13, 17)),
   study: (!WEEKEND && inRange(18.5, 22)) || (WEEKEND && inRange(9, 11)),
   heater: inRange(9, 15) && D.pv > 0.8,   // 白天用太陽能加熱洗澡熱水
@@ -964,7 +964,52 @@ function screen(x, y, z, rotY = 0) {   // 筆電 / 平板發光螢幕
   const m = IN(box(0.32, 0.22, 0.02), glow('#93C5FD', 1.4), [x, y, z], [0, rotY, 0]);
   anim.push(t => { m.material.emissiveIntensity = 1.1 + 0.3 * Math.sin(t * 3); });
 }
-const eat = inRange(6, 7.5) || inRange(12, 13) || inRange(17.5, 19);
+const eat = inRange(6.75, 7.5) || inRange(12, 13) || inRange(18, 19);
+// 用餐時餐桌擺滿：早餐吐司、荷包蛋、牛奶；午晚餐白飯配三菜一湯 (熱湯冒煙)
+if (eat) {
+  const TY = F1 + 0.787, TX = 2.5, TZ = 3.3;   // 桌面高 F1 + 0.775
+  const plate = (x, z, r = 0.13) => IN(new THREE.CylinderGeometry(r, r * 0.8, 0.02, 24), MI.white, [x, TY, z]);
+  const seats = [[-0.45, 0.42], [0.45, 0.42], [-0.45, -0.42], [0.45, -0.42]];
+  if (HOUR < 9) {
+    for (const [dx, dz] of seats) {
+      const x = TX + dx, z = TZ + dz * 0.75;
+      plate(x, z);
+      IN(box(0.13, 0.02, 0.13), iMat('#E8B76A', 0.8), [x - 0.03, TY + 0.02, z]);                            // 吐司
+      IN(new THREE.CylinderGeometry(0.05, 0.05, 0.012, 16), MI.white, [x + 0.05, TY + 0.02, z - 0.03]);        // 荷包蛋
+      IN(new THREE.CylinderGeometry(0.022, 0.022, 0.014, 12), iMat('#FBBF24', 0.4), [x + 0.05, TY + 0.03, z - 0.03]);
+      IN(new THREE.CylinderGeometry(0.035, 0.03, 0.12, 14), iMat('#F8FAFC', 0.3), [x + 0.17, TY + 0.06, z]);   // 牛奶
+    }
+    IN(new THREE.SphereGeometry(0.05, 12, 10), iMat('#F97316', 0.6), [TX - 0.08, TY + 0.04, TZ]);              // 水果
+    IN(new THREE.SphereGeometry(0.045, 12, 10), iMat('#DC2626', 0.6), [TX + 0.05, TY + 0.04, TZ + 0.03]);
+    IN(box(0.16, 0.025, 0.04), iMat('#FDE047', 0.6), [TX + 0.12, TY + 0.02, TZ - 0.06], [0, 0.4, 0]);
+  } else {
+    for (const [dx, dz] of seats) {
+      const x = TX + dx, z = TZ + dz * 0.75;
+      plate(x, z, 0.1);
+      IN(new THREE.SphereGeometry(0.06, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), MI.white, [x - 0.05, TY + 0.065, z], [Math.PI, 0, 0]);  // 飯碗
+      IN(new THREE.SphereGeometry(0.052, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), iMat('#FFFFFF', 0.9), [x - 0.05, TY + 0.055, z]).scale.y = 0.6;     // 白飯
+      for (const k of [-1, 1]) IN(box(0.008, 0.008, 0.2), MI.walnut, [x + 0.09 + k * 0.012, TY + 0.015, z]);                         // 筷子
+    }
+    // 三道菜：清蒸魚、炒青菜、番茄炒蛋
+    IN(new THREE.CylinderGeometry(0.17, 0.14, 0.02, 24), MI.white, [TX - 0.28, TY, TZ]).scale.set(1.3, 1, 0.75);
+    IN(new THREE.SphereGeometry(0.1, 14, 10), iMat('#D6D3D1', 0.5), [TX - 0.28, TY + 0.03, TZ]).scale.set(1.4, 0.35, 0.5);
+    IN(new THREE.ConeGeometry(0.045, 0.08, 4), iMat('#D6D3D1', 0.5), [TX - 0.46, TY + 0.03, TZ], [0, 0, Math.PI / 2]).scale.set(1, 1, 0.4);
+    for (let i = 0; i < 5; i++) IN(box(0.05, 0.006, 0.006), iMat('#22C55E', 0.5), [TX - 0.3 + (i - 2) * 0.04, TY + 0.06, TZ + (i % 2) * 0.02]);
+    plate(TX + 0.12, TZ - 0.12, 0.12);
+    for (let i = 0; i < 9; i++) IN(new THREE.SphereGeometry(0.028, 8, 6), iMat(i % 3 ? '#16A34A' : '#22C55E', 0.6), [TX + 0.12 + 0.07 * Math.cos(i * 2.4) * (i % 3) / 2, TY + 0.025, TZ - 0.12 + 0.07 * Math.sin(i * 2.4) * (i % 3) / 2]);
+    plate(TX + 0.12, TZ + 0.14, 0.12);
+    for (let i = 0; i < 9; i++) IN(new THREE.SphereGeometry(0.028, 8, 6), iMat(i % 2 ? '#EF4444' : '#FACC15', 0.6), [TX + 0.12 + 0.07 * Math.cos(i * 2.1) * (i % 3) / 2, TY + 0.025, TZ + 0.14 + 0.07 * Math.sin(i * 2.1) * (i % 3) / 2]);
+    // 湯鍋與熱氣
+    IN(new THREE.CylinderGeometry(0.11, 0.09, 0.1, 20), iMat('#B45309', 0.5), [TX + 0.42, TY + 0.05, TZ]);
+    IN(new THREE.CircleGeometry(0.1, 20), iMat('#FDBA74', 0.3), [TX + 0.42, TY + 0.095, TZ], [-Math.PI / 2, 0, 0]);
+    const st = glowTex0();
+    for (let i = 0; i < 5; i++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: st, color: '#F1F5F9', transparent: true, depthWrite: false })); interior.add(sp);
+      anim.push(t => { const k = (t * 0.4 + i / 5) % 1; sp.position.set(TX + 0.42 + 0.04 * Math.sin(t * 1.5 + i), TY + 0.12 + k * 0.45, TZ);
+        sp.material.opacity = 0.5 * (1 - k); sp.scale.setScalar(0.08 + k * 0.18); });
+    }
+  }
+}
 // 兄弟倆在門口玩：週末上午、下午，平日放學後；下雨、晚上不出去
 const OUTDOOR = !RAIN && !NIGHT && !SLEEP && ((WEEKEND && (inRange(9, 11.5) || inRange(15, 17.5))) || (!WEEKEND && inRange(16, 17.5)));
 function outdoorPlay(kind) {   // 0 羽毛球、1 棒球、2 踢足球；地點在大門前草地 (屋外，外觀模式也看得到)
