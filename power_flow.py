@@ -1264,7 +1264,7 @@ const vCol = D.battery && D.battery.v ? (D.battery.v < 48.5 ? '#F87171' : D.batt
 const battSub = D.battery && D.battery.v ? `<span class="sub"><b${vCol ? ` style="color:${vCol}"` : ''}>${D.battery.v.toFixed(1)}</b>V` +
   (D.battery.temp != null ? ` · <b>${D.battery.temp.toFixed(0)}</b>°C` : '') + '</span>' : '';
 const battLabel = (D.batt > 0.02 ? '電池充電' : (D.batt < -0.02 ? '電池放電' : '電池待機')) + battSub;
-const gridLabel = D.grid > 0.02 ? '電網購電' : (D.grid < -0.02 ? '賣電至電網' : '電網');
+const gridLabel = D.grid > 0.02 ? '台電即時供電' : (D.grid < -0.02 ? '賣電至電網' : '電網');
 const cards = [
   card('光伏', D.pv, C.pv, '', [0.4, TOP + RISE + 1.4, 1.6], stringRows, stringVA),
   card('載入 (家中負載)', D.load, C.load, '', [-5.0, Y0 + 0.1, DP / 2 + 1.2]),
