@@ -326,17 +326,17 @@ if stale:
 elif is_limited:
     status = "☀️ 電池已充滿，太陽能正被限制輸出 — 現在用電等於免費"
 elif pv_kw > 0.05 and p_buy > 0.05:
-    status = f"☀️ 太陽能 {pv_kw:.1f} kW 不夠用，部分向台電購電 {p_buy:.1f} kW"
+    status = f"☀️ 太陽能 {pv_kw:.1f} kW 不夠用，台電即時補上 {p_buy:.1f} kW"
 elif pv_kw > 0.05 and p_charge > 0.05:
     status = f"☀️ 太陽能供電中，同時為電池充電 {p_charge:.1f} kW（電量 {soc}%）"
 elif pv_kw > 0.05:
     status = f"☀️ 太陽能供電中（{pv_kw:.1f} kW）"
 elif p_buy > 0.05 and p_buy >= p_discharge:
-    status = f"🔌 電池剩 {soc}%，主要改由台電供電（購電 {p_buy:.1f} kW）"
+    status = f"🔌 電池剩 {soc}%，改由台電即時供電 {p_buy:.1f} kW"
 elif p_discharge > 0.05:
     status = f"🔋 電池供電中，剩餘 {soc}%，正在提供 {p_discharge:.1f} kW"
 elif p_buy > 0.05:
-    status = f"🔌 向台電購電中（{p_buy:.1f} kW）"
+    status = f"🔌 台電即時供電中（{p_buy:.1f} kW）"
 else:
     status = "💤 系統待機中"
 
