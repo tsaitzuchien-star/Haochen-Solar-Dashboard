@@ -116,7 +116,7 @@ def grid_rate_kw(times, eto, now_t):
     """由今日購電累計 (etoUserToday，每 0.1 kWh 跳一格) 推算目前的台電供電功率 (kW)。
     這台的即時購電欄位與 CT 欄位恆為 0，這是唯一可靠的來源。做法是量「每跳一格之間隔多久」：
     取最近一次跳格，往回找到至少差 0.2 kWh 且相隔 15 分鐘以上 (最多回看 60 分鐘) 的跳格，平均功率 = 度數差 ÷ 時間差；
-    如果最近一次跳格之後已經過了比預期更久，代表用電變小，功率再往下修。"""
+    如果最近一次跳格之後已經過了比預期更久，代表用電變小，功率再往下修；超過預期間隔兩倍就視為台電已停止供電。"""
     steps = [(times[i], eto[i]) for i in range(1, len(eto)) if eto[i] > eto[i - 1] + 1e-6]
     if not steps:
         return 0.0
@@ -133,6 +133,8 @@ def grid_rate_kw(times, eto, now_t):
             rate = (e_last - e_k) / hrs
         if e_last - e_k >= 0.2 - 1e-6 and hrs >= 0.25:   # 至少 0.2 kWh 且跨 15 分鐘，平均掉 0.1 kWh 一格的跳動
             break
+    if rate and since > 2 * 0.1 / rate:      # 超過平常兩倍的時間都沒再跳格：台電已經停止供電
+        return 0.0
     if rate and since > 0.1 / rate:          # 該跳格的時間到了卻還沒跳：用電變小了
         rate = 0.1 / since
     return rate
