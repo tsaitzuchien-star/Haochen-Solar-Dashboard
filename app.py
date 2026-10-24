@@ -116,6 +116,7 @@ def fetch_day_curve(day):
         "inv_temp": g(x, "temp1"), "inv_temp2": g(x, "temp2"), "bat_temp": g(x, "bmsBatteryTemp"),
         # 歷史資料的 ppv1~3 恆為 0，各組功率以電壓 x 電流計算
         **{f"pv{i}": g(x, f"vpv{i}") * g(x, f"ipv{i}") / 1000 for i in (1, 2, 3)},
+        **{f"{k}{i}": g(x, f"{k}{i}") for k in ("vpv", "ipv") for i in (1, 3)},
     } for x in rows])
     return df.sort_values("time").reset_index(drop=True) if not df.empty else df
 
@@ -304,6 +305,54 @@ if is_limited and not stale:
     </div>""", unsafe_allow_html=True)
 
 # ==========================================
+# 6.5 天氣預報 (預測區與 3D 場景共用)
+# ==========================================
+@st.cache_data(ttl=3600)
+def fetch_pv_forecast(soc7, version):
+    return pv_forecast.forecast(soc7=soc7)
+
+
+def today_soc7():
+    """今天早上 7 點的電量：7 點後取 7:00~7:30 的第一筆實測，7 點前以目前電量扣掉到 7 點的預估用電。"""
+    seven = now_tw.replace(hour=7, minute=0, second=0, microsecond=0, tzinfo=None)
+    if now_tw.hour >= 7:
+        after = curve[curve["time"] >= seven] if not curve.empty else curve
+        if not after.empty and after["time"].iloc[0] <= seven + timedelta(minutes=30):
+            return float(after["soc"].iloc[0]), "actual"
+        return None, None
+    left = sum(pv_forecast.LOAD_PROFILE[h] for h in range(now_tw.hour, 7)) - pv_forecast.LOAD_PROFILE[now_tw.hour] * now_tw.minute / 60
+    return max(soc - left / pv_forecast.BATT_KWH_PER_PCT, pv_forecast.BATT_MIN_SOC), "estimate"
+
+
+soc7_val, soc7_how = today_soc7()
+fc_hourly, fc_days, fc_error = None, None, None
+try:
+    fc_hourly, fc_days = with_fallback(f"pv_forecast-v{pv_forecast.MODEL_VERSION}", fetch_pv_forecast,
+                                       {now_tw.date(): round(soc7_val)} if soc7_val is not None else {},
+                                       pv_forecast.MODEL_VERSION)
+except Exception as e:
+    fc_error = e
+
+
+def current_weather():
+    """3D 場景的天氣：降雨看 ECMWF 這一小時的預報；雲量白天優先用實測發電 ÷ 晴天應有發電判斷 (最接近現場)，
+    電池滿被限發或天黑時改用預報的低 / 中 / 高雲。"""
+    rain, eff = 0.0, 0.0
+    if fc_hourly is not None:
+        hr = fc_hourly[fc_hourly["time"] == pd.Timestamp(now_tw.replace(tzinfo=None)).floor("h") + pd.Timedelta(hours=1)]
+        if not hr.empty:
+            r = hr.iloc[0]
+            rain = float(r.get("precipitation", 0) or 0)
+            eff = max(float(r.get("cloud_cover_low", 0)), float(r.get("cloud_cover_mid", 0)), 0.35 * float(r.get("cloud_cover_high", 0)))
+    shape = float(sun_shape([now_tw.replace(tzinfo=None)])[0])
+    if shape > 0.15 and not is_limited and not stale:
+        clear_kw = 0.8 * CAPACITY_KWP * shape
+        eff = float(np.clip((1 - pv_kw / clear_kw) * 100, 0, 100))
+    kind = "rain" if rain >= 0.3 else "overcast" if eff >= 70 else "cloudy" if eff >= 35 else "sunny"
+    return {"kind": kind, "cloud": round(eff), "rain": round(rain, 1)}
+
+
+# ==========================================
 # 7. 主畫面：3D 能源流向 | 今日數字 + 溫度
 # ==========================================
 col_main, col_side = st.columns([1.55, 1], gap="medium")
@@ -314,7 +363,8 @@ with col_main:
                                     grid=p_buy - p_sell, night=is_night,
                                     strings=[(f"{name} {where[:2]}", color, kw) for (_, name, where, color), kw in zip(STRINGS, str_kw)],
                                     grid_today={"buy": f("etoUserToday"), "sell": f("etoGridToday")},
-                                    hour=last_update.hour + last_update.minute / 60, weekend=last_update.weekday() >= 5), height=520)
+                                    hour=last_update.hour + last_update.minute / 60, weekend=last_update.weekday() >= 5,
+                                    weather=current_weather()), height=520)
 
 
 def kpi(label, value, unit, color, sub=""):
@@ -366,37 +416,14 @@ chart_layout = dict(
 # ==========================================
 # 7.5 發電預測 (Open-Meteo ECMWF 短波輻射)
 # ==========================================
-@st.cache_data(ttl=3600)
-def fetch_pv_forecast(soc7, version):
-    return pv_forecast.forecast(soc7=soc7)
-
-
-def today_soc7():
-    """今天早上 7 點的電量：7 點後取 7:00~7:30 的第一筆實測，7 點前以目前電量扣掉到 7 點的預估用電。"""
-    seven = now_tw.replace(hour=7, minute=0, second=0, microsecond=0, tzinfo=None)
-    if now_tw.hour >= 7:
-        after = curve[curve["time"] >= seven] if not curve.empty else curve
-        if not after.empty and after["time"].iloc[0] <= seven + timedelta(minutes=30):
-            return float(after["soc"].iloc[0]), "actual"
-        return None, None
-    left = sum(pv_forecast.LOAD_PROFILE[h] for h in range(now_tw.hour, 7)) - pv_forecast.LOAD_PROFILE[now_tw.hour] * now_tw.minute / 60
-    return max(soc - left / pv_forecast.BATT_KWH_PER_PCT, pv_forecast.BATT_MIN_SOC), "estimate"
-
-
 st.markdown("<div class='section-title'>🌤️ 天氣與發電預測（ECMWF 短波輻射）</div>", unsafe_allow_html=True)
 # 下午 2 點前預設看今天，之後看明天
 day_opts = {"今天": now_tw.date(), "明天": (now_tw + timedelta(days=1)).date()}
 pick = st.radio("預測日", list(day_opts), index=0 if now_tw.hour < 14 else 1, horizontal=True, label_visibility="collapsed")
 tomorrow = day_opts[pick]
-soc7_val, soc7_how = today_soc7()
-try:
-    fc_hourly, fc_days = with_fallback(f"pv_forecast-v{pv_forecast.MODEL_VERSION}", fetch_pv_forecast,
-                                       {now_tw.date(): round(soc7_val)} if soc7_val is not None else {},
-                                       pv_forecast.MODEL_VERSION)
-    fd = fc_days.get(tomorrow)
-except Exception as e:
-    fd = None
-    st.markdown(f'<div class="card" style="color:#94A3B8;">⏳ 天氣預報暫時讀不到（{e}），稍後會自動重試。</div>', unsafe_allow_html=True)
+fd = fc_days.get(tomorrow) if fc_days else None
+if fc_error is not None:
+    st.markdown(f'<div class="card" style="color:#94A3B8;">⏳ 天氣預報暫時讀不到（{fc_error}），稍後會自動重試。</div>', unsafe_allow_html=True)
 
 if fd:
     # 天空狀態看會擋光的雲：低雲、中雲照算，高空卷雲很薄只算三成 (總雲量 90% 但全是高雲時，實際仍接近晴天)
@@ -580,6 +607,20 @@ st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:10px;">屋頂
             "PV2 輸入已停用（原本東西各 4 片混串，早晚會被較弱的一邊拖累）。"
             "若同一時段某組長期明顯低於往常，再檢查是否有遮蔭、落葉或髒污。電池充滿限發時兩組會一起被壓低。</div>",
             unsafe_allow_html=True)
+
+# 下載逐 5 分鐘明細 (東西兩組電壓、電流、功率)，方便離線分析；Growatt 只保留最近 3 個月
+with st.expander("📥 下載逐 5 分鐘明細（CSV）"):
+    dl_day = st.date_input("日期", value=now_tw.date(), min_value=now_tw.date() - timedelta(days=89), max_value=now_tw.date())
+    try:
+        dl = curve if dl_day == now_tw.date() else with_fallback(f"curve-{dl_day}", fetch_day_curve, dl_day.strftime("%Y-%m-%d"))
+        cols = {"time": "時間", "pv": "總發電kW", "pv1": "PV1西坡kW", "vpv1": "PV1電壓V", "ipv1": "PV1電流A",
+                "pv3": "PV3東坡kW", "vpv3": "PV3電壓V", "ipv3": "PV3電流A", "load": "用電kW", "charge": "充電kW",
+                "discharge": "放電kW", "buy": "買電kW", "sell": "賣電kW", "soc": "電池%"}
+        out = dl[[c for c in cols if c in dl.columns]].rename(columns=cols)
+        st.download_button(f"下載 {dl_day} 明細（{len(out)} 筆）", out.to_csv(index=False).encode("utf-8-sig"),
+                           file_name=f"haochen_{dl_day}.csv", mime="text/csv", disabled=out.empty)
+    except Exception as e:
+        st.caption(api_error_text(e))
 
 # ==========================================
 # 9. 分頁：設備與溫度 / 趨勢
