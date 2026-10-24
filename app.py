@@ -112,17 +112,30 @@ def grid_buy_kw(meter_w, load_w, pv_w, dis_w, chg_w):
     return bal if bal > 0.1 else 0.0
 
 
-GRID_WINDOW = pd.Timedelta(minutes=20)
-
-
-def grid_rate_kw(t0, e0, t1, e1):
-    """由今日購電累計 (etoUserToday，0.1 kWh 一格) 的增加速度推算購電功率 (kW)。
-    這台的即時購電欄位與 CT 欄位恆為 0，這是唯一可靠的來源；20 分鐘內增加至少 0.2 kWh (約 0.6 kW 以上) 才採用，
-    避免白天零星的 0.1 kWh 被誤判。"""
-    hrs = (t1 - t0).total_seconds() / 3600
-    if hrs < 10 / 60 or e1 - e0 < 0.2 - 1e-6:
+def grid_rate_kw(times, eto, now_t):
+    """由今日購電累計 (etoUserToday，每 0.1 kWh 跳一格) 推算目前的台電供電功率 (kW)。
+    這台的即時購電欄位與 CT 欄位恆為 0，這是唯一可靠的來源。做法是量「每跳一格之間隔多久」：
+    取最近一次跳格，往回找到至少差 0.2 kWh 且相隔 15 分鐘以上 (最多回看 60 分鐘) 的跳格，平均功率 = 度數差 ÷ 時間差；
+    如果最近一次跳格之後已經過了比預期更久，代表用電變小，功率再往下修。"""
+    steps = [(times[i], eto[i]) for i in range(1, len(eto)) if eto[i] > eto[i - 1] + 1e-6]
+    if not steps:
         return 0.0
-    return (e1 - e0) / hrs
+    t_last, e_last = steps[-1]
+    since = (now_t - t_last).total_seconds() / 3600
+    if since > 1:
+        return 0.0
+    rate = 0.0
+    for t_k, e_k in reversed(steps[:-1]):
+        hrs = (t_last - t_k).total_seconds() / 3600
+        if hrs > 1:
+            break
+        if hrs > 0:
+            rate = (e_last - e_k) / hrs
+        if e_last - e_k >= 0.2 - 1e-6 and hrs >= 0.25:   # 至少 0.2 kWh 且跨 15 分鐘，平均掉 0.1 kWh 一格的跳動
+            break
+    if rate and since > 0.1 / rate:          # 該跳格的時間到了卻還沒跳：用電變小了
+        rate = 0.1 / since
+    return rate
 
 
 @st.cache_data(ttl=600)
@@ -146,10 +159,9 @@ def fetch_day_curve(day):
     if df.empty:
         return df
     df = df.sort_values("time").reset_index(drop=True)
-    # 台電接手供電時，購電改由累計量推算 (往前 20 分鐘的平均，再往回移半個視窗對齊時間)，家中負載 = 逆變器輸出 + 台電
-    j = df["time"].searchsorted(df["time"] - GRID_WINDOW)
-    rate = pd.Series([grid_rate_kw(df["time"][k], df["eto_user"][k], df["time"][i], df["eto_user"][i]) for i, k in enumerate(j)])
-    rate = rate.shift(-2).fillna(rate)
+    # 台電供電改由購電累計量推算，家中負載 = 逆變器輸出 + 台電
+    t, e = list(df["time"]), list(df["eto_user"])
+    rate = pd.Series([grid_rate_kw(t[:i + 1], e[:i + 1], t[i]) for i in range(len(df))])
     extra = (rate - df["buy"]).clip(lower=0)
     df["buy"] += extra
     df["load"] += extra
@@ -279,14 +291,14 @@ stale = age_min > 20
 pv_kw, load_kw = f("ppv") / 1000, f("plocalLoadTotal") / 1000
 p_charge, p_discharge = f("pcharge1") / 1000, f("pdischarge1") / 1000
 p_buy = grid_buy_kw(f("pacToUserTotal"), f("plocalLoadTotal"), f("ppv"), f("pdischarge1"), f("pcharge1"))
-# 台電接手供電：用今日購電累計與約 20 分鐘前的紀錄比較，推算目前購電，並補進家中負載
+# 台電供電：用今日購電累計每跳一格的間隔推算，並補進家中負載 (逆變器輸出不含台電直接供給的電)
 if not curve.empty and "eto_user" in curve:
-    ref = curve[curve["time"] <= last_update.replace(tzinfo=None) - pd.Timedelta(minutes=15)]
-    if not ref.empty and last_update.replace(tzinfo=None) - ref["time"].iloc[-1] <= pd.Timedelta(minutes=40):
-        rate = grid_rate_kw(ref["time"].iloc[-1], ref["eto_user"].iloc[-1], last_update.replace(tzinfo=None), f("etoUserToday"))
-        if rate > p_buy:
-            load_kw += rate - p_buy
-            p_buy = rate
+    now_naive = last_update.replace(tzinfo=None)
+    hist = curve[curve["time"] < now_naive]
+    rate = grid_rate_kw(list(hist["time"]) + [now_naive], list(hist["eto_user"]) + [f("etoUserToday")], now_naive)
+    if rate > p_buy:
+        load_kw += rate - p_buy
+        p_buy = rate
 p_sell = f("pacToGridTotal") / 1000
 soc = int(f("soc"))
 inv_temp = f("temp1") or f("invTemp")
@@ -337,6 +349,8 @@ elif p_discharge > 0.05:
     status = f"🔋 電池供電中，剩餘 {soc}%，正在提供 {p_discharge:.1f} kW"
 elif p_buy > 0.05:
     status = f"🔌 台電即時供電中（{p_buy:.1f} kW）"
+elif soc < 95:   # 沒太陽能、電池也沒放電：家裡的電只可能來自台電 (購電累計還沒跳格，暫時算不出 kW)
+    status = f"🪫 電池暫停放電（剩 {soc}%），家中用電由台電供應"
 else:
     status = "💤 系統待機中"
 
@@ -346,12 +360,16 @@ st.markdown(f'<div style="color:#F1F5F9; font-size:19px; font-weight:600; margin
 # 電池低電壓提醒：這組電池電壓跌破約 48 V 時，BMS 會把電量直接歸零 (不論當時顯示幾 %)，
 # 所以接近時提醒提高放電下限 (SOC) 讓台電接手
 vbat = f("vbat")
-grid_took_over = p_buy > 0.05 and p_buy > p_discharge   # 已達放電下限、台電成為主要供電：上面的狀態句已說明，不再重複提示
-if 0 < vbat < 49 and not stale and not grid_took_over:
+# 只在電池「還在放電」時提醒：電池已停止放電 (台電接手或待機) 就沒有要調整的東西，上面的狀態句已說明
+if 0 < vbat < 49 and not stale and p_discharge > 0.05:
     red = vbat < 48.5
     c = "#EF4444" if red else "#F59E0B"
-    msg = (f"電池電壓 {vbat:.1f} V，已接近 48 V 歸零點，請立即把放電下限 (SOC) 調高到目前電量 {soc}% 附近，讓台電接手供電"
-           if red else f"電池電壓 {vbat:.1f} V 偏低（電量 {soc}%），建議把放電下限 (SOC) 調高一些，避免跌破 48 V 電量歸零")
+    if vbat < 48:
+        msg = f"電池電壓 {vbat:.1f} V，已低於 48 V，電量隨時可能直接歸零，請立即把放電下限 (SOC) 調高到目前電量 {soc}% 以上，讓台電接手供電"
+    elif red:
+        msg = f"電池電壓 {vbat:.1f} V，快要跌破 48 V，請立即把放電下限 (SOC) 調高到目前電量 {soc}% 附近，讓台電接手供電"
+    else:
+        msg = f"電池電壓 {vbat:.1f} V 偏低（電量 {soc}%），建議把放電下限 (SOC) 調高一些，避免跌破 48 V 電量歸零"
     st.markdown(f'<div style="background:{c}1F; border:1px solid {c}; color:{c}; border-radius:10px; padding:10px 14px; '
                 f'font-size:15px; font-weight:600; margin:-4px 0 12px;">{"🔴" if red else "🟡"} {msg}</div>', unsafe_allow_html=True)
 
