@@ -1327,26 +1327,32 @@ function tick() {
   const cCol = NIGHT ? (RAIN ? '#2B3240' : '#3A4252') : { sunny: '#FFFFFF', cloudy: '#F4F6F8', overcast: '#C3C9D1', rain: '#8A94A0' }[WX.kind];
   // 自然的蓬鬆雲：每朵雲由多張半透明「雲團貼圖」(永遠面向鏡頭) 疊成，邊緣柔和、上亮下暗
   const heavy = RAIN || WX.kind === 'overcast';
-  // 以多個柔和圓斑隨機疊出一團雲，再用徑向漸層把邊緣淡出，做出不規則的棉絮邊
+  // 以多個柔和圓斑隨機疊出一團雲，邊緣淡出成不規則的棉絮邊。
+  // 直接逐點算出透明度 (RGB 一律純白)，不用 canvas：手機瀏覽器在 canvas 上疊很淡的半透明漸層時，
+  // 低透明度的像素會因精度不足變成紅綠藍的雜色顆粒
   function puffTexture(seed) {
     let r = seed * 9301 + 49297;
     const rnd = () => ((r = (r * 9301 + 49297) % 233280) / 233280);
-    const S = 256, cv = document.createElement('canvas'); cv.width = cv.height = S;
-    const g = cv.getContext('2d');
+    const S = 128, blobs = [];
     for (let i = 0; i < 70; i++) {
       const a = rnd() * Math.PI * 2, d = Math.pow(rnd(), 0.7) * S * 0.3;
-      const x = S / 2 + Math.cos(a) * d, y = S / 2 + Math.sin(a) * d * 0.8;
-      const rad = S * (0.06 + rnd() * 0.14);
-      const gr = g.createRadialGradient(x, y, 0, x, y, rad);
-      gr.addColorStop(0, `rgba(255,255,255,${0.3 + rnd() * 0.25})`);
-      gr.addColorStop(1, 'rgba(255,255,255,0)');
-      g.fillStyle = gr; g.beginPath(); g.arc(x, y, rad, 0, Math.PI * 2); g.fill();
+      blobs.push([S / 2 + Math.cos(a) * d, S / 2 + Math.sin(a) * d * 0.8, S * (0.06 + rnd() * 0.14), 0.3 + rnd() * 0.25]);
     }
-    g.globalCompositeOperation = 'destination-in';   // 外圈漸淡，不會出現方形邊
-    const m = g.createRadialGradient(S / 2, S / 2, S * 0.18, S / 2, S / 2, S * 0.5);
-    m.addColorStop(0, 'rgba(0,0,0,1)'); m.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = m; g.fillRect(0, 0, S, S);
-    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+    const px = new Uint8Array(S * S * 4);
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      let v = 0;
+      for (const [bx, by, br, ba] of blobs) {
+        const t = 1 - Math.hypot(x - bx, y - by) / br;
+        if (t > 0) v = v + ba * t * (1 - v);                 // 像疊半透明圖層一樣累加，不會超過 1
+      }
+      const rr = Math.hypot(x - S / 2, y - S / 2) / (S / 2);  // 外圈淡出，不會出現方形邊
+      v *= Math.min(1, Math.max(0, (1 - rr) / 0.64));
+      const i = (y * S + x) * 4;
+      px[i] = px[i + 1] = px[i + 2] = 255; px[i + 3] = Math.round(v * 255);
+    }
+    const tex = new THREE.DataTexture(px, S, S, THREE.RGBAFormat);
+    tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearMipmapLinearFilter; tex.generateMipmaps = true;
+    tex.needsUpdate = true;
     return tex;
   }
   const puffTex = [1, 2, 3, 4].map(puffTexture);
