@@ -1211,8 +1211,10 @@ function tick() {
   const N_CLOUD = { sunny: 2, cloudy: 7, overcast: 12, rain: 14 }[WX.kind] ?? 2;
   const cCol = NIGHT ? (RAIN ? '#2B3240' : '#3A4252') : { sunny: '#FFFFFF', cloudy: '#F4F6F8', overcast: '#C3C9D1', rain: '#8A94A0' }[WX.kind];
   // 自帶一點亮度，雲的底部不會黑成一團
-  const cMat = std(cCol, 1, 0, { flatShading: true, transparent: true, opacity: RAIN || WX.kind === 'overcast' ? 0.95 : 0.9, envMapIntensity: 0.4,
-                               emissive: new THREE.Color(cCol), emissiveIntensity: NIGHT ? 0.1 : 0.35 });
+  // 圓潤柔和的棉花糖雲：平滑球面、自帶亮度讓陰影很淡
+  const cMat = std(cCol, 1, 0, { transparent: true, opacity: RAIN || WX.kind === 'overcast' ? 0.96 : 0.92, envMapIntensity: 0.3,
+                               emissive: new THREE.Color(cCol), emissiveIntensity: NIGHT ? 0.12 : 0.5 });
+  const puff = new THREE.SphereGeometry(1, 32, 20);
   const sky = new THREE.Group(); scene.add(sky);
   let placed = 0;
   for (let i = 0; placed < N_CLOUD && i < 80; i++) {
@@ -1221,8 +1223,12 @@ function tick() {
     if (x > 2 && z > 2) continue;          // 鏡頭方向 (前右) 不放雲，免得擋住房子
     const c = new THREE.Group(); c.position.set(x, 9.6 + (i % 4) * 0.6, z); sky.add(c);   // 高度在屋頂上方，預設視角看得到
     const s = (RAIN || WX.kind === 'overcast') ? 1.5 : 1.1;
-    for (const [dx, dy, dz, k] of [[0, 0, 0, 1.3], [1.3, -0.2, 0.3, 1.0], [-1.2, -0.25, -0.2, 0.95], [0.4, 0.45, -0.3, 0.9], [-0.5, 0.3, 0.5, 0.8]])
-      mesh(new THREE.IcosahedronGeometry(k * s, 1), cMat, [dx * s, dy * s, dz * s], null, c, false).scale.y = 0.62;
+    // 中間一大顆、兩側小顆往下收，底部壓平，像卡通雲
+    for (const [dx, dy, dz, k] of [[0, 0.25, 0, 1.15], [1.05, 0, 0.15, 0.85], [-1.05, -0.02, -0.1, 0.8], [1.85, -0.25, 0, 0.55],
+                                   [-1.8, -0.25, 0.1, 0.55], [0.45, 0.55, -0.35, 0.75], [-0.5, 0.45, 0.4, 0.7], [0, -0.3, 0.3, 0.9]]) {
+      const p = mesh(puff, cMat, [dx * s, dy * s, dz * s], null, c, false);
+      p.scale.set(k * s, k * s * 0.82, k * s);
+    }
     placed++;
   }
   anim.push(t => { sky.rotation.y = t * 0.012; });
