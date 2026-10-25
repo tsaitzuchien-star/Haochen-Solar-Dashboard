@@ -112,6 +112,12 @@ def grid_buy_kw(meter_w, load_w, pv_w, dis_w, chg_w):
     return bal if bal > 0.1 else 0.0
 
 
+def solar_surplus(pv_w, chg_w):
+    """太陽能正在幫電池充電 (充電 ≥ 0.1 kW 且太陽能大於充電量)：代表太陽能已足夠家用還有剩，台電不可能在供電。
+    (時間電價設定的台電充電只在電量低於 30% 時發生，那時太陽能會小於充電量，不會被誤判)"""
+    return chg_w >= 100 and pv_w > chg_w
+
+
 def grid_rate_kw(times, eto, now_t):
     """由今日購電累計 (etoUserToday，每 0.1 kWh 跳一格) 推算目前的台電供電功率 (kW)。
     這台的即時購電欄位與 CT 欄位恆為 0，這是唯一可靠的來源。做法是量「每跳一格之間隔多久」：
@@ -164,6 +170,7 @@ def fetch_day_curve(day):
     # 台電供電改由購電累計量推算，家中負載 = 逆變器輸出 + 台電
     t, e = list(df["time"]), list(df["eto_user"])
     rate = pd.Series([grid_rate_kw(t[:i + 1], e[:i + 1], t[i]) for i in range(len(df))])
+    rate[[solar_surplus(pv * 1000, ch * 1000) for pv, ch in zip(df["pv"], df["charge"])]] = 0.0
     extra = (rate - df["buy"]).clip(lower=0)
     df["buy"] += extra
     df["load"] += extra
@@ -298,6 +305,8 @@ if not curve.empty and "eto_user" in curve:
     now_naive = last_update.replace(tzinfo=None)
     hist = curve[curve["time"] < now_naive]
     rate = grid_rate_kw(list(hist["time"]) + [now_naive], list(hist["eto_user"]) + [f("etoUserToday")], now_naive)
+    if solar_surplus(f("ppv"), f("pcharge1")):   # 太陽能正在幫電池充電：電有剩，台電一定已停止供電 (累計量要等跳格才會反應)
+        rate = 0.0
     if rate > p_buy:
         load_kw += rate - p_buy
         p_buy = rate
