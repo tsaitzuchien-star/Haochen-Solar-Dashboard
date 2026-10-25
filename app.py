@@ -625,9 +625,16 @@ cards_html = ""
 for i, (n, name, where, color) in enumerate(STRINGS):
     kw, today = str_kw[i], str_today[i]
     share = today / total_today * 100 if total_today > 0 else 0
-    # 兩組朝向相反 (東坡 / 西坡)，即時功率差異屬正常；只標示目前較強的一組
-    note = ('<div class="kpi-sub" style="margin-top:4px; color:#2DD4BF;">☀️ 目前發電最強</div>'
-            if kw > 0.05 and kw == max(str_kw) else "")
+    # 兩組朝向相反 (東坡 / 西坡)，即時功率差異屬正常；兩張卡片都標上資料時間，較強的一組標「最強」，較弱的標差多少
+    other_kw = max(k for j, k in enumerate(str_kw) if j != i) if len(str_kw) > 1 else 0
+    other = next(w[:2] for j, (_, _, w, _) in enumerate(STRINGS) if j != i) if len(STRINGS) > 1 else ""
+    hm = f"{last_update:%H:%M}"
+    if kw <= 0.05 and other_kw <= 0.05:
+        note = f'<div class="kpi-sub" style="margin-top:4px;">🕐 {hm} 未發電</div>'
+    elif kw >= other_kw:
+        note = f'<div class="kpi-sub" style="margin-top:4px; color:#2DD4BF;">☀️ {hm} 發電最強</div>'
+    else:
+        note = f'<div class="kpi-sub" style="margin-top:4px;">🕐 {hm} 比{other}少 {(1 - kw / other_kw) * 100:.0f}%</div>'
     cards_html += f"""<div class="card" style="border-top:3px solid {color};">
       <div style="display:flex; justify-content:space-between; align-items:baseline;">
         <span style="color:{color}; font-weight:700;">{name}</span><span class="kpi-sub">{where}</span></div>
