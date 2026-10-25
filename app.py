@@ -790,11 +790,11 @@ with tab_dev:
     # 家裡的負載接在逆變器的備援 (EPS) 輸出：平常家中用電都經過這裡 (L1 + L2)；
     # 電池到放電下限時逆變器切到旁路，台電經內部繼電器直接供電給家裡，這裡就量不到 (接近 0)
     eps_w = f("upsPac1") + f("upsPac2")
-    eps_txt = f"{eps_w:.0f} W" + ("（台電旁路直供中）" if eps_w < 50 and p_buy > 0.05 else "")
-    d3.markdown(diag_card("⚡ 市電 / 備援輸出", C_GRID, [
+    eps_txt = f"{eps_w:.0f} W" + ("（台電直供中）" if eps_w < 50 and p_buy > 0.05 else "")
+    d3.markdown(diag_card("⚡ 市電 / 逆變器供電", C_GRID, [
         ("電網電壓 L1 / L2", f"{f('vac1'):.1f} / {f('vac2'):.1f} V"),
         ("電網頻率", f"{f('fac'):.2f} Hz"),
-        ("備援輸出 L1 + L2", eps_txt),
+        ("逆變器送進家裡", eps_txt),
     ]), unsafe_allow_html=True)
 
 with tab_trend:
