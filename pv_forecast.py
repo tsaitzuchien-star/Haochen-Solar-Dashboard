@@ -8,7 +8,7 @@ import pandas as pd
 import requests
 
 # 改動預測結果的欄位或算法時加 1，讓網站的快取失效 (st.cache_data 不會偵測這個模組的變更)
-MODEL_VERSION = 6
+MODEL_VERSION = 7
 
 LAT, LON = 23.927693, 120.694682
 TILT = 15.0                 # 屋頂坡度 (度)
@@ -19,6 +19,9 @@ STRING_PANELS = {"PV1": (0, 12), "PV3": (12, 0)}
 # 改成東西各 12 片後沒有混串損失，0.70 / (1 - 0.041) ≈ 0.73
 PR = 0.73
 TEMP_COEF = -0.0035         # 每 °C 功率變化
+# 東邊山頭：2026/10/26 晴天實測，太陽在方位 110° 爬到約 10.5° 高才越過山頭照到屋頂 (比日出晚約 50 分鐘)；
+# 西邊是開闊平原，只算約 2°。太陽低於山頭時只剩散射光
+HORIZON_E, HORIZON_W = 10.5, 2.0
 INVERTER_KW = 10.0
 BATT_KWH_PER_PCT = 0.70
 BATT_MAX_CHARGE_KW = 5.0
@@ -69,7 +72,17 @@ def plane_irradiance(df, azimuth):
     z, b = np.radians(zen), np.radians(TILT)
     cos_i = np.cos(z) * np.cos(b) + np.sin(z) * np.sin(b) * np.cos(np.radians(saz - azimuth))
     beam = np.where(np.cos(z) > 0.087, df["bhi"] * np.clip(cos_i, 0, None) / np.cos(z), 0)
-    return beam + df["dhi"] * (1 + np.cos(b)) / 2 + df["ghi"] * 0.2 * (1 - np.cos(b)) / 2
+    return beam * sun_above_hills(df["time"]) + df["dhi"] * (1 + np.cos(b)) / 2 + df["ghi"] * 0.2 * (1 - np.cos(b)) / 2
+
+
+def sun_above_hills(times):
+    """每小時 (時間標記在該小時結束) 中太陽高過山頭的比例：取 6 個時間點，東半天空比 HORIZON_E、西半天空比 HORIZON_W。"""
+    t = pd.to_datetime(pd.Series(times)).reset_index(drop=True)
+    seen = np.zeros(len(t))
+    for k in range(6):
+        zen, az = _sun(t - pd.Timedelta(minutes=55 - 10 * k))
+        seen += (90 - zen) > np.where(az < 180, HORIZON_E, HORIZON_W)
+    return seen / 6
 
 
 def forecast(df=None, soc7=None):
