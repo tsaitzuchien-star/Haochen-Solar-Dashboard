@@ -693,17 +693,47 @@ st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:10px;">屋頂
 # 下載逐 5 分鐘明細 (東西兩組電壓、電流、功率)，方便離線分析；Growatt 只保留最近 3 個月
 with st.expander("📥 下載逐 5 分鐘明細（CSV）"):
     dl_day = st.date_input("日期", value=now_tw.date(), min_value=now_tw.date() - timedelta(days=89), max_value=now_tw.date())
+    cols = {"time": "時間", "pv": "總發電kW", "pv1": "PV1西坡kW", "vpv1": "PV1電壓V", "ipv1": "PV1電流A",
+            "pv3": "PV3東坡kW", "vpv3": "PV3電壓V", "ipv3": "PV3電流A",
+            "pv2": "PV2kW(改線前東西混串)", "vpv2": "PV2電壓V", "ipv2": "PV2電流A", "load": "用電kW", "charge": "充電kW",
+            "discharge": "放電kW", "buy": "買電kW", "sell": "賣電kW", "soc": "電池%"}
     try:
         dl = curve if dl_day == now_tw.date() else with_fallback(f"curve-{dl_day}", fetch_day_curve, dl_day.strftime("%Y-%m-%d"))
-        cols = {"time": "時間", "pv": "總發電kW", "pv1": "PV1西坡kW", "vpv1": "PV1電壓V", "ipv1": "PV1電流A",
-                "pv3": "PV3東坡kW", "vpv3": "PV3電壓V", "ipv3": "PV3電流A",
-                "pv2": "PV2kW(改線前東西混串)", "vpv2": "PV2電壓V", "ipv2": "PV2電流A", "load": "用電kW", "charge": "充電kW",
-                "discharge": "放電kW", "buy": "買電kW", "sell": "賣電kW", "soc": "電池%"}
         out = dl[[c for c in cols if c in dl.columns]].rename(columns=cols)
         st.download_button(f"下載 {dl_day} 明細（{len(out)} 筆）", out.to_csv(index=False).encode("utf-8-sig"),
                            file_name=f"haochen_{dl_day}.csv", mime="text/csv", disabled=out.empty)
     except Exception as e:
         st.caption(api_error_text(e))
+
+    # 一次下載一段日期：逐日向 Growatt 查詢 (每天一次，中間稍停避免被限流)，合併成一個 CSV
+    st.markdown("<div style='height:10px'></div>**一次下載一段日期**", unsafe_allow_html=True)
+    rng = st.date_input("日期區間", value=(now_tw.date() - timedelta(days=6), now_tw.date()),
+                        min_value=now_tw.date() - timedelta(days=89), max_value=now_tw.date(), key="dl_range")
+    if isinstance(rng, (tuple, list)) and len(rng) == 2:
+        d0, d1 = rng
+        days = [d0 + timedelta(days=i) for i in range((d1 - d0).days + 1)]
+        st.caption(f"共 {len(days)} 天，每天約需 1–2 秒，下載期間請不要關閉頁面。")
+        if st.button(f"準備 {d0:%m/%d}–{d1:%m/%d} 的 CSV"):
+            import time
+            parts, failed = [], []
+            bar = st.progress(0.0)
+            for i, day in enumerate(days):
+                try:
+                    df_day = curve if day == now_tw.date() else with_fallback(f"curve-{day}", fetch_day_curve, day.strftime("%Y-%m-%d"))
+                    if not df_day.empty:
+                        parts.append(df_day[[c for c in cols if c in df_day.columns]])
+                except Exception:
+                    failed.append(day)
+                bar.progress((i + 1) / len(days), text=f"{day:%m/%d}（{i + 1}/{len(days)}）")
+                time.sleep(1.0)
+            bar.empty()
+            merged = pd.concat(parts).rename(columns=cols) if parts else pd.DataFrame()
+            st.session_state["dl_range_csv"] = (f"{d0}_{d1}", merged.to_csv(index=False).encode("utf-8-sig"), len(merged), failed)
+        if st.session_state.get("dl_range_csv"):
+            tag, data, n, failed = st.session_state["dl_range_csv"]
+            st.download_button(f"下載 {tag.replace('_', ' 至 ')} 明細（{n} 筆）", data, file_name=f"haochen_{tag}.csv", mime="text/csv", disabled=n == 0)
+            if failed:
+                st.caption("以下日期查詢失敗（可能被 Growatt 限流，稍後再試）：" + "、".join(f"{d:%m/%d}" for d in failed))
 
 # ==========================================
 # 9. 分頁：設備與溫度 / 趨勢
