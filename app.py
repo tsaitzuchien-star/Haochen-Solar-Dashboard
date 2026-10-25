@@ -783,17 +783,18 @@ with tab_dev:
     ]), unsafe_allow_html=True)
     d2.markdown(diag_card("🔋 電池", C_BAT, [
         ("電量 / 電壓", f"{soc} % / {f('vbat'):.1f} V"),
+        ("目前狀態", f"充電 {p_charge * 1000:.0f} W" if p_charge > 0.02 else f"放電 {p_discharge * 1000:.0f} W" if p_discharge > 0.02 else "待機 0 W"),
         ("今日充 / 放電", f"{f('echarge1Today'):.1f} / {f('edischarge1Today'):.1f} kWh"),
         ("溫度", f"{bat_temp:.1f} °C"),
     ]), unsafe_allow_html=True)
     # 家裡的負載接在逆變器的備援 (EPS) 輸出：平常家中用電都經過這裡 (L1 + L2)；
     # 電池到放電下限時逆變器切到旁路，台電經內部繼電器直接供電給家裡，這裡就量不到 (接近 0)
     eps_w = f("upsPac1") + f("upsPac2")
-    eps_txt = f"{eps_w:.0f} W" + ("（台電旁路直供中）" if eps_w < 50 and p_buy > 0.05 else "")
-    d3.markdown(diag_card("⚡ 市電 / 備援輸出", C_GRID, [
+    eps_txt = f"{eps_w:.0f} W" + ("（台電直供中）" if eps_w < 50 and p_buy > 0.05 else "")
+    d3.markdown(diag_card("⚡ 市電 / 逆變器供電", C_GRID, [
         ("電網電壓 L1 / L2", f"{f('vac1'):.1f} / {f('vac2'):.1f} V"),
         ("電網頻率", f"{f('fac'):.2f} Hz"),
-        ("備援輸出 L1 + L2", eps_txt),
+        ("逆變器送進家裡", eps_txt),
     ]), unsafe_allow_html=True)
 
 with tab_trend:
