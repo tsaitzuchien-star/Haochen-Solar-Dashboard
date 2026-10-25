@@ -381,6 +381,7 @@ const eaveY = TOP + RISE - halfRun * Math.tan(slope) + 0.05;
 const roofAt = z => TOP + RISE + 0.32 - Math.abs(z) * Math.tan(slope);  // 屋面 (板面) 在 z 處的高度
 const XW = W / 2 + 0.07;   // 右側牆面外側
 const ZW = DP / 2 + 0.07;  // 正面牆面外側
+const PV_J = V(0, TOP + RISE + 0.38, 0);   // 太陽能匯流點：屋脊正中央 (兩組 2+2 板陣之間的走道上方)
 const pvDrop = [V(3.4, eaveY + 0.35, DP / 2 + 0.1), V(3.4, eaveY - 0.05, DP / 2 + OVER - 0.05)];
 let P;  // 管線與標籤位置
 
@@ -406,7 +407,9 @@ if (LAYOUT === 'front') {
   }
   const wire = sagWire(V(pole[0] - 0.6, Y0 + 7.0, pole[2] + 0.35), service, 1.0);
   P = {
-    pv: poly([V(xs[ALONG - 1] + PW / 2, roofAt(-IX), -IX), V(XW, roofAt(-IX), -IX), at(S, IX, EQ_Y + INV_H / 2 + 0.05, 0.07)]),
+    // 東西兩坡各由板陣中央走道往上匯流到屋脊正中央，再沿屋脊到山牆端、順著屋面下到逆變器正上方，垂直往下
+    pv: poly([PV_J, V(XW, PV_J.y, 0), V(XW, roofAt(-IX), -IX), at(S, IX, EQ_Y + INV_H / 2 + 0.05, 0.07)]),
+    pvFeed: [[/東/, poly([V(0, roofAt(2.4), 2.4), PV_J])], [/西/, poly([V(0, roofAt(-2.4), -2.4), PV_J])]],
     load: poly([at(S, IX + INV_W / 2, EQ_Y, 0.07), at(S, PX - 0.35, EQ_Y, 0.07)]),
     bat: poly([at(S, IX, EQ_Y - INV_H / 2 - 0.05, 0.14), at(S, IX, Y0 + 1.05, 0.14)]),
     grid: chain(wire, poly([service, at(S, IN_X, PY + 0.48, 0.07)])),
@@ -1243,6 +1246,8 @@ const flows = [
   { kw: D.load, color: C.load, rev: false, curve: P.load },
   { kw: Math.abs(D.batt), color: C.bat, rev: D.batt < 0, curve: P.bat },
   { kw: Math.abs(D.grid), color: C.grid, rev: D.grid < 0, curve: P.grid },
+  // 東西兩坡各自的支線 (流量 = 該組功率)，在屋脊中央匯流
+  ...(P.pvFeed || []).map(([re, curve]) => ({ kw: ((D.strings || []).find(s => re.test(s[0])) || [0, 0, 0])[2], color: C.pv, rev: false, curve })),
 ];
 
 const glowTex = glowTex0();
