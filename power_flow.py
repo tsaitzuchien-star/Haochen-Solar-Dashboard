@@ -34,6 +34,7 @@ html, body { margin:0; padding:0; background:transparent; overflow:hidden;
 .card .sub { font-size:10px; color:#94A3B8; margin-left:8px; }
 .card .sub b { color:#E2E8F0; font-weight:600; }
 .card .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+.sundial { position:absolute; left:12px; bottom:52px; width:76px; height:76px; pointer-events:none; }
 .hint { position:absolute; right:12px; bottom:10px; font-size:11px; color:rgba(226,232,240,0.55); pointer-events:none; }
 .tag { position:absolute; left:0; top:0; padding:3px 8px; border-radius:8px; font-size:11px; pointer-events:none; white-space:nowrap;
   background:rgba(15,23,42,0.55); color:#94A3B8; border:1px solid rgba(148,163,184,0.2); }
@@ -389,8 +390,8 @@ if (LAYOUT === 'front') {
   // 正面只留門窗；右側牆後段 (木紋) 中央由前往後：逆變器 (電池在正下方) → 約 2 m 後為配電盤。
   // 太陽能由屋頂板陣邊緣沿屋面拉到逆變器正上方，再一直線垂直往下；家用電由逆變器水平直達配電盤；台電由右後方電線桿架空接到二樓牆面再下到配電盤
   const S = frame([W / 2, 0, 0], Math.PI / 2);
-  // 設備組置中於木紋牆：IX = 逆變器/電池、PX = 配電盤 (牆面局部座標，往後為正)
-  const WOOD_C = DP / 4 - 0.3, IX = WOOD_C - 1.1, PX = WOOD_C + 1.1, LX = WOOD_C;
+  // 逆變器/電池在山牆正中央 (屋脊正下方，IX = 0)，太陽能線從屋脊直直垂下來；配電盤在其後方約 2.2 m (牆面局部座標，往後為正)
+  const IX = 0, PX = 2.2, LX = (IX + PX) / 2;
   // 逆變器與配電盤上緣都貼齊二樓樓板底 (EQ_TOP)；EQ_Y = 逆變器中心，PY = 配電盤中心
   const EQ_TOP = F2 - 0.05, EQ_Y = EQ_TOP - INV_H / 2, PY = EQ_TOP - 0.475;
   // 電池 3 格 (1.05 m) 貼地，與逆變器底部相距約 1.2 m
@@ -407,8 +408,8 @@ if (LAYOUT === 'front') {
   }
   const wire = sagWire(V(pole[0] - 0.6, Y0 + 7.0, pole[2] + 0.35), service, 1.0);
   P = {
-    // 東西兩坡各由板陣中央走道往上匯流到屋脊正中央，再沿屋脊到山牆端、順著屋面下到逆變器正上方，垂直往下
-    pv: poly([PV_J, V(XW, PV_J.y, 0), V(XW, roofAt(-IX), -IX), at(S, IX, EQ_Y + INV_H / 2 + 0.05, 0.07)]),
+    // 東西兩坡各由板陣中央走道往上匯流到屋脊正中央，沿屋脊到山牆端，再沿山牆垂直往下接到正下方的逆變器
+    pv: poly([PV_J, V(XW, PV_J.y, 0), at(S, IX, EQ_Y + INV_H / 2 + 0.05, 0.07)]),
     pvFeed: [[/東/, poly([V(0, roofAt(2.4), 2.4), PV_J])], [/西/, poly([V(0, roofAt(-2.4), -2.4), PV_J])]],
     load: poly([at(S, IX + INV_W / 2, EQ_Y, 0.07), at(S, PX - 0.35, EQ_Y, 0.07)]),
     bat: poly([at(S, IX, EQ_Y - INV_H / 2 - 0.05, 0.14), at(S, IX, Y0 + 1.05, 0.14)]),
@@ -476,12 +477,28 @@ if (LAYOUT === 'front') {
   };
 }
 
+// ---------- 太陽位置：依澔宸小窩經緯度與資料時間計算 (方位角北=0 順時針；場景 +x = 北、+z = 東) ----------
+function sunPos(hour, doy = D.doy || 300) {
+  const decl = 23.44 * Math.PI / 180 * Math.sin(2 * Math.PI * (284 + doy) / 365);
+  const b = 2 * Math.PI * (doy - 81) / 364, eot = 9.87 * Math.sin(2 * b) - 7.53 * Math.cos(b) - 1.5 * Math.sin(b);
+  const ha = 15 * (hour + (4 * (120.694682 - 120) + eot) / 60 - 12) * Math.PI / 180, lat = 23.927693 * Math.PI / 180;
+  const cz = Math.sin(lat) * Math.sin(decl) + Math.cos(lat) * Math.cos(decl) * Math.cos(ha);
+  const el = 90 - Math.acos(Math.max(-1, Math.min(1, cz))) * 180 / Math.PI;
+  const az = Math.atan2(Math.sin(ha), Math.cos(ha) * Math.sin(lat) - Math.tan(decl) * Math.cos(lat)) * 180 / Math.PI + 180;
+  const e = el * Math.PI / 180, a = az * Math.PI / 180;
+  return { el, az, dir: new THREE.Vector3(Math.cos(e) * Math.cos(a), Math.sin(e), Math.cos(e) * Math.sin(a)) };
+}
+const SUN = sunPos(D.hour ?? 12);
+const compass = az => ['北', '東北', '東', '東南', '南', '西南', '西', '西北'][Math.round(az / 45) % 8];
+
 // ---------- 光源 ----------
 if (!NIGHT) {
   // 陰雨天：直射光變弱、天空散射光偏灰，影子變淡 (陰天時關閉)
   scene.add(new THREE.HemisphereLight(DIM < 0.6 ? '#C7CED6' : '#DCEBFF', '#5B6B4E', 0.9 + (1 - DIM) * 0.35));
   const sun = new THREE.DirectionalLight(DIM < 0.6 ? '#E6E9EE' : '#FFF1DC', 3.0 * DIM);
-  sun.position.set(9, 16, 10);
+  // 直射光與影子跟著真實太陽方向；太陽很低時抬到至少 12° 才不會整片暗掉
+  const sd = SUN.el > 12 ? SUN.dir : sunPos(D.hour ?? 12).dir.clone().setY(Math.sin(12 * Math.PI / 180)).normalize();
+  sun.position.copy(sd).multiplyScalar(25);
   Object.assign(sun.shadow.camera, { left: -14, right: 14, top: 14, bottom: -14, near: 1, far: 50 });
   sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0004; sun.shadow.radius = 4;
   sun.castShadow = DIM > 0.5; scene.add(sun);
@@ -1367,6 +1384,80 @@ function tick() {
   }
   requestAnimationFrame(tick);
 }
+// ---------- 天空中的太陽：目前位置、今天的軌跡 (6/9/12/15/18 點刻度)、照到屋頂的光線 ----------
+{
+  const R = 11.5, CEN = V(0, Y0, 0);   // 以房子為中心的天空半球 (半徑配合預設鏡頭，中午的太陽也在畫面內)
+  const at_ = d => CEN.clone().addScaledVector(d, R);
+  const veil = { sunny: 1, cloudy: 0.85, overcast: 0.45, rain: 0.35 }[WX.kind] ?? 1;   // 陰雨天太陽躲在雲後面
+  // 今天的軌跡 (地平線以上)
+  const pts = [];
+  for (let h = 4; h <= 20; h += 0.1) { const p = sunPos(h); if (p.el > 0) pts.push(at_(p.dir)); }
+  if (pts.length > 1) {
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineDashedMaterial({ color: '#FCD34D', dashSize: 0.35, gapSize: 0.25, transparent: true, opacity: NIGHT ? 0.25 : 0.55, depthWrite: false, fog: false }));
+    line.computeLineDistances(); scene.add(line);
+    for (const h of [6, 9, 12, 15, 18]) {
+      const p = sunPos(h); if (p.el <= 0) continue;
+      const tex = canvasTex(64, 32, (g, w, hh) => {
+        g.font = 'bold 22px -apple-system, "Segoe UI", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+        g.fillStyle = 'rgba(15,23,42,0.55)'; g.fillRect(8, 3, 48, 26);
+        g.fillStyle = '#FDE68A'; g.fillText(`${h}`, w / 2, hh / 2 + 1);
+      });
+      const tick = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false, opacity: NIGHT ? 0.4 : 0.85 }));
+      tick.position.copy(at_(p.dir)).add(V(0, 0.55, 0)); tick.scale.set(0.9, 0.45, 1); scene.add(tick);
+    }
+  }
+  if (SUN.el > -1) {
+    const pos = at_(SUN.dir);
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.55, 24, 16), new THREE.MeshBasicMaterial({ color: '#FFE08A', transparent: true, opacity: veil, fog: false }));
+    core.position.copy(pos); scene.add(core);
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex0(), color: '#FFC94D', blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, fog: false, opacity: 0.9 * veil }));
+    halo.position.copy(pos); halo.scale.setScalar(4.2); scene.add(halo);
+    anim.push(t => halo.scale.setScalar(4.0 + 0.4 * Math.sin(t * 1.8)));
+    // 照到屋頂中央的光線 (太陽在地平線以上才畫)
+    if (SUN.el > 0) {
+      const roofC = V(0, TOP + RISE * 0.6, 0);
+      const ray = new THREE.Line(new THREE.BufferGeometry().setFromPoints([pos, roofC]),
+        new THREE.LineDashedMaterial({ color: '#FFD166', dashSize: 0.5, gapSize: 0.3, transparent: true, opacity: 0.7 * veil, depthWrite: false, fog: false }));
+      ray.computeLineDistances(); scene.add(ray);
+      const dot = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex0(), color: '#FFD166', blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, fog: false }));
+      scene.add(dot);
+      anim.push(t => { const u = (t * 0.35) % 1; dot.position.lerpVectors(pos, roofC, u); dot.scale.setScalar(0.5 * Math.min(1, u / 0.1, (1 - u) / 0.1) * veil); });
+    }
+    // 標籤：高度、方位
+    const txt = SUN.el > 0 ? `☀ 高度 ${Math.round(SUN.el)}° · ${compass(SUN.az)}方` : '☀ 在地平線附近';
+    const tex = canvasTex(320, 64, (g, w, h) => {
+      g.font = 'bold 30px -apple-system, "Segoe UI", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillStyle = 'rgba(15,23,42,0.7)'; g.beginPath(); g.roundRect(4, 6, w - 8, h - 12, 14); g.fill();
+      g.fillStyle = '#FDE68A'; g.fillText(txt, w / 2, h / 2 + 1);
+    });
+    const lab = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, fog: false }));
+    lab.position.copy(pos).add(V(0, 1.3, 0)); lab.scale.set(3.6, 0.72, 1); lab.renderOrder = 10; scene.add(lab);
+  }
+  // 右下角的太陽羅盤 (不受視角影響)：上北右東，圓心 = 頭頂、外圈 = 地平線；虛線為今天軌跡
+  const dial = document.createElement('canvas'), DS = 76;
+  dial.width = dial.height = DS * 2; dial.className = 'sundial'; wrap.appendChild(dial);
+  const g = dial.getContext('2d'); g.scale(2, 2);
+  const cx = DS / 2, cy = DS / 2 - 4, rr = 26;
+  const xy = p => { const r = rr * (90 - Math.max(p.el, 0)) / 90, a = p.az * Math.PI / 180; return [cx + r * Math.sin(a), cy - r * Math.cos(a)]; };
+  g.fillStyle = 'rgba(15,23,42,0.6)'; g.beginPath(); g.arc(cx, cy, rr + 9, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = 'rgba(148,163,184,0.5)'; g.lineWidth = 1; g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI * 2); g.stroke();
+  g.beginPath(); g.arc(cx, cy, rr / 2, 0, Math.PI * 2); g.stroke();
+  g.fillStyle = '#94A3B8'; g.font = 'bold 8px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  [['北', 0, -1], ['東', 1, 0], ['南', 0, 1], ['西', -1, 0]].forEach(([t, dx, dy]) => g.fillText(t, cx + dx * (rr + 5), cy + dy * (rr + 5)));
+  g.setLineDash([2, 2]); g.strokeStyle = 'rgba(252,211,77,0.7)'; g.beginPath();
+  let first = true;
+  for (let h = 4; h <= 20; h += 0.25) { const p = sunPos(h); if (p.el <= 0) continue; const [x, y] = xy(p); first ? g.moveTo(x, y) : g.lineTo(x, y); first = false; }
+  g.stroke(); g.setLineDash([]);
+  if (SUN.el > 0) {
+    const [x, y] = xy(SUN);
+    g.fillStyle = 'rgba(253,224,71,0.35)'; g.beginPath(); g.arc(x, y, 6, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#FDE047'; g.beginPath(); g.arc(x, y, 3.5, 0, Math.PI * 2); g.fill();
+  }
+  g.fillStyle = '#FDE68A'; g.font = 'bold 9px sans-serif';
+  g.fillText(SUN.el > 0 ? `${Math.round(SUN.el)}° ${compass(SUN.az)}` : '日落', cx, DS - 3);
+}
+
 // ---------- 天氣場景 ----------
 {
   const N_CLOUD = { sunny: 2, cloudy: 7, overcast: 12, rain: 14 }[WX.kind] ?? 2;
@@ -1480,7 +1571,7 @@ SKIES = {   # 白天天空依天氣變化；夜晚雨天更暗
 
 
 def power_flow_html(pv, load, batt, soc, grid, night=False, layout="front", strings=None, grid_today=None, hour=12.0, weekend=False,
-                    weather=None, battery=None):
+                    weather=None, battery=None, doy=None):
     """pv/load: kW；batt: kW (+充電/−放電)；grid: kW (+買電/−賣電)；strings: [(名稱, 顏色, kW[, V, A]), ...]；battery: {"v", "temp"}；grid_today: {"buy","sell"} 今日買賣電 kWh；
     weather: {"kind": sunny/cloudy/overcast/rain, ...} 讓 3D 場景跟著天氣變化。"""
     data = {"pv": round(pv, 3), "load": round(load, 3), "batt": round(batt, 3),
@@ -1488,6 +1579,7 @@ def power_flow_html(pv, load, batt, soc, grid, night=False, layout="front", stri
             "strings": [[s[0], s[1], round(s[2], 3), *(round(x, 1) for x in s[3:5])] for s in strings] if strings else [],
             "battery": battery,
             "grid_today": grid_today, "hour": round(hour, 2), "weekend": bool(weekend),
+            "doy": int(doy or __import__("datetime").date.today().timetuple().tm_yday),
             "weather": weather or {"kind": "sunny"}}
     kind = data["weather"]["kind"]
     if night:
