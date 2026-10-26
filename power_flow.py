@@ -389,8 +389,8 @@ if (LAYOUT === 'front') {
   // 正面只留門窗；右側牆後段 (木紋) 中央由前往後：逆變器 (電池在正下方) → 約 2 m 後為配電盤。
   // 太陽能由屋頂板陣邊緣沿屋面拉到逆變器正上方，再一直線垂直往下；家用電由逆變器水平直達配電盤；台電由右後方電線桿架空接到二樓牆面再下到配電盤
   const S = frame([W / 2, 0, 0], Math.PI / 2);
-  // 設備組置中於木紋牆：IX = 逆變器/電池、PX = 配電盤 (牆面局部座標，往後為正)
-  const WOOD_C = DP / 4 - 0.3, IX = WOOD_C - 1.1, PX = WOOD_C + 1.1, LX = WOOD_C;
+  // 逆變器/電池在山牆正中央 (屋脊正下方，IX = 0)，太陽能線從屋脊直直垂下來；配電盤在其後方約 2.2 m (牆面局部座標，往後為正)
+  const IX = 0, PX = 2.2, LX = (IX + PX) / 2;
   // 逆變器與配電盤上緣都貼齊二樓樓板底 (EQ_TOP)；EQ_Y = 逆變器中心，PY = 配電盤中心
   const EQ_TOP = F2 - 0.05, EQ_Y = EQ_TOP - INV_H / 2, PY = EQ_TOP - 0.475;
   // 電池 3 格 (1.05 m) 貼地，與逆變器底部相距約 1.2 m
@@ -407,8 +407,8 @@ if (LAYOUT === 'front') {
   }
   const wire = sagWire(V(pole[0] - 0.6, Y0 + 7.0, pole[2] + 0.35), service, 1.0);
   P = {
-    // 東西兩坡各由板陣中央走道往上匯流到屋脊正中央，再沿屋脊到山牆端、順著屋面下到逆變器正上方，垂直往下
-    pv: poly([PV_J, V(XW, PV_J.y, 0), V(XW, roofAt(-IX), -IX), at(S, IX, EQ_Y + INV_H / 2 + 0.05, 0.07)]),
+    // 東西兩坡各由板陣中央走道往上匯流到屋脊正中央，沿屋脊到山牆端，再沿山牆垂直往下接到正下方的逆變器
+    pv: poly([PV_J, V(XW, PV_J.y, 0), at(S, IX, EQ_Y + INV_H / 2 + 0.05, 0.07)]),
     pvFeed: [[/東/, poly([V(0, roofAt(2.4), 2.4), PV_J])], [/西/, poly([V(0, roofAt(-2.4), -2.4), PV_J])]],
     load: poly([at(S, IX + INV_W / 2, EQ_Y, 0.07), at(S, PX - 0.35, EQ_Y, 0.07)]),
     bat: poly([at(S, IX, EQ_Y - INV_H / 2 - 0.05, 0.14), at(S, IX, Y0 + 1.05, 0.14)]),
