@@ -1386,7 +1386,7 @@ function tick() {
 }
 // ---------- 天空中的太陽：目前位置、今天的軌跡 (6/9/12/15/18 點刻度)、照到屋頂的光線 ----------
 {
-  const R = 11.5, CEN = V(0, Y0, 0);   // 以房子為中心的天空半球 (半徑配合預設鏡頭，中午的太陽也在畫面內)
+  const R = 19, CEN = V(0, Y0 + 3, 0);   // 天空半球：中心略高於地面、半徑放大，太陽一定在屋頂與雲的高度之上
   const at_ = d => CEN.clone().addScaledVector(d, R);
   const veil = { sunny: 1, cloudy: 0.85, overcast: 0.45, rain: 0.35 }[WX.kind] ?? 1;   // 陰雨天太陽躲在雲後面
   // 今天的軌跡 (地平線以上)
@@ -1404,16 +1404,16 @@ function tick() {
         g.fillStyle = '#FDE68A'; g.fillText(`${h}`, w / 2, hh / 2 + 1);
       });
       const tick = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false, opacity: NIGHT ? 0.4 : 0.85 }));
-      tick.position.copy(at_(p.dir)).add(V(0, 0.55, 0)); tick.scale.set(0.9, 0.45, 1); scene.add(tick);
+      tick.position.copy(at_(p.dir)).add(V(0, 0.8, 0)); tick.scale.set(1.3, 0.65, 1); scene.add(tick);
     }
   }
   if (SUN.el > -1) {
     const pos = at_(SUN.dir);
-    const core = new THREE.Mesh(new THREE.SphereGeometry(0.55, 24, 16), new THREE.MeshBasicMaterial({ color: '#FFE08A', transparent: true, opacity: veil, fog: false }));
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.8, 24, 16), new THREE.MeshBasicMaterial({ color: '#FFE08A', transparent: true, opacity: veil, fog: false }));
     core.position.copy(pos); scene.add(core);
     const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex0(), color: '#FFC94D', blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, fog: false, opacity: 0.9 * veil }));
-    halo.position.copy(pos); halo.scale.setScalar(4.2); scene.add(halo);
-    anim.push(t => halo.scale.setScalar(4.0 + 0.4 * Math.sin(t * 1.8)));
+    halo.position.copy(pos); halo.scale.setScalar(6); scene.add(halo);
+    anim.push(t => halo.scale.setScalar(5.6 + 0.6 * Math.sin(t * 1.8)));
     // 照到屋頂中央的光線 (太陽在地平線以上才畫)
     if (SUN.el > 0) {
       const roofC = V(0, TOP + RISE * 0.6, 0);
@@ -1432,7 +1432,7 @@ function tick() {
       g.fillStyle = '#FDE68A'; g.fillText(txt, w / 2, h / 2 + 1);
     });
     const lab = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, fog: false }));
-    lab.position.copy(pos).add(V(0, 1.3, 0)); lab.scale.set(3.6, 0.72, 1); lab.renderOrder = 10; scene.add(lab);
+    lab.position.copy(pos).add(V(0, 1.8, 0)); lab.scale.set(4.6, 0.92, 1); lab.renderOrder = 10; scene.add(lab);
   }
   // 右下角的太陽羅盤 (不受視角影響)：上北右東，圓心 = 頭頂、外圈 = 地平線；虛線為今天軌跡
   const dial = document.createElement('canvas'), DS = 76;
