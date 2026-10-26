@@ -489,6 +489,27 @@ function sunPos(hour, doy = D.doy || 300) {
   return { el, az, dir: new THREE.Vector3(Math.cos(e) * Math.cos(a), Math.sin(e), Math.cos(e) * Math.sin(a)) };
 }
 const SUN = sunPos(D.hour ?? 12);
+// 月亮位置與月相 (簡化月球星曆，誤差約 1°)：d = 距 J2000 的天數
+function moonPos(ts = D.ts) {
+  const r = Math.PI / 180, d = (ts ?? Date.now() / 1000) / 86400 - 10957.5;
+  const L = 218.316 + 13.176396 * d, M = (134.963 + 13.064993 * d) * r, F = (93.272 + 13.22935 * d) * r;
+  const Dm = (297.85 + 12.190749 * d) * r, Ms = (357.529 + 0.98560028 * d) * r;
+  const lon = (L + 6.289 * Math.sin(M) - 1.274 * Math.sin(M - 2 * Dm) + 0.658 * Math.sin(2 * Dm) - 0.186 * Math.sin(Ms)) * r;
+  const lat = 5.128 * Math.sin(F) * r, ob = 23.439 * r;
+  const ra = Math.atan2(Math.sin(lon) * Math.cos(ob) - Math.tan(lat) * Math.sin(ob), Math.cos(lon));
+  const decl = Math.asin(Math.sin(lat) * Math.cos(ob) + Math.cos(lat) * Math.sin(ob) * Math.sin(lon));
+  const ha = (280.16 + 360.9856235 * d + 120.694682) * r - ra, la = 23.927693 * r;
+  const el = Math.asin(Math.sin(la) * Math.sin(decl) + Math.cos(la) * Math.cos(decl) * Math.cos(ha)) / r;
+  const az = Math.atan2(Math.sin(ha), Math.cos(ha) * Math.sin(la) - Math.tan(decl) * Math.cos(la)) / r + 180;
+  // 月相：與太陽的黃經差 (0 新月、90 上弦、180 滿月、270 下弦)
+  const sunLon = 280.46 + 0.9856474 * d + 1.915 * Math.sin(Ms);
+  const elong = (((lon / r - sunLon) % 360) + 360) % 360;
+  const e = el * r, a = az * r;
+  return { el, az, elong, lit: (1 - Math.cos(elong * r)) / 2,
+           name: ['新月', '眉月', '上弦月', '盈凸月', '滿月', '虧凸月', '下弦月', '殘月'][elong < 15 || elong >= 345 ? 0 : elong < 80 ? 1 : elong < 100 ? 2 : elong < 170 ? 3 : elong < 190 ? 4 : elong < 260 ? 5 : elong < 280 ? 6 : 7],
+           dir: new THREE.Vector3(Math.cos(e) * Math.cos(a), Math.sin(e), Math.cos(e) * Math.sin(a)) };
+}
+const MOON = moonPos();
 const compass = az => ['北', '東北', '東', '東南', '南', '西南', '西', '西北'][Math.round(az / 45) % 8];
 
 // ---------- 光源 ----------
@@ -506,7 +527,8 @@ if (!NIGHT) {
 } else {
   scene.add(new THREE.HemisphereLight('#3B5BA9', '#0B1120', 0.45));
   const moon = new THREE.DirectionalLight('#A9BFFF', 0.7);
-  moon.position.set(-8, 14, 9);
+  // 月亮在天上時月光跟著月亮方向，否則用固定的斜上方
+  if (MOON.el > 12) moon.position.copy(MOON.dir).multiplyScalar(25); else moon.position.set(-8, 14, 9);
   Object.assign(moon.shadow.camera, { left: -14, right: 14, top: 14, bottom: -14, near: 1, far: 50 });
   moon.shadow.mapSize.set(1024, 1024); moon.shadow.radius = 6;
   moon.castShadow = true; scene.add(moon);
@@ -1434,6 +1456,31 @@ function tick() {
     const lab = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, fog: false }));
     lab.position.copy(pos).add(V(0, 1.8, 0)); lab.scale.set(4.6, 0.92, 1); lab.renderOrder = 10; scene.add(lab);
   }
+  // 太陽下山後換月亮：依真實位置與月相畫出亮面 (上半月右邊亮、下半月左邊亮)
+  if (SUN.el <= -1 && MOON.el > 0) {
+    const pos = at_(MOON.dir), k = MOON.lit;
+    const tex = canvasTex(128, 128, (g, w) => {
+      const c = w / 2, rr = w / 2 - 6;
+      g.fillStyle = 'rgba(71,85,105,0.55)'; g.beginPath(); g.arc(c, c, rr, 0, Math.PI * 2); g.fill();   // 暗面
+      if (MOON.elong > 180) { g.translate(w, 0); g.scale(-1, 1); }
+      g.fillStyle = '#F1F5F9'; g.beginPath();
+      g.arc(c, c, rr, -Math.PI / 2, Math.PI / 2);
+      g.ellipse(c, c, rr * Math.abs(1 - 2 * k), rr, 0, Math.PI / 2, -Math.PI / 2, k < 0.5);
+      g.fill();
+    });
+    const disc = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false, opacity: veil }));
+    disc.position.copy(pos); disc.scale.setScalar(1.9); scene.add(disc);
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex0(), color: '#A9C3FF', blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, fog: false, opacity: (0.25 + 0.5 * k) * veil }));
+    halo.position.copy(pos); halo.scale.setScalar(5); scene.add(halo);
+    const txt = `🌙 ${MOON.name} · 高度 ${Math.round(MOON.el)}° · ${compass(MOON.az)}方`;
+    const lt = canvasTex(400, 64, (g, w, h) => {
+      g.font = 'bold 30px -apple-system, "Segoe UI", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillStyle = 'rgba(15,23,42,0.7)'; g.beginPath(); g.roundRect(4, 6, w - 8, h - 12, 14); g.fill();
+      g.fillStyle = '#E2E8F0'; g.fillText(txt, w / 2, h / 2 + 1);
+    });
+    const lab = new THREE.Sprite(new THREE.SpriteMaterial({ map: lt, transparent: true, depthTest: false, depthWrite: false, fog: false }));
+    lab.position.copy(pos).add(V(0, 1.8, 0)); lab.scale.set(5.6, 0.9, 1); lab.renderOrder = 10; scene.add(lab);
+  }
   // 右下角的太陽羅盤 (不受視角影響)：上北右東，圓心 = 頭頂、外圈 = 地平線；虛線為今天軌跡
   const dial = document.createElement('canvas'), DS = 76;
   dial.width = dial.height = DS * 2; dial.className = 'sundial'; wrap.appendChild(dial);
@@ -1454,8 +1501,14 @@ function tick() {
     g.fillStyle = 'rgba(253,224,71,0.35)'; g.beginPath(); g.arc(x, y, 6, 0, Math.PI * 2); g.fill();
     g.fillStyle = '#FDE047'; g.beginPath(); g.arc(x, y, 3.5, 0, Math.PI * 2); g.fill();
   }
-  g.fillStyle = '#FDE68A'; g.font = 'bold 9px sans-serif';
-  g.fillText(SUN.el > 0 ? `${Math.round(SUN.el)}° ${compass(SUN.az)}` : '日落', cx, DS - 3);
+  const moonUp = SUN.el <= 0 && MOON.el > 0;
+  if (moonUp) {
+    const [x, y] = xy(MOON);
+    g.fillStyle = 'rgba(203,213,225,0.35)'; g.beginPath(); g.arc(x, y, 6, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#E2E8F0'; g.beginPath(); g.arc(x, y, 3.5, 0, Math.PI * 2); g.fill();
+  }
+  g.fillStyle = moonUp ? '#E2E8F0' : '#FDE68A'; g.font = 'bold 9px sans-serif';
+  g.fillText(SUN.el > 0 ? `${Math.round(SUN.el)}° ${compass(SUN.az)}` : moonUp ? `${MOON.name} ${Math.round(MOON.el)}°` : '日落', cx, DS - 3);
 }
 
 // ---------- 天氣場景 ----------
@@ -1571,7 +1624,7 @@ SKIES = {   # 白天天空依天氣變化；夜晚雨天更暗
 
 
 def power_flow_html(pv, load, batt, soc, grid, night=False, layout="front", strings=None, grid_today=None, hour=12.0, weekend=False,
-                    weather=None, battery=None, doy=None):
+                    weather=None, battery=None, doy=None, ts=None):
     """pv/load: kW；batt: kW (+充電/−放電)；grid: kW (+買電/−賣電)；strings: [(名稱, 顏色, kW[, V, A]), ...]；battery: {"v", "temp"}；grid_today: {"buy","sell"} 今日買賣電 kWh；
     weather: {"kind": sunny/cloudy/overcast/rain, ...} 讓 3D 場景跟著天氣變化。"""
     data = {"pv": round(pv, 3), "load": round(load, 3), "batt": round(batt, 3),
@@ -1580,6 +1633,7 @@ def power_flow_html(pv, load, batt, soc, grid, night=False, layout="front", stri
             "battery": battery,
             "grid_today": grid_today, "hour": round(hour, 2), "weekend": bool(weekend),
             "doy": int(doy or __import__("datetime").date.today().timetuple().tm_yday),
+            "ts": ts,   # 資料時間 (Unix 秒)，算月亮位置與月相；None 時用瀏覽器現在時間
             "weather": weather or {"kind": "sunny"}}
     kind = data["weather"]["kind"]
     if night:
