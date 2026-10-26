@@ -454,7 +454,7 @@ with col_main:
                                              for (n, name, where, color), kw in zip(STRINGS, str_kw)],
                                     battery={"v": f("vbat"), "temp": bat_temp or None},
                                     grid_today={"buy": f("etoUserToday"), "sell": f("etoGridToday")},
-                                    hour=last_update.hour + last_update.minute / 60, weekend=last_update.weekday() >= 5,
+                                    hour=last_update.hour + last_update.minute / 60, weekend=last_update.weekday() >= 5, doy=last_update.timetuple().tm_yday,
                                     weather=current_weather()), height=520)
 
 
