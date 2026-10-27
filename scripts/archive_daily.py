@@ -60,6 +60,7 @@ def fetch_day(day):
 def main():
     today = dt.datetime.now(TW_TZ).date()
     rows = read_csv(DAILY)
+    failed = False
 
     if TOKEN:
         todo = [today - dt.timedelta(days=i) for i in range(1, KEEP_DAYS)
@@ -70,7 +71,8 @@ def main():
             try:
                 data = fetch_day(day)
             except Exception as e:
-                print(f"{day}: 查詢失敗 ({e})，下次再試")
+                print(f"::warning::{day}: Growatt 查詢失敗 ({e})，下次再試")
+                failed = failed or "TOKEN" in str(e)
                 if "TOKEN" in str(e):
                     break
                 continue
@@ -84,7 +86,8 @@ def main():
             print(f"{day}: {new['points']} 筆，發電 {new['pv']} kWh")
         write_csv(DAILY, rows, DAILY_COLUMNS)
     else:
-        print("沒有 GROWATT_TOKEN，略過抓取")
+        print("::error::沒有 GROWATT_TOKEN：請到 GitHub → Settings → Secrets and variables → Actions 新增 GROWATT_TOKEN")
+        failed = True
 
     # 記下今天的發電預測，之後在趨勢分頁比對預測準確度
     try:
@@ -98,7 +101,9 @@ def main():
             write_csv(FORECAST, fc, FORECAST_COLUMNS)
             print(f"今天預測 {s['pv']:.1f} kWh")
     except Exception as e:
-        print(f"預測失敗：{e}")
+        print(f"::warning::預測失敗：{e}")
+    if failed:
+        sys.exit(1)   # 讓 GitHub 顯示紅色叉叉提醒 (已存的資料仍會在下一步提交)
 
 
 if __name__ == "__main__":
