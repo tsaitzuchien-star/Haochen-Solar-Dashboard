@@ -34,5 +34,5 @@ jobs:
           git add data
           git diff --cached --quiet && echo "沒有新資料" && exit 0
           git commit -m "每日存檔 $(TZ=Asia/Taipei date +%F)"
-          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git pull --rebase -X theirs origin "${GITHUB_REF_NAME}"   # 重新執行舊的紀錄時，以這次抓到的資料為準
           git push
