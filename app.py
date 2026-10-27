@@ -340,14 +340,6 @@ if not curve.empty and "eto_user" in curve:
         p_buy = rate
 p_sell = f("pacToGridTotal") / 1000
 p_charge = solar_charge_kw(p_charge, p_discharge, pv_kw, f("plocalLoadTotal") / 1000, p_sell)
-# BMS 回報的電池電流 (4 組加總，充電為負) x 電壓最準 (逆變器 Li-BMS 頁 -68.5 A x 53.5 V = 3636 W，同時 pcharge1 只有 1.08 kW)；
-# 有這個欄位就以它為準，方向沿用 pcharge1/pdischarge1 判斷
-bat_kw = abs(f("bmsBatteryCurr")) * f("vbat") / 1000
-if bat_kw > 0.05:
-    if p_discharge > 0.05 and p_charge < 0.05:
-        p_discharge = bat_kw
-    elif p_charge > 0.05:
-        p_charge = bat_kw
 soc = int(f("soc"))
 inv_temp = f("temp1") or f("invTemp")
 bat_temp = f("bmsBatteryTemp")
@@ -850,7 +842,8 @@ with tab_dev:
     d2.markdown(diag_card("🔋 電池", C_BAT, [
         ("電量 / 電壓", f"{soc} % / {f('vbat'):.1f} V"),
         ("目前狀態", f"充電 {p_charge * 1000:.0f} W" if p_charge > 0.02 else f"放電 {p_discharge * 1000:.0f} W" if p_discharge > 0.02 else "待機 0 W"),
-        ("電流（BMS）", f"{f('bmsBatteryCurr'):.1f} A" if f("bmsBatteryCurr") else "API 未提供"),
+        # bmsBatteryCurr 不是實際電流 (充電 68.5 A 時回報 171 A，約 2.5 倍)，先顯示原始值觀察它的意義，不拿來算功率
+        ("bmsBatteryCurr（觀察中）", f"{f('bmsBatteryCurr'):.1f}"),
         ("今日充 / 放電", f"{f('echarge1Today'):.1f} / {f('edischarge1Today'):.1f} kWh"),
         ("溫度", f"{bat_temp:.1f} °C"),
     ]), unsafe_allow_html=True)
