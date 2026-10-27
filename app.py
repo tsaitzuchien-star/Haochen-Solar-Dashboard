@@ -384,7 +384,8 @@ if (fc_hourly is not None and not stale and (now_tw.hour >= 14 or now_tw.hour < 
         st.query_params["floor"] = str(floor)
     out = solar_core.battery_outlook(now_naive, soc, floor, fc_hourly, scale)
     until = out["until"]
-    until_txt = f"明早 {until:%H:%M} 太陽能接手" if until is not None else "明天白天"
+    morning_word = "今早" if now_tw.hour < 12 else "明早"
+    until_txt = f"{morning_word} {until:%H:%M} 太陽能接手" if until is not None else ("今天白天" if now_tw.hour < 12 else "明天白天")
     usage = ("比平常高 " if scale > 1.05 else "比平常低 " if scale < 0.95 else "") + (f"{abs(scale - 1) * 100:.0f}%" if abs(scale - 1) >= 0.05 else "跟平常差不多")
     if out["empty_at"] is None:
         icon, color = "✅", "#10B981"
@@ -392,7 +393,8 @@ if (fc_hourly is not None and not stale and (now_tw.hour >= 14 or now_tw.hour < 
     else:
         icon, color = "⚠️", "#F59E0B"
         when = out["empty_at"]
-        day_txt = "今天" if when.date() == now_naive.date() else "明天" if when.hour >= 7 else "凌晨"
+        day_txt = ("今天" if when.date() == now_naive.date() and (now_naive.hour >= 12 or when.hour >= 7)
+                   else "凌晨" if when.hour < 7 else "明天")
         head = (f"預計<b>{day_txt} {when:%H:%M}</b>  降到放電下限 {floor}%，之後到{until_txt}"
                 f"前，約需台電供應 <b>{out['grid_kwh']:.1f} 度</b>")
     # 電量讀數偏高時 (BMS 尚未校正)，實際可用時間可能更短

@@ -197,7 +197,8 @@ def battery_outlook(now, soc, floor, hourly, load_scale=1.0):
     hourly: 逐時預測表 (time = 該小時結束、pv / load 為該小時平均 kW，load 是平常的用電曲線)。
     回傳 {"empty_at": 降到放電下限的時間或 None, "until": 模擬結束 (太陽能足夠家用的時間), "soc_end", "soc_min", "grid_kwh": 下限後需台電供應}。"""
     soc_now, soc_min, empty_at, grid_kwh, until, hours = float(soc), float(soc), None, 0.0, None, 0
-    tomorrow = (now + pd.Timedelta(days=1)).normalize()
+    # 要撐到的那個早上：中午以前 (例如過了午夜) 是今天早上，否則是明天早上
+    tomorrow = now.normalize() if now.hour < 12 else (now + pd.Timedelta(days=1)).normalize()
     for r in hourly[hourly["time"] > now].itertuples():
         start = r.time - pd.Timedelta(hours=1)
         frac = min(1.0, (r.time - now).total_seconds() / 3600)
