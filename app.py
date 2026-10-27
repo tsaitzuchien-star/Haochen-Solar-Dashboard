@@ -851,32 +851,39 @@ with tab_trend:
         mm["avg"] = mm["pv"] / mm["days"]
         mm[["saved", "without", "bill"]] = [solar_core.monthly_savings(r.load, r.buy, r.month.month, r.days, r.month.days_in_month)
                                             for r in mm.itertuples()]
-        total_saved = mm["saved"].sum()
+        measured_saved = mm["saved"].sum()
+        # 安裝 (2024/11/19) 到有完整資料前：只有 Growatt 電站日報 (偏低約 3 成，取不修正與修正後的中間值 x1.24)，
+        # 乘上有完整資料期間「每發 1 度省下的錢」推估
+        early = daily[(daily["source"] == "plant") & (daily["date"] < d["date"].min())]
+        early_kwh = float(early["pv"].sum()) * 1.24
+        early_saved = early_kwh * measured_saved / d["pv"].sum() if d["pv"].sum() else 0.0
+        total_saved = measured_saved + early_saved
         this_m = mm.iloc[-1]
         try:
-            cost_default = int(st.query_params.get("cost", 0))
+            cost_default = int(st.query_params.get("cost", 200_000))
         except ValueError:
-            cost_default = 0
+            cost_default = 200_000
         s1, s2, s3 = st.columns([1, 1, 1])
         s1.markdown(kpi("本月省下電費", f"{this_m.saved:,.0f}", "元", "#34D399",
                         f"沒有太陽能約 {this_m.without:,.0f} 元，實際約 {this_m.bill:,.0f} 元"), unsafe_allow_html=True)
-        s2.markdown(kpi("累計省下", f"{total_saved:,.0f}", "元", "#34D399",
-                        f"自 {d['date'].min():%Y/%m/%d} 起（{len(d)} 天）"), unsafe_allow_html=True)
+        s2.markdown(kpi("安裝至今累計省下", f"{total_saved:,.0f}", "元", "#34D399",
+                        f"實測 {measured_saved:,.0f}（{d['date'].min():%m/%d} 起）+ 推估 {early_saved:,.0f}（安裝起）"), unsafe_allow_html=True)
         with s3:
             cost = st.number_input("系統總花費（元）", 0, 5_000_000, cost_default, step=10_000, key="sys_cost",
                                    help="板子、逆變器、電池、配電、施工全部加總；用來計算回收進度")
             if cost != cost_default:
                 st.query_params["cost"] = str(cost)
         if cost > 0:
-            per_day = total_saved / len(d)
+            per_day = measured_saved / len(d)
             done = total_saved / cost
             st.markdown(f"""<div class="card" style="margin-top:4px;">
               <div style="color:#94A3B8; font-size:13px;">💰 投資回收進度（以目前每天平均省 {per_day:,.0f} 元估算，一年約 {per_day * 365:,.0f} 元）</div>
               <div style="background:#0F172A; border-radius:8px; height:16px; margin:8px 0; overflow:hidden;">
                 <div style="width:{min(done, 1) * 100:.1f}%; height:100%; background:linear-gradient(90deg,#10B981,#34D399);"></div></div>
-              <div style="color:#E2E8F0; font-size:14px;">已回收 <b>{done * 100:.1f}%</b>（{total_saved:,.0f} / {cost:,.0f} 元），
-                還需約 <b>{max(cost - total_saved, 0) / per_day / 365:.1f} 年</b></div>
-              <div style="color:#64748B; font-size:12px; margin-top:4px;">只計入有存檔的日子；夏天電價較高、冬天發電較少，累積滿一年後估算會更準</div>
+              <div style="color:#E2E8F0; font-size:14px;">已回收 <b>{done * 100:.1f}%</b>（{total_saved:,.0f} / {cost:,.0f} 元），還差 <b>{max(cost - total_saved, 0):,.0f} 元</b>，
+                約 <b>{max(cost - total_saved, 0) / per_day / 365:.1f} 年</b></div>
+              <div style="color:#64748B; font-size:12px; margin-top:4px;">{d['date'].min():%Y/%m/%d} 以前沒有完整資料，依 Growatt 電站日報（修正少算的部分）推估約 {early_saved:,.0f} 元；
+                夏天電價較高、冬天發電較少，每天平均省多少會隨季節變動，累積滿一年後估算會更準</div>
             </div>""", unsafe_allow_html=True)
 
         # 每月報告：上個月 (完整) 與本月至今
