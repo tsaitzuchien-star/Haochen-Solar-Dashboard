@@ -250,12 +250,15 @@ else:
 dot_color, dot_text = ("#F59E0B", "資料延遲") if stale else ("#22C55E", "正常")
 
 # 狀態標籤放在標題同一行、資料時間放在副標題下方，手機上也不會錯位
+_ry, _rm, _rd, run_days = solar_core.runtime(now_tw.date())
+run_txt = (f"{_ry} 年 " if _ry else "") + f"{_rm} 個月 {_rd} 天"
+
 st.markdown(f"""<div style="padding-bottom:12px; border-bottom:1px solid #334155; margin-bottom:16px;">
   <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
     <span style="color:#F8FAFC; font-size:26px; font-weight:800;">澔宸小窩</span>
     <span class="chip" style="background:{dot_color}22; color:{dot_color};">● {dot_text}</span>
   </div>
-  <div style="color:#64748B; font-size:12px; letter-spacing:1px; margin-top:2px;">SPH 10000TL-HU · {CAPACITY_KWP} kWp · 南投</div>
+  <div style="color:#64748B; font-size:12px; letter-spacing:1px; margin-top:2px;">SPH 10000TL-HU · {CAPACITY_KWP} kWp · 南投 · ⏱️ 已運轉 {run_txt}</div>
   <div style="color:#94A3B8; font-size:12px; margin-top:6px; font-family:monospace;">
     資料 {last_update:%m/%d %H:%M}（{age_text}）· 網頁 {now_tw:%H:%M:%S}</div>
 </div>""", unsafe_allow_html=True)
@@ -821,7 +824,19 @@ with tab_trend:
         fc_join = fc_log.merge(d[["date", "pv", "points"]], on="date", suffixes=("_fc", "")) if not fc_log.empty else pd.DataFrame()
         fc_join = fc_join[fc_join["points"] >= 270] if not fc_join.empty else fc_join
         fc_err = (fc_join["pv_fc"] / fc_join["pv"] - 1).abs().tail(30).mean() if len(fc_join) else float("nan")
-        st.markdown('<div class="section-title" style="margin-top:6px;">⚡ 本月概況</div>', unsafe_allow_html=True)
+        # ⏱️ 運轉時間：啟用至今，累計發電 = 有完整資料的實測 + 之前的電站日報 (偏低約 3 成，x1.24 修正)
+        life_kwh = d["pv"].sum() + float(daily[(daily["source"] == "plant") & (daily["date"] < d["date"].min())]["pv"].sum()) * 1.24
+        units = [(_ry, "年"), (_rm, "個月"), (_rd, "天")]
+        big = "".join(f'<span style="font-size:34px; font-weight:800; color:#F8FAFC;">{n}</span>'
+                      f'<span style="font-size:15px; color:#94A3B8; margin:0 14px 0 4px;">{u}</span>' for n, u in units if n or u == "天")
+        st.markdown(f"""<div class="card" style="margin-top:6px; display:flex; flex-wrap:wrap; align-items:center; gap:10px 32px; border-left:4px solid #FDE68A;">
+          <div><div class="kpi-label">⏱️ 系統已運轉</div><div style="margin-top:2px;">{big}</div>
+            <div class="kpi-sub">{solar_core.INSTALL_DATE:%Y/%m/%d} 開始發電 · 共 {run_days:,} 天</div></div>
+          <div style="color:#CBD5E1; font-size:14px; line-height:1.9;">
+            ☀️ 累計發電約 <b>{life_kwh:,.0f} 度</b>（平均每天 {life_kwh / max(run_days, 1):.1f} 度）<br>
+            🌳 減少碳排約 <b>{life_kwh * 0.474 / 1000:,.1f} 公噸</b> CO₂（台電 2024 年電力排碳係數 0.474 kg/度）</div>
+        </div>""", unsafe_allow_html=True)
+        st.markdown('<div class="section-title" style="margin-top:22px;">⚡ 本月概況</div>', unsafe_allow_html=True)
         k1, k2, k3, k4 = st.columns(4)
         k1.markdown(kpi("本月發電", f"{m['pv'].sum():.0f}", "kWh", C_PV, f"{len(m)} 天（含今天）"), unsafe_allow_html=True)
         k2.markdown(kpi("本月平均每天", f"{avg:.1f}" if avg == avg else "—", "kWh", C_PV,

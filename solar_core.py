@@ -281,3 +281,13 @@ def day_advice(s, label, day_load):
                 "電池到放電下限後台電自動接手。你家是累進電價（沒有離峰優惠），<b>不建議先用台電幫電池充電</b>"
                 "（多轉一手約損耗 15%）；能延後的大電器（烘衣、洗碗機）可以等晴天再用")
     return best
+
+
+INSTALL_DATE = datetime(2024, 11, 19).date()   # 開始發電 (Growatt 電站第一天有資料)
+
+
+def runtime(today):
+    """從啟用到今天的 (年, 月, 日, 總天數)。"""
+    from dateutil.relativedelta import relativedelta
+    r = relativedelta(today, INSTALL_DATE)
+    return r.years, r.months, r.days, (today - INSTALL_DATE).days
