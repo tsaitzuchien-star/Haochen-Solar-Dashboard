@@ -842,8 +842,6 @@ with tab_dev:
     d2.markdown(diag_card("🔋 電池", C_BAT, [
         ("電量 / 電壓", f"{soc} % / {f('vbat'):.1f} V"),
         ("目前狀態", f"充電 {p_charge * 1000:.0f} W" if p_charge > 0.02 else f"放電 {p_discharge * 1000:.0f} W" if p_discharge > 0.02 else "待機 0 W"),
-        # bmsBatteryCurr 不是實際電流 (充電 68.5 A 時回報 171 A，約 2.5 倍)，先顯示原始值觀察它的意義，不拿來算功率
-        ("bmsBatteryCurr（觀察中）", f"{f('bmsBatteryCurr'):.1f}"),
         ("今日充 / 放電", f"{f('echarge1Today'):.1f} / {f('edischarge1Today'):.1f} kWh"),
         ("溫度", f"{bat_temp:.1f} °C"),
     ]), unsafe_allow_html=True)
