@@ -1,23 +1,25 @@
 """明日發電預測：Open-Meteo ECMWF 短波輻射 → 東西坡板面日照 → 東西兩組 PV 可發功率 → 電池充滿時間與限發估計。
 
 參數由本站 2026/7~10 的實測資料推得 (電池每 1% 約 0.7 kWh、充電上限約 5 kW)，今天以早上 7 點實測電量起算，之後各天接續推估；
-系統效率 PR 以 558 個未限發小時的實測與 ECMWF 歷史預報比對校正 (扣除改線前 PV2 東西混串約 4% 的損失) 為 0.73。
+系統效率 PR 隨雲量變化：晴天 0.85 (改線後無雲日實測校正)、全陰 0.68 (7~10 月未限發時段實測校正)。
 """
 import numpy as np
 import pandas as pd
 import requests
 
 # 改動預測結果的欄位或算法時加 1，讓網站的快取失效 (st.cache_data 不會偵測這個模組的變更)
-MODEL_VERSION = 7
+MODEL_VERSION = 8
 
 LAT, LON = 23.927693, 120.694682
 TILT = 15.0                 # 屋頂坡度 (度)
 PANEL_KWP = 0.445           # 單片容量 (24 片 = 10.68 kWp)
 # 各組板面朝向片數：(東坡片數, 西坡片數)；正面朝東。2026/10 起東西各 12 片一串，PV2 停用
 STRING_PANELS = {"PV1": (0, 12), "PV3": (12, 0)}
-# 系統效率：2026/7~10 未限發時段實測 ÷ ECMWF 歷史預報 = 0.70，當時 PV2 東西混串另損失約 4.1%；
-# 改成東西各 12 片後沒有混串損失，0.70 / (1 - 0.041) ≈ 0.73
-PR = 0.73
+# 系統效率隨「會擋光的雲量」變化：晴天時 ECMWF 低估日照，雲多時高估。
+# 改線後 10/26 上午、10/27 全天兩個無雲日，實測 ÷ PR 0.73 的預測逐時穩定在 1.17~1.20 → 晴天 PR ≈ 0.85；
+# 7~10 月未限發時段 (多為雲天) 擬合全陰約 0.57、整體約 0.73，改線後扣掉混串損失取 0.68。
+PR_CLEAR, PR_CLOUDY = 0.85, 0.68
+PR = 0.73                   # 平均值，僅供說明
 TEMP_COEF = -0.0035         # 每 °C 功率變化
 # 東邊山頭：2026/10/26 晴天實測，太陽在方位 110° 爬到約 10.5° 高才越過山頭照到屋頂 (比日出晚約 50 分鐘)；
 # 西邊是開闊平原，只算約 2°。太陽低於山頭時只剩散射光
@@ -85,6 +87,12 @@ def sun_above_hills(times):
     return seen / 6
 
 
+def hourly_pr(df):
+    """逐時系統效率：晴朗度 = 1 - 會擋光的雲量 (低雲、中雲照算，高空卷雲只算 35%)，在 PR_CLOUDY 與 PR_CLEAR 之間線性內插。"""
+    eff = np.maximum.reduce([df["cloud_cover_low"], df["cloud_cover_mid"], df["cloud_cover_high"] * 0.35]) / 100
+    return PR_CLOUDY + (PR_CLEAR - PR_CLOUDY) * (1 - np.clip(eff, 0, 1))
+
+
 def forecast(df=None, soc7=None):
     """回傳 (逐時預測表, 每日摘要)。逐時表含三組 PV、總功率、家用、充電、限發 (kW = 該小時 kWh)。
 
@@ -95,9 +103,10 @@ def forecast(df=None, soc7=None):
     night_pct = sum(LOAD_PROFILE[(h - 1) % 24] for h in range(7)) / BATT_KWH_PER_PCT  # 午夜到 7 點的放電
     df = (fetch_weather() if df is None else df).copy()
     poa = {"E": plane_irradiance(df, 90), "W": plane_irradiance(df, 270)}
+    df["pr"] = hourly_pr(df)
     for side in ("E", "W"):
         cell = df["temp"] + poa[side] * 0.03
-        df[f"kw_{side}"] = PANEL_KWP * poa[side] / 1000 * PR * (1 + TEMP_COEF * (cell - 25))
+        df[f"kw_{side}"] = PANEL_KWP * poa[side] / 1000 * df["pr"] * (1 + TEMP_COEF * (cell - 25))
     for name, (e, w) in STRING_PANELS.items():
         df[name] = (e * df["kw_E"] + w * df["kw_W"]).clip(lower=0)
     df["pv"] = df[list(STRING_PANELS)].sum(axis=1).clip(upper=INVERTER_KW)
