@@ -175,7 +175,17 @@ def fetch_day_curve(day):
     df["buy"] += extra
     df["load"] += extra
     df["soc_raw"], df["soc"] = df["soc"], clean_soc(df["soc"])
+    df["charge"] = [solar_charge_kw(*r) for r in zip(df["charge"], df["discharge"], df["pv"], df["load"] - extra, df["sell"])]
     return df
+
+
+def solar_charge_kw(charge, discharge, pv, inv_load, sell):
+    """電池充電功率：Growatt 的 pcharge1 常常瞬間偏低 (例如太陽能 6.6 kW、家用 0.3 kW 卻只回報 2.4 kW)，
+    但電就只有家用、賣電、電池三個去處，所以太陽能扣掉逆變器供給家裡與賣電的部分 x 0.92 (實測轉換效率上限) 就是電池至少收到的電。
+    電池在放電時不套用。"""
+    if discharge > 0.05 or pv < 0.1:
+        return charge
+    return max(charge, (pv - inv_load - sell) * 0.92)
 
 
 def clean_soc(soc):
@@ -327,6 +337,7 @@ if not curve.empty and "eto_user" in curve:
         load_kw += rate - p_buy
         p_buy = rate
 p_sell = f("pacToGridTotal") / 1000
+p_charge = solar_charge_kw(p_charge, p_discharge, pv_kw, f("plocalLoadTotal") / 1000, p_sell)
 soc = int(f("soc"))
 inv_temp = f("temp1") or f("invTemp")
 bat_temp = f("bmsBatteryTemp")
