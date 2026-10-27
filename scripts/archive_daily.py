@@ -20,7 +20,8 @@ sys.path.insert(0, str(ROOT))
 import pv_forecast  # noqa: E402
 from solar_core import DAILY_COLUMNS, TW_TZ, daily_summary, rows_to_curve  # noqa: E402
 
-TOKEN = os.environ.get("GROWATT_TOKEN")
+# 從 Streamlit Secrets 複製時常會連引號或空白一起貼上，先去掉
+TOKEN = (os.environ.get("GROWATT_TOKEN") or "").strip().strip('"').strip("'").strip() or None
 DEVICE_SN = os.environ.get("GROWATT_DEVICE_SN", "KQQ0N6200N")
 API = "https://openapi.growatt.com/v4/new-api/queryHistoricalData"
 DAILY = ROOT / "data" / "daily.csv"
@@ -72,8 +73,9 @@ def main():
                 data = fetch_day(day)
             except Exception as e:
                 print(f"::warning::{day}: Growatt 查詢失敗 ({e})，下次再試")
-                failed = failed or "TOKEN" in str(e)
-                if "TOKEN" in str(e):
+                failed = failed or any(k in str(e) for k in ("TOKEN", "PERMISSION"))
+                if any(k in str(e) for k in ("TOKEN", "PERMISSION")):
+                    print("::error::Growatt 拒絕這組 Token：請確認 GitHub Secret 的 GROWATT_TOKEN 與 Streamlit 的完全相同 (只貼引號裡的那串)")
                     break
                 continue
             if not data:
