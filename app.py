@@ -809,6 +809,9 @@ with tab_trend:
             d = pd.concat([d[d["date"] < pd.Timestamp(now_tw.date())],
                            pd.DataFrame([{**solar_core.daily_summary(curve, source="today"), "date": pd.Timestamp(now_tw.date())}])])
         d = d.sort_values("date").reset_index(drop=True)
+        # 今天的摘要在資料不足時 (例如半夜) 會有空字串，全部轉成數字，避免加總時型別錯誤
+        num = [c for c in solar_core.DAILY_COLUMNS if c not in ("date", "source")]
+        d[num] = d[num].apply(pd.to_numeric, errors="coerce")
         # 正常年是改線後的配置；改線前 PV2 東西混串約少 6%
         d["normal"] = d["date"].dt.month.map(solar_core.CLIMATE_DAILY) * np.where(d["date"] < pd.Timestamp("2026-10-22"), 0.94, 1.0)
         span = st.radio("期間", ["近 30 天", "近 90 天", "全部"], horizontal=True, label_visibility="collapsed", key="trend_span")
