@@ -517,21 +517,7 @@ if fd:
     if fd["soc7_src"] == "actual" and soc7_how == "estimate":
         soc7_txt = f"以目前 {soc}% 扣掉清晨用電，推估 7 點約 {fd['soc7']:.0f}%"
     hrs = fd["best_hours"]
-    day_load = sum(pv_forecast.LOAD_PROFILE.values())
-    if hrs:
-        best = (f"💡 {pick} <b>{hrs[0]}:00–{hrs[-1] + 1}:00</b> 電池會充滿、太陽能用不完（約浪費 {fd['lost']:.0f} 度）："
-                "適合安排洗衣、烘衣、熱水器、冷氣預冷，或電動車充電")
-    elif fd["pv"] >= day_load + 8:
-        best = (f"☀️ {pick}發電約 {fd['pv']:.0f} 度，比家裡一天用電（約 {day_load:.0f} 度）多：大電器盡量排在 <b>10:00–14:00</b> 太陽最強時使用，"
-                "直接用太陽能，不經過電池，損耗最少")
-    elif fd["pv"] >= day_load * 0.6:
-        best = (f"⛅ {pick}發電約 {fd['pv']:.0f} 度，大約只夠白天用加上補一點電池：洗衣、熱水器等集中在 <b>11:00–13:00</b>，"
-                "其他時間避免同時開多個大電器")
-    else:
-        short = day_load - fd["pv"] * 0.9
-        best = (f"🌧️ {pick}發電只有約 {fd['pv']:.0f} 度，家裡一天約用 {day_load:.0f} 度，差的約 <b>{short:.0f} 度</b>會先用電池，"
-                "電池到放電下限後台電自動接手。你家是累進電價（沒有離峰優惠），<b>不建議先用台電幫電池充電</b>"
-                "（多轉一手約損耗 15%）；能延後的大電器（烘衣、洗碗機）可以等晴天再用")
+    best = solar_core.day_advice(fd, pick, sum(pv_forecast.LOAD_PROFILE.values()))
     strings_txt = "　".join(f'<span style="color:{c}">{n}</span> {fd[n]:.1f}' for _, n, _, c in STRINGS)
     st.markdown(f"""<div class="card">
       <div style="display:flex; flex-wrap:wrap; gap:16px 36px; align-items:flex-end;">
