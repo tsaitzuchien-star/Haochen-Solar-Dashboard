@@ -156,7 +156,7 @@ def fetch_day_curve(day):
         "charge": g(x, "pcharge1") / 1000, "discharge": g(x, "pdischarge1") / 1000,
         "buy": grid_buy_kw(g(x, "pacToUserTotal"), g(x, "plocalLoadTotal"), g(x, "ppv"), g(x, "pdischarge1"), g(x, "pcharge1")),
         "sell": g(x, "pacToGridTotal") / 1000,
-        "soc": g(x, "soc"),
+        "soc": g(x, "soc"), "vbat": g(x, "vbat"),
         # 逆變器溫度在 temp1/temp2 (歷史資料的 invTemp 恆為 0)
         "inv_temp": g(x, "temp1"), "inv_temp2": g(x, "temp2"), "bat_temp": g(x, "bmsBatteryTemp"),
         # 歷史資料的 ppv1~3 恆為 0，各組功率以電壓 x 電流計算
@@ -174,7 +174,22 @@ def fetch_day_curve(day):
     extra = (rate - df["buy"]).clip(lower=0)
     df["buy"] += extra
     df["load"] += extra
+    df["soc_raw"], df["soc"] = df["soc"], clean_soc(df["soc"])
     return df
+
+
+def clean_soc(soc):
+    """去掉電量讀數的瞬間跳動 (跳一兩筆又回來，例如 60→68→68→59)：與前後 5 筆中位數差超過 4% 的點改用中位數。
+    真正的階梯變化 (手動校正、BMS 歸零) 會連續維持，中位數會跟著變，不受影響。"""
+    med = soc.rolling(5, center=True, min_periods=1).median()
+    return soc.where((soc - med).abs() <= 4, med)
+
+
+def soc_jumps(df):
+    """電量一次往下跳 8% 以上 (5 分鐘內不可能放掉這麼多電)：
+    原本 85% 以上 → 使用者在 BMS 改容量手動校正，讓電池繼續充；更低時 → BMS 自己重新估算 (例如電壓過低歸零)。"""
+    d = df["soc"].diff()
+    return [(df["time"][i], df["soc"][i - 1], df["soc"][i], df["soc"][i - 1] >= 85) for i in d[d <= -8].index]
 
 
 @st.cache_resource
@@ -385,6 +400,13 @@ if 0 < vbat < 49 and not stale and p_discharge > 0.05:
         msg = f"電池電壓 {vbat:.1f} V 偏低（電量 {soc}%），建議把放電下限 (SOC) 調高一些，避免跌破 48 V 電量歸零"
     st.markdown(f'<div style="background:{c}1F; border:1px solid {c}; color:{c}; border-radius:10px; padding:10px 14px; '
                 f'font-size:15px; font-weight:600; margin:-4px 0 12px;">{"🔴" if red else "🟡"} {msg}</div>', unsafe_allow_html=True)
+
+# BMS 電量偏高：顯示 99~100% 時逆變器就停止充電，但鋰鐵電池真正充滿時每顆約 3.45 V (整組約 55 V)；
+# 電壓低於 54 V 代表 BMS 累積誤差、其實還沒滿 (放電中電壓會被拉低，所以只在沒大量放電時判斷)
+if soc >= 99 and 0 < vbat < 54 and not stale and p_discharge < 0.3:
+    st.markdown(f'<div style="background:#F59E0B1F; border:1px solid #F59E0B; color:#F59E0B; border-radius:10px; padding:10px 14px; '
+                f'font-size:15px; font-weight:600; margin:-4px 0 12px;">🔧 電池顯示 {soc}%，但電壓只有 {vbat:.1f} V（每顆約 {vbat / 16:.2f} V，'
+                f'真正充滿約 55 V）。BMS 電量偏高，建議校正讓太陽能繼續充到真正滿電</div>', unsafe_allow_html=True)
 
 if is_limited and not stale:
     spare = f"，估計還有約 <b>{ana['lost_now']:.1f} kW</b> 用不到" if ana and ana["lost_now"] >= 0.3 else ""
@@ -712,7 +734,7 @@ with st.expander("📥 下載逐 5 分鐘明細（CSV）"):
     cols = {"time": "時間", "pv": "總發電kW", "pv1": "PV1西坡kW", "vpv1": "PV1電壓V", "ipv1": "PV1電流A",
             "pv3": "PV3東坡kW", "vpv3": "PV3電壓V", "ipv3": "PV3電流A",
             "pv2": "PV2kW(改線前東西混串)", "vpv2": "PV2電壓V", "ipv2": "PV2電流A", "load": "用電kW", "charge": "充電kW",
-            "discharge": "放電kW", "buy": "買電kW", "sell": "賣電kW", "soc": "電池%"}
+            "discharge": "放電kW", "buy": "買電kW", "sell": "賣電kW", "soc": "電池%", "soc_raw": "電池%(原始讀數)", "vbat": "電池電壓V"}
     try:
         dl = curve if dl_day == now_tw.date() else with_fallback(f"curve-{dl_day}", fetch_day_curve, dl_day.strftime("%Y-%m-%d"))
         out = dl[[c for c in cols if c in dl.columns]].rename(columns=cols)
@@ -770,6 +792,28 @@ with tab_dev:
         st.plotly_chart(ft, width="stretch", theme=None)
         st.markdown('<div style="color:#94A3B8; font-size:13px;">' + "黃色區 60–70°C 偏高、紅色區 70°C 以上過高（逆變器）；電池（鋰鐵）10–35°C 為理想範圍。門檻為一般參考值，可依原廠規格調整。"
                    "逆變器夜間放電時溫度也會上升，屬正常現象。" + "</div>", unsafe_allow_html=True)
+
+        # 電池電量與電壓：電量已去掉瞬間跳動，並標出手動校正 / BMS 重新估算
+        fb = go.Figure()
+        fb.add_trace(go.Scatter(x=curve["time"], y=curve["soc"], name="電量 %", line=dict(color=C_BAT, width=2.2)))
+        if (curve["vbat"] > 0).any():
+            fb.add_trace(go.Scatter(x=curve["time"], y=curve["vbat"].replace(0, np.nan), name="電壓 V", yaxis="y2",
+                                    line=dict(color="#E2E8F0", width=1.3, dash="dot")))
+            for v, txt, col in ((48, "48 V 歸零", "#EF4444"), (55.2, "55.2 V 真正充滿", "#10B981")):
+                fb.add_hline(y=v, yref="y2", line=dict(color=col, width=1, dash="dash"), opacity=0.6,
+                             annotation_text=txt, annotation_position="top left", annotation_font=dict(color=col, size=11))
+        for t, a, b, manual in soc_jumps(curve):
+            fb.add_annotation(x=t, y=b, text=f"{'🔧 手動校正' if manual else '⚠️ BMS 重新估算'} {a:.0f}→{b:.0f}%",
+                              showarrow=True, arrowhead=2, arrowcolor="#FBBF24", ay=-34, bgcolor="rgba(15,23,42,0.8)",
+                              font=dict(color="#FDE68A", size=12))
+        fb.update_layout(**{**chart_layout, "height": 300}, xaxis=dict(showgrid=False, tickformat="%H:%M"),
+                         yaxis=dict(gridcolor="#334155", title="電量 %", range=[0, 105]),
+                         yaxis2=dict(overlaying="y", side="right", showgrid=False, title="V", range=[44, 58]))
+        st.plotly_chart(fb, width="stretch", theme=None)
+        st.markdown('<div style="color:#94A3B8; font-size:13px;">'
+                    "電量讀數偶爾會瞬間跳一下又回來，圖上已自動平滑。電量從 85% 以上一次往下跳 8% 以上，是在 BMS 改容量手動校正（🔧），"
+                    "讓太陽能繼續把電池充到真正滿電；較低電量時的突降是 BMS 自己重新估算（⚠️，例如電壓跌破約 48 V 直接歸零）。"
+                    "電量顯示 100% 但電壓不到 54 V，代表 BMS 電量偏高、還沒真正充滿。</div>", unsafe_allow_html=True)
 
     def diag_card(title, color, rows):
         rows_html = "".join(f'<div style="display:flex; justify-content:space-between; margin-bottom:7px; font-size:13px;">'
