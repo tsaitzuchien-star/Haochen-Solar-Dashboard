@@ -222,3 +222,42 @@ def battery_outlook(now, soc, floor, hourly, load_scale=1.0):
         if start >= tomorrow + pd.Timedelta(hours=12):
             break
     return {"empty_at": empty_at, "until": until, "soc_end": soc_now, "soc_min": soc_min, "grid_kwh": grid_kwh, "hours": hours}
+
+
+# 台電表燈非營業用 (累進，2025/10/1 起)：每月級距上限 (度) 與每度電價；兩個月抄表一次時級距加倍。
+# 6/1–9/30 為夏月。實際帳單 95 度、102 度都收 200 元 → 每期 (兩個月) 最低 200 元
+TARIFF_TIERS = [120, 330, 500, 700, 1000, float("inf")]
+TARIFF_RATES = {"summer": [1.78, 2.55, 3.80, 5.14, 6.44, 8.86], "other": [1.78, 2.26, 3.13, 4.24, 5.27, 7.03]}
+MIN_BILL_PER_MONTH = 100
+
+
+def tiered_cost(kwh, month):
+    """一個月用 kwh 度的累進電費 (元，不含最低電費)。"""
+    rates = TARIFF_RATES["summer" if 6 <= month <= 9 else "other"]
+    cost, low = 0.0, 0
+    for top, rate in zip(TARIFF_TIERS, rates):
+        if kwh <= low:
+            break
+        cost += (min(kwh, top) - low) * rate
+        low = top
+    return cost
+
+
+def monthly_savings(load_kwh, buy_kwh, month, days, month_days):
+    """這個月 (可能還沒過完) 太陽能省下的電費：沒有太陽能時全部向台電買的電費 − 實際電費。
+    沒過完的月份先依天數換算成整月再計算級距，最後按比例換回來。回傳 (省下元, 沒太陽能的電費, 實際電費)。"""
+    k = month_days / max(days, 1)
+    without = tiered_cost(load_kwh * k, month)
+    actual = max(tiered_cost(buy_kwh * k, month), MIN_BILL_PER_MONTH)
+    return (without - actual) / k, without / k, actual / k
+
+
+def string_ratio_alerts(daily, forecasts, tol=0.15, min_kwh=15):
+    """東西兩串比例異常：改線後每天的 PV1 / PV3 實測比 ÷ 當天預測比，偏離超過 tol 且發電夠多的日子。
+    回傳 DataFrame (date, ratio = 實測比 / 預測比)。"""
+    if forecasts.empty:
+        return pd.DataFrame(columns=["date", "ratio"])
+    d = daily.merge(forecasts[["date", "pv1", "pv3"]], on="date", suffixes=("", "_fc"))
+    d = d[(d["date"] >= pd.Timestamp("2026-10-22")) & (d["pv"] >= min_kwh) & (d["pv3"] > 0) & (d["pv3_fc"] > 0)]
+    d = d.assign(ratio=(d["pv1"] / d["pv3"]) / (d["pv1_fc"] / d["pv3_fc"]))
+    return d.loc[(d["ratio"] - 1).abs() > tol, ["date", "ratio"]]

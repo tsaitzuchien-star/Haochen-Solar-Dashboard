@@ -303,6 +303,19 @@ if 0 < vbat < 49 and not stale and p_discharge > 0.05:
     st.markdown(f'<div style="background:{c}1F; border:1px solid {c}; color:{c}; border-radius:10px; padding:10px 14px; '
                 f'font-size:15px; font-weight:600; margin:-4px 0 12px;">{"🔴" if red else "🟡"} {msg}</div>', unsafe_allow_html=True)
 
+# 東西兩串比例異常 (每日存檔比對預測)：最近 2 天都偏離就在首頁提醒
+try:
+    _daily, _fc = load_archive()
+    _al = solar_core.string_ratio_alerts(_daily[_daily["source"] != "plant"], _fc)
+    _last = _daily["date"].max()
+    _al = _al[_al["date"] >= _last - pd.Timedelta(days=1)]
+except Exception:
+    _al = pd.DataFrame()
+if len(_al) >= 2 and not stale:
+    st.markdown('<div style="background:#F59E0B1F; border:1px solid #F59E0B; color:#F59E0B; border-radius:10px; padding:10px 14px; '
+                'font-size:15px; font-weight:600; margin:-4px 0 12px;">🩺 最近兩天東西兩串的發電比例跟預測差超過 15%，'
+                '可能有遮蔭、髒污或接頭鬆脫，詳見「📊 趨勢」分頁的系統健康</div>', unsafe_allow_html=True)
+
 # BMS 電量偏高：顯示 99~100% 時逆變器就停止充電，但鋰鐵電池真正充滿時每顆約 3.45 V (整組約 55 V)；
 # 電壓低於 54 V 代表 BMS 累積誤差、其實還沒滿 (放電中電壓會被拉低，所以只在沒大量放電時判斷)
 if soc >= 99 and 0 < vbat < 54 and not stale and p_discharge < 0.3:
@@ -504,8 +517,21 @@ if fd:
     if fd["soc7_src"] == "actual" and soc7_how == "estimate":
         soc7_txt = f"以目前 {soc}% 扣掉清晨用電，推估 7 點約 {fd['soc7']:.0f}%"
     hrs = fd["best_hours"]
-    best = (f"💡 {pick} <b>{hrs[0]}:00–{hrs[-1] + 1}:00</b> 太陽能用不完，適合安排洗衣、烘衣、熱水器、電動車充電"
-            if hrs else f"{pick}預估太陽能大多會被家用與電池用完，沒有明顯浪費的時段")
+    day_load = sum(pv_forecast.LOAD_PROFILE.values())
+    if hrs:
+        best = (f"💡 {pick} <b>{hrs[0]}:00–{hrs[-1] + 1}:00</b> 電池會充滿、太陽能用不完（約浪費 {fd['lost']:.0f} 度）："
+                "適合安排洗衣、烘衣、熱水器、冷氣預冷，或電動車充電")
+    elif fd["pv"] >= day_load + 8:
+        best = (f"☀️ {pick}發電約 {fd['pv']:.0f} 度，比家裡一天用電（約 {day_load:.0f} 度）多：大電器盡量排在 <b>10:00–14:00</b> 太陽最強時使用，"
+                "直接用太陽能，不經過電池，損耗最少")
+    elif fd["pv"] >= day_load * 0.6:
+        best = (f"⛅ {pick}發電約 {fd['pv']:.0f} 度，大約只夠白天用加上補一點電池：洗衣、熱水器等集中在 <b>11:00–13:00</b>，"
+                "其他時間避免同時開多個大電器")
+    else:
+        short = day_load - fd["pv"] * 0.9
+        best = (f"🌧️ {pick}發電只有約 {fd['pv']:.0f} 度，家裡一天約用 {day_load:.0f} 度，差的約 <b>{short:.0f} 度</b>會先用電池，"
+                "電池到放電下限後台電自動接手。你家是累進電價（沒有離峰優惠），<b>不建議先用台電幫電池充電</b>"
+                "（多轉一手約損耗 15%）；能延後的大電器（烘衣、洗碗機）可以等晴天再用")
     strings_txt = "　".join(f'<span style="color:{c}">{n}</span> {fd[n]:.1f}' for _, n, _, c in STRINGS)
     st.markdown(f"""<div class="card">
       <div style="display:flex; flex-wrap:wrap; gap:16px 36px; align-items:flex-end;">
@@ -818,6 +844,74 @@ with tab_trend:
         k4.markdown(kpi("預測誤差", f"{fc_err * 100:.0f}" if fc_err == fc_err else "—", "%", "#FDE68A",
                         f"近 {min(len(fc_join), 30)} 天平均" if len(fc_join) else "存檔累積幾天後顯示"), unsafe_allow_html=True)
 
+        # 省下的電費 (台電表燈累進電價；沒有太陽能時全部向台電買 − 實際向台電買)
+        mm = d.assign(month=d["date"].dt.to_period("M")).groupby("month").agg(
+            days=("pv", "size"), pv=("pv", "sum"), load=("load", "sum"), buy=("buy", "sum"), lost=("lost", "sum"),
+            normal=("normal", "mean")).reset_index()
+        mm["avg"] = mm["pv"] / mm["days"]
+        mm[["saved", "without", "bill"]] = [solar_core.monthly_savings(r.load, r.buy, r.month.month, r.days, r.month.days_in_month)
+                                            for r in mm.itertuples()]
+        total_saved = mm["saved"].sum()
+        this_m = mm.iloc[-1]
+        try:
+            cost_default = int(st.query_params.get("cost", 0))
+        except ValueError:
+            cost_default = 0
+        s1, s2, s3 = st.columns([1, 1, 1])
+        s1.markdown(kpi("本月省下電費", f"{this_m.saved:,.0f}", "元", "#34D399",
+                        f"沒有太陽能約 {this_m.without:,.0f} 元，實際約 {this_m.bill:,.0f} 元"), unsafe_allow_html=True)
+        s2.markdown(kpi("累計省下", f"{total_saved:,.0f}", "元", "#34D399",
+                        f"自 {d['date'].min():%Y/%m/%d} 起（{len(d)} 天）"), unsafe_allow_html=True)
+        with s3:
+            cost = st.number_input("系統總花費（元）", 0, 5_000_000, cost_default, step=10_000, key="sys_cost",
+                                   help="板子、逆變器、電池、配電、施工全部加總；用來計算回收進度")
+            if cost != cost_default:
+                st.query_params["cost"] = str(cost)
+        if cost > 0:
+            per_day = total_saved / len(d)
+            done = total_saved / cost
+            st.markdown(f"""<div class="card" style="margin-top:4px;">
+              <div style="color:#94A3B8; font-size:13px;">💰 投資回收進度（以目前每天平均省 {per_day:,.0f} 元估算，一年約 {per_day * 365:,.0f} 元）</div>
+              <div style="background:#0F172A; border-radius:8px; height:16px; margin:8px 0; overflow:hidden;">
+                <div style="width:{min(done, 1) * 100:.1f}%; height:100%; background:linear-gradient(90deg,#10B981,#34D399);"></div></div>
+              <div style="color:#E2E8F0; font-size:14px;">已回收 <b>{done * 100:.1f}%</b>（{total_saved:,.0f} / {cost:,.0f} 元），
+                還需約 <b>{max(cost - total_saved, 0) / per_day / 365:.1f} 年</b></div>
+              <div style="color:#64748B; font-size:12px; margin-top:4px;">只計入有存檔的日子；夏天電價較高、冬天發電較少，累積滿一年後估算會更準</div>
+            </div>""", unsafe_allow_html=True)
+
+        # 每月報告：上個月 (完整) 與本月至今
+        def month_report(r, label):
+            vs = r.avg / r.normal * 100 - 100
+            self_r = (1 - r.buy / r.load) * 100 if r.load else 0
+            return (f"<b>{label}</b>：發電 <b>{r.pv:,.0f} 度</b>（平均每天 {r.avg:.1f} 度，比正常年{'好' if vs >= 0 else '少'} {abs(vs):.0f}%），"
+                    f"用電 {r.load:,.0f} 度，自給率 <b>{self_r:.0f}%</b>，向台電買 {r.buy:.0f} 度，省下約 <b>{r.saved:,.0f} 元</b>")
+        lines = [month_report(this_m, f"{this_m.month.month} 月至今（{this_m.days} 天）")]
+        if len(mm) > 1:
+            last = mm.iloc[-2]
+            lines.append(month_report(last, f"{last.month.month} 月" + ("" if last.days >= last.month.days_in_month - 1 else f"（{last.days} 天）")))
+        st.markdown('<div class="card" style="margin-top:10px; color:#CBD5E1; font-size:14px; line-height:1.9;">📋 '
+                    + "<br>📋 ".join(lines) + "</div>", unsafe_allow_html=True)
+
+        # 系統健康：東西兩串比例、實測 ÷ 預測 (系統效率) 每月追蹤
+        alerts = solar_core.string_ratio_alerts(d, fc_log)
+        ok = d[(d["points"] >= 270) & (d["lost"].fillna(0) < 0.5)].merge(fc_log[["date", "pv"]], on="date", suffixes=("", "_fc")) \
+            if not fc_log.empty else pd.DataFrame()
+        if len(ok):
+            pr = ok.assign(month=ok["date"].dt.to_period("M")).groupby("month").agg(a=("pv", "sum"), f=("pv_fc", "sum"), n=("pv", "size"))
+            pr_txt = "　".join(f"{m_.month} 月 <b>{r.a / r.f * 100:.0f}%</b><span style='color:#64748B'>（{r.n} 天）</span>" for m_, r in pr.iterrows())
+        else:
+            pr_txt = "<span style='color:#64748B'>每天存檔預測後開始累積</span>"
+        recent = alerts[alerts["date"] >= d["date"].max() - pd.Timedelta(days=7)]
+        if len(recent):
+            hl = "、".join(f"{r.date:%m/%d}（西/東 {r.ratio:.2f} 倍）" for r in recent.itertuples())
+            health = f"<span style='color:#F59E0B;'>⚠️ 近 7 天東西兩串比例跟預測差超過 15%：{hl}，請確認是否有遮蔭、髒污或接頭鬆脫</span>"
+        else:
+            health = "<span style='color:#34D399;'>✅ 近 7 天東西兩串比例正常</span>"
+        st.markdown(f"""<div class="card" style="margin-top:10px; color:#CBD5E1; font-size:14px; line-height:1.9;">
+          <b>🩺 系統健康</b><br>{health}<br>實測 ÷ 預測（每月，只算沒限發的完整日子）：{pr_txt}
+          <div style="color:#64748B; font-size:12px;">這個比例幾個月下來持續往下掉 5% 以上，代表板子可能髒了或開始衰退，可以考慮清洗</div>
+        </div>""", unsafe_allow_html=True)
+
         # 每日發電：兩組堆疊 + 正常年 + 預測
         fd_ = go.Figure()
         for col, name, color in (("pv1", "PV1 西坡", "#3B82F6"), ("pv3", "PV3 東坡", "#F59E0B"), ("pv2", "PV2（改線前混串）", "#64748B")):
@@ -839,21 +933,18 @@ with tab_trend:
         st.plotly_chart(fd_, width="stretch", theme=None)
 
         # 每月摘要
-        mm = d.assign(month=d["date"].dt.to_period("M")).groupby("month").agg(
-            days=("pv", "size"), pv=("pv", "sum"), load=("load", "sum"), buy=("buy", "sum"), lost=("lost", "sum"),
-            normal=("normal", "mean")).reset_index()
-        mm["avg"] = mm["pv"] / mm["days"]
         rows_html = "".join(
             f"<tr><td>{r.month}</td><td>{r.days}</td><td><b>{r.pv:.0f}</b></td><td>{r.avg:.1f}"
             f"<span style='color:#64748B'>（正常 {r.normal:.0f}，{r.avg / r.normal * 100 - 100:+.0f}%）</span></td>"
-            f"<td>{r.load:.0f}</td><td>{r.buy:.1f}</td><td>{(1 - r.buy / r.load) * 100 if r.load else 0:.0f}%</td><td>{r.lost:.0f}</td></tr>"
+            f"<td>{r.load:.0f}</td><td>{r.buy:.1f}</td><td>{(1 - r.buy / r.load) * 100 if r.load else 0:.0f}%</td><td>{r.lost:.0f}</td><td>{r.saved:,.0f}</td></tr>"
             for r in mm.iloc[::-1].itertuples())
         st.markdown(f"""<div class="card" style="overflow-x:auto;"><table style="width:100%; color:#CBD5E1; font-size:13px; border-collapse:collapse;">
-          <tr style="color:#94A3B8; text-align:left;"><th>月份</th><th>天數</th><th>發電 kWh</th><th>平均每天</th><th>用電</th><th>台電</th><th>自給率</th><th>限發估計</th></tr>
+          <tr style="color:#94A3B8; text-align:left;"><th>月份</th><th>天數</th><th>發電 kWh</th><th>平均每天</th><th>用電</th><th>台電</th><th>自給率</th><th>限發估計</th><th>省下元</th></tr>
           {rows_html}</table></div>""", unsafe_allow_html=True)
         st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:6px;">'
                     "每天凌晨自動存檔前一天的總量（只存每日總量，不存 5 分鐘明細）。從 2026/7/28 起以逆變器 5 分鐘資料計算；"
                     "Growatt 電站日報偏低約 3 成且每天誤差很大，所以更早的資料不列入比較。"
-                    "「正常年」是過去 10 年天氣套用本系統配置推算的平均（改線前扣掉混串損失 6%），沒有扣掉電池充滿後的限發，所以限發多的月份會偏低；黃色菱形是當天凌晨的發電預測。</div>", unsafe_allow_html=True)
+                    "「正常年」是過去 10 年天氣套用本系統配置推算的平均（改線前扣掉混串損失 6%），沒有扣掉電池充滿後的限發，所以限發多的月份會偏低；黃色菱形是當天凌晨的發電預測。"
+                    "省下的電費依台電表燈累進電價（6–9 月夏月）計算：沒有太陽能時這個月全部向台電買的電費，減去實際向台電買的電費（每期最低 200 元）。</div>", unsafe_allow_html=True)
 
 st.markdown("<div style='height: 40px;'></div>", unsafe_allow_html=True)
