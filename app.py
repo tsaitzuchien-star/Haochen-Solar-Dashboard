@@ -1,7 +1,8 @@
 import importlib
+import io
 import math
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -13,12 +14,16 @@ from streamlit_autorefresh import st_autorefresh
 
 import power_flow
 import pv_forecast
+import solar_core
 
 # Streamlit Cloud 更新程式後只會重跑 app.py，已載入的模組可能還是舊版 (曾因此讀不到新欄位而 KeyError)；
-# 每次重跑都重新載入這兩個小模組，確保 app.py 與它們同版
+# 每次重跑都重新載入這幾個小模組，確保 app.py 與它們同版
 importlib.reload(power_flow)
 importlib.reload(pv_forecast)
+importlib.reload(solar_core)
 power_flow_html = power_flow.power_flow_html
+from solar_core import (CAPACITY_KWP, TW_TZ, analyze_curve, grid_buy_kw, grid_rate_kw, rows_to_curve,  # noqa: E402
+                        soc_jumps, solar_charge_kw, solar_surplus, sun_shape)
 
 # ==========================================
 # 1. 頁面設定與樣式
@@ -56,7 +61,6 @@ header[data-testid="stHeader"] {background: transparent;}
 </style>
 """, unsafe_allow_html=True)
 
-TW_TZ = timezone(timedelta(hours=8))
 
 # ==========================================
 # 2. Growatt 官方 OpenAPI (Token 驗證)
@@ -73,8 +77,6 @@ TOKEN = get_secret("GROWATT_TOKEN")
 DEVICE_SN = get_secret("GROWATT_DEVICE_SN", "KQQ0N6200N")
 API_BASE = "https://openapi.growatt.com/"
 DEVICE_TYPE = "sph-s"
-CAPACITY_KWP = 10.68
-LAT, LON = 23.87, 120.85  # 南投
 
 # 溫度判定門檻 (一般參考值，可依原廠規格調整)
 INV_TEMP_LEVELS = [(60, "正常", "#2DD4BF"), (70, "偏高", "#F59E0B"), (math.inf, "過高", "#EF4444")]
@@ -102,107 +104,11 @@ def fetch_realtime():
     return rows[0]
 
 
-def grid_buy_kw(meter_w, load_w, pv_w, dis_w, chg_w):
-    """能量平衡推算的購電 (kW)：逆變器輸出 − 太陽能 − 電池放電 + 電池充電；0.1 kW 以下視為量測誤差。
-    注意 plocalLoadTotal 是「逆變器輸出」，台電直接供給家裡的電不算在內，所以這個值只抓得到經過逆變器的少量購電，
-    台電接手供電時要靠 grid_rate_kw 從購電累計量推算。"""
-    if meter_w > 0:
-        return meter_w / 1000
-    bal = (load_w - pv_w - dis_w + chg_w) / 1000
-    return bal if bal > 0.1 else 0.0
-
-
-def solar_surplus(pv_w, chg_w):
-    """太陽能正在幫電池充電 (充電 ≥ 0.1 kW 且太陽能大於充電量)：代表太陽能已足夠家用還有剩，台電不可能在供電。
-    (時間電價設定的台電充電只在電量低於 30% 時發生，那時太陽能會小於充電量，不會被誤判)"""
-    return chg_w >= 100 and pv_w > chg_w
-
-
-def grid_rate_kw(times, eto, now_t):
-    """由今日購電累計 (etoUserToday，每 0.1 kWh 跳一格) 推算目前的台電供電功率 (kW)。
-    這台的即時購電欄位與 CT 欄位恆為 0，這是唯一可靠的來源。做法是量「每跳一格之間隔多久」：
-    取最近一次跳格，往回找到至少差 0.2 kWh 且相隔 15 分鐘以上 (最多回看 60 分鐘) 的跳格，平均功率 = 度數差 ÷ 時間差；
-    如果最近一次跳格之後已經過了比預期更久，代表用電變小，功率再往下修；超過預期間隔兩倍就視為台電已停止供電。"""
-    steps = [(times[i], eto[i]) for i in range(1, len(eto)) if eto[i] > eto[i - 1] + 1e-6]
-    if not steps:
-        return 0.0
-    t_last, e_last = steps[-1]
-    since = (now_t - t_last).total_seconds() / 3600
-    if since > 1:
-        return 0.0
-    rate = 0.0
-    for t_k, e_k in reversed(steps[:-1]):
-        hrs = (t_last - t_k).total_seconds() / 3600
-        if hrs > 1:
-            break
-        if hrs > 0:
-            rate = (e_last - e_k) / hrs
-        if e_last - e_k >= 0.2 - 1e-6 and hrs >= 0.25:   # 至少 0.2 kWh 且跨 15 分鐘，平均掉 0.1 kWh 一格的跳動
-            break
-    if rate and since > 2 * 0.1 / rate:      # 超過平常兩倍的時間都沒再跳格：台電已經停止供電
-        return 0.0
-    if rate and since > 0.1 / rate:          # 該跳格的時間到了卻還沒跳：用電變小了
-        rate = 0.1 / since
-    return rate
-
 
 @st.cache_data(ttl=600)
 def fetch_day_curve(day):
-    rows = api_v4("queryHistoricalData", deviceSn=DEVICE_SN, deviceType=DEVICE_TYPE, date=day)["datas"] or []
-    g = lambda x, k: float(x.get(k) or 0)
-    df = pd.DataFrame([{
-        "time": datetime.fromtimestamp(x["calendar"] / 1000, TW_TZ).replace(tzinfo=None),
-        "pv": g(x, "ppv") / 1000, "load": g(x, "plocalLoadTotal") / 1000,
-        "charge": g(x, "pcharge1") / 1000, "discharge": g(x, "pdischarge1") / 1000,
-        "buy": grid_buy_kw(g(x, "pacToUserTotal"), g(x, "plocalLoadTotal"), g(x, "ppv"), g(x, "pdischarge1"), g(x, "pcharge1")),
-        "sell": g(x, "pacToGridTotal") / 1000,
-        "soc": g(x, "soc"), "vbat": g(x, "vbat"),
-        # 逆變器溫度在 temp1/temp2 (歷史資料的 invTemp 恆為 0)
-        "inv_temp": g(x, "temp1"), "inv_temp2": g(x, "temp2"), "bat_temp": g(x, "bmsBatteryTemp"),
-        # 歷史資料的 ppv1~3 恆為 0，各組功率以電壓 x 電流計算
-        **{f"pv{i}": g(x, f"vpv{i}") * g(x, f"ipv{i}") / 1000 for i in (1, 2, 3)},
-        **{f"{k}{i}": g(x, f"{k}{i}") for k in ("vpv", "ipv") for i in (1, 2, 3)},
-        "eto_user": g(x, "etoUserToday"),
-    } for x in rows])
-    if df.empty:
-        return df
-    df = df.sort_values("time").reset_index(drop=True)
-    # 台電供電改由購電累計量推算，家中負載 = 逆變器輸出 + 台電
-    t, e = list(df["time"]), list(df["eto_user"])
-    rate = pd.Series([grid_rate_kw(t[:i + 1], e[:i + 1], t[i]) for i in range(len(df))])
-    rate[[solar_surplus(pv * 1000, ch * 1000) for pv, ch in zip(df["pv"], df["charge"])]] = 0.0
-    extra = (rate - df["buy"]).clip(lower=0)
-    df["buy"] += extra
-    df["load"] += extra
-    df["soc_raw"], df["soc"] = df["soc"], clean_soc(df["soc"])
-    df["charge"] = [solar_charge_kw(*r) for r in zip(df["charge"], df["discharge"], df["pv"], df["load"] - extra, df["sell"])]
-    return df
+    return rows_to_curve(api_v4("queryHistoricalData", deviceSn=DEVICE_SN, deviceType=DEVICE_TYPE, date=day)["datas"] or [])
 
-
-def solar_charge_kw(charge, discharge, pv, inv_load, sell):
-    """電池充電功率：Growatt 的 pcharge1 常常瞬間偏低 (例如太陽能 6.6 kW、家用 0.3 kW 卻只回報 2.4 kW)，
-    但電就只有家用、賣電、電池三個去處，所以太陽能扣掉逆變器供給家裡與賣電的部分 x 0.92 (實測轉換效率上限) 就是電池至少收到的電。
-    電池在放電時不套用。"""
-    if discharge > 0.05 or pv < 0.1:
-        return charge
-    return max(charge, (pv - inv_load - sell) * 0.92)
-
-
-def clean_soc(soc):
-    """去掉電量讀數的瞬間跳動 (跳一兩筆又回來，例如 60→68→68→59)：與前後 5 筆中位數差超過 4% 的點改用中位數。
-    真正的階梯變化 (手動校正、BMS 歸零) 會連續維持，中位數會跟著變，不受影響。"""
-    med = soc.rolling(5, center=True, min_periods=1).median()
-    return soc.where((soc - med).abs() <= 4, med)
-
-
-def soc_jumps(df):
-    """電量一次往下跳 8% 以上 (5 分鐘內不可能放掉這麼多電)：
-    原本 85% 以上、正在充電或白天有太陽能 → 使用者在 BMS 改容量手動校正，讓電池繼續充；
-    其他 (夜間放電中) → BMS 自己重新估算 (例如電壓過低歸零)。"""
-    d = df["soc"].diff()
-    return [(df["time"][i], df["soc"][i - 1], df["soc"][i],
-             df["soc"][i - 1] >= 85 or max(df["charge"][i - 1], df["charge"][i]) > 0.3 or df["pv"][i] > 0.5)
-            for i in d[d <= -8].index]
 
 
 @st.cache_resource
@@ -233,6 +139,26 @@ def with_fallback(key, fn, *args):
     return store[key]
 
 
+ARCHIVE_RAW = "https://raw.githubusercontent.com/tsaitzuchien-star/Haochen-Solar-Dashboard/main/data/"
+
+
+@st.cache_data(ttl=3600)
+def load_archive():
+    """每日存檔 (GitHub Actions 每天更新)：優先讀 GitHub 上最新的，讀不到用部署時的檔案。"""
+    out = []
+    for name in ("daily.csv", "forecast.csv"):
+        try:
+            r = requests.get(ARCHIVE_RAW + name, timeout=10)
+            r.raise_for_status()
+            df = pd.read_csv(io.StringIO(r.text))
+        except Exception:
+            path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", name)
+            df = pd.read_csv(path) if os.path.exists(path) else pd.DataFrame(columns=["date"])
+        df["date"] = pd.to_datetime(df["date"])
+        out.append(df)
+    return out
+
+
 def api_error_text(e):
     if "FREQUENTLY_ACCESS" in str(e):
         return "Growatt 查詢次數暫時達到上限，約 5 分鐘後會自動恢復"
@@ -240,50 +166,6 @@ def api_error_text(e):
         return "Token 無效，請到 Streamlit → Settings → Secrets 更新 GROWATT_TOKEN"
     return f"資料讀取失敗: {e}"
 
-
-# ==========================================
-# 3. 分析：晴空模型估計「可發電量」，推算限發損失
-# ==========================================
-def sun_shape(times):
-    """各時間點的晴空日照形狀 (0~1)，以太陽高度角近似。"""
-    t = pd.to_datetime(pd.Series(times))
-    doy = t.dt.dayofyear.to_numpy()
-    hours = (t.dt.hour + t.dt.minute / 60).to_numpy()
-    decl = np.radians(23.44) * np.sin(2 * np.pi * (284 + doy) / 365)
-    b = 2 * np.pi * (doy - 81) / 364
-    eot = 9.87 * np.sin(2 * b) - 7.53 * np.cos(b) - 1.5 * np.sin(b)  # 分鐘
-    solar_time = hours + (4 * (LON - 120) + eot) / 60
-    ha = np.radians(15 * (solar_time - 12))
-    lat = np.radians(LAT)
-    sin_el = np.sin(lat) * np.sin(decl) + np.cos(lat) * np.cos(decl) * np.cos(ha)
-    return np.clip(sin_el, 0, None) ** 1.2
-
-
-def analyze_curve(curve):
-    """回傳限發判定、可發電量估計與今日損失。以晴天推估，多雲時會高估。"""
-    if curve.empty:
-        return None
-    c = curve.copy()
-    c["shape"] = sun_shape(c["time"])
-    hour = c["time"].dt.hour
-    c["limited"] = ((hour >= 8) & (hour < 16) & (c["soc"] >= 95) & (c["charge"] < 0.1)
-                    & (c["sell"] < 0.05) & (c["pv"] > 0.05))
-    # 用未限發、太陽夠高的時段校正系統可發功率
-    ref = c[~c["limited"] & (c["shape"] > 0.35) & (c["pv"] > 0.3)]
-    k = float(np.quantile(ref["pv"] / ref["shape"], 0.75)) if len(ref) >= 6 else np.nan
-    k = min(k, CAPACITY_KWP) if not np.isnan(k) else np.nan
-    c["potential"] = c["shape"] * k if not np.isnan(k) else c["pv"]
-    c["lost"] = np.where(c["limited"], (c["potential"] - c["pv"]).clip(lower=0), 0.0)
-    c["pv_home"] = np.minimum(c["pv"], c["load"])
-    c["pv_charge"] = np.clip(np.minimum(c["charge"], c["pv"] - c["pv_home"]), 0, None)
-    full = c[c["soc"] >= 97]["time"]
-    return {
-        "df": c,
-        "lost_kwh": float(c["lost"].sum() * 5 / 60),
-        "lost_now": float(c["lost"].iloc[-1]) if c["limited"].iloc[-1] else 0.0,
-        "full_time": full.min() if not full.empty else None,
-        "calibrated": not np.isnan(k),
-    }
 
 
 def temp_level(value, levels):
@@ -457,6 +339,49 @@ try:
                                        pv_forecast.MODEL_VERSION)
 except Exception as e:
     fc_error = e
+
+# ==========================================
+# 6.6 今晚電池撐得到嗎：下午 2 點到隔天早上 7 點顯示
+# ==========================================
+if (fc_hourly is not None and not stale and (now_tw.hour >= 14 or now_tw.hour < 7)
+        and (fc_hourly["time"] > pd.Timestamp(now_tw.replace(tzinfo=None))).any()):
+    # 放電下限 (Growatt 設定的 SOC) 網站讀不到，由使用者輸入，記在網址參數裡下次沿用
+    try:
+        floor_default = int(st.query_params.get("floor", 35))
+    except ValueError:
+        floor_default = 35
+    now_naive = pd.Timestamp(now_tw.replace(tzinfo=None))
+    # 今晚用電跟平常比：最近 3 小時實際用電 ÷ 平常同時段 (夜間開冷氣、煮飯時會比平常高)
+    recent = curve[curve["time"] > now_naive - pd.Timedelta(hours=3)] if not curve.empty else curve
+    usual = np.mean([pv_forecast.LOAD_PROFILE[t.hour] for t in recent["time"]]) if len(recent) >= 12 else 0
+    scale = float(np.clip(recent["load"].mean() / usual, 0.6, 1.8)) if usual else 1.0
+    o_col, f_col = st.columns([5, 1])
+    floor = f_col.number_input("放電下限 %", 0, 90, floor_default, step=5, key="floor",
+                               help="Growatt 設定的電池放電下限 (SOC)；到這裡逆變器會改由台電供電")
+    if floor != floor_default:
+        st.query_params["floor"] = str(floor)
+    out = solar_core.battery_outlook(now_naive, soc, floor, fc_hourly, scale)
+    until = out["until"]
+    until_txt = f"明早 {until:%H:%M} 太陽能接手" if until is not None else "明天白天"
+    usage = ("比平常高 " if scale > 1.05 else "比平常低 " if scale < 0.95 else "") + (f"{abs(scale - 1) * 100:.0f}%" if abs(scale - 1) >= 0.05 else "跟平常差不多")
+    if out["empty_at"] is None:
+        icon, color = "✅", "#10B981"
+        head = f"電池撐得到{until_txt}，屆時約剩 <b>{out['soc_end']:.0f}%</b>"
+    else:
+        icon, color = "⚠️", "#F59E0B"
+        when = out["empty_at"]
+        day_txt = "今天" if when.date() == now_naive.date() else "明天" if when.hour >= 7 else "凌晨"
+        head = (f"預計<b>{day_txt} {when:%H:%M}</b>  降到放電下限 {floor}%，之後到{until_txt}"
+                f"前，約需台電供應 <b>{out['grid_kwh']:.1f} 度</b>")
+    # 電量讀數偏高時 (BMS 尚未校正)，實際可用時間可能更短
+    warn = ("<br>⚠️ 目前電壓偏低、電量讀數可能偏高，實際可撐的時間可能比估計短"
+            if soc >= 50 and 0 < vbat < 51.6 and p_discharge < 1.0 else "")
+    o_col.markdown(f"""<div class="card" style="border-left:4px solid {color}; margin-bottom:6px;">
+      <div style="color:#E2E8F0; font-size:15px; font-weight:700;">🌙 今晚電池 {icon}</div>
+      <div style="color:#F1F5F9; font-size:15px; margin-top:4px;">{head}</div>
+      <div style="color:#94A3B8; font-size:12px; margin-top:4px;">目前 {soc}%（約 {max(soc - floor, 0) * solar_core.BATT_KWH_PER_PCT:.0f} 度可用）·
+        最近 3 小時用電{usage} · 依平常各時段用電與明天預報推估{warn}</div>
+    </div>""", unsafe_allow_html=True)
 
 
 def current_weather():
@@ -745,10 +670,7 @@ st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:10px;">屋頂
 # 下載逐 5 分鐘明細 (東西兩組電壓、電流、功率)，方便離線分析；Growatt 只保留最近 3 個月
 with st.expander("📥 下載逐 5 分鐘明細（CSV）"):
     dl_day = st.date_input("日期", value=now_tw.date(), min_value=now_tw.date() - timedelta(days=89), max_value=now_tw.date())
-    cols = {"time": "時間", "pv": "總發電kW", "pv1": "PV1西坡kW", "vpv1": "PV1電壓V", "ipv1": "PV1電流A",
-            "pv3": "PV3東坡kW", "vpv3": "PV3電壓V", "ipv3": "PV3電流A",
-            "pv2": "PV2kW(改線前東西混串)", "vpv2": "PV2電壓V", "ipv2": "PV2電流A", "load": "用電kW", "charge": "充電kW",
-            "discharge": "放電kW", "buy": "買電kW", "sell": "賣電kW", "soc": "電池%", "soc_raw": "電池%(原始讀數)", "vbat": "電池電壓V"}
+    cols = solar_core.CSV_COLS
     try:
         dl = curve if dl_day == now_tw.date() else with_fallback(f"curve-{dl_day}", fetch_day_curve, dl_day.strftime("%Y-%m-%d"))
         out = dl[[c for c in cols if c in dl.columns]].rename(columns=cols)
@@ -791,7 +713,7 @@ with st.expander("📥 下載逐 5 分鐘明細（CSV）"):
 # 9. 分頁：設備與溫度 / 趨勢
 # ==========================================
 st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
-tab_dev, tab_trend = st.tabs(["🌡️ 溫度與設備", "📊 趨勢（即將推出）"])
+tab_dev, tab_trend = st.tabs(["🌡️ 溫度與設備", "📊 趨勢"])
 
 with tab_dev:
     if not curve.empty:
@@ -856,10 +778,76 @@ with tab_dev:
     ]), unsafe_allow_html=True)
 
 with tab_trend:
-    st.markdown("""<div class="card" style="color:#CBD5E1; line-height:1.8;">
-      <b>📊 趨勢分析即將推出（第二階段）</b><br>
-      Growatt 官方月報經驗證會少算約 3 成，且 5 分鐘明細只保留 3 個月。<br>
-      第二階段將每天自動保存逆變器的正確數據，用來呈現每日 / 每月發電、用電、限發損失，以及設備健康檢查。
-    </div>""", unsafe_allow_html=True)
+    daily, fc_log = load_archive()
+    if daily.empty:
+        st.markdown('<div class="card" style="color:#94A3B8;">還沒有存檔資料。</div>', unsafe_allow_html=True)
+    else:
+        # 只用 5 分鐘明細積分的日子 (Growatt 電站日報偏低約 3 成且每天誤差很大，不拿來比)
+        d = daily[daily["source"] != "plant"].copy()
+        if not curve.empty:   # 加上今天 (即時)
+            d = pd.concat([d[d["date"] < pd.Timestamp(now_tw.date())],
+                           pd.DataFrame([{**solar_core.daily_summary(curve, source="today"), "date": pd.Timestamp(now_tw.date())}])])
+        d = d.sort_values("date").reset_index(drop=True)
+        # 正常年是改線後的配置；改線前 PV2 東西混串約少 6%
+        d["normal"] = d["date"].dt.month.map(solar_core.CLIMATE_DAILY) * np.where(d["date"] < pd.Timestamp("2026-10-22"), 0.94, 1.0)
+        span = st.radio("期間", ["近 30 天", "近 90 天", "全部"], horizontal=True, label_visibility="collapsed", key="trend_span")
+        days_back = {"近 30 天": 30, "近 90 天": 90}.get(span)
+        v = d[d["date"] > d["date"].max() - pd.Timedelta(days=days_back)] if days_back else d
+
+        # KPI：本月
+        m = d[d["date"].dt.to_period("M") == pd.Timestamp(now_tw.date()).to_period("M")]
+        full_m = m[m["source"] != "today"]
+        avg = full_m["pv"].mean() if len(full_m) else float("nan")
+        normal = full_m["normal"].mean() if len(full_m) else solar_core.CLIMATE_DAILY[now_tw.month]
+        self_rate = 1 - m["buy"].sum() / m["load"].sum() if m["load"].sum() > 0 else float("nan")
+        fc_join = fc_log.merge(d[["date", "pv", "points"]], on="date", suffixes=("_fc", "")) if not fc_log.empty else pd.DataFrame()
+        fc_join = fc_join[fc_join["points"] >= 270] if not fc_join.empty else fc_join
+        fc_err = (fc_join["pv_fc"] / fc_join["pv"] - 1).abs().tail(30).mean() if len(fc_join) else float("nan")
+        k1, k2, k3, k4 = st.columns(4)
+        k1.markdown(kpi("本月發電", f"{m['pv'].sum():.0f}", "kWh", C_PV, f"{len(m)} 天（含今天）"), unsafe_allow_html=True)
+        k2.markdown(kpi("本月平均每天", f"{avg:.1f}" if avg == avg else "—", "kWh", C_PV,
+                        f"正常年約 {normal:.0f} kWh（{avg / normal * 100 - 100:+.0f}%）" if avg == avg else f"正常年約 {normal:.0f} kWh"), unsafe_allow_html=True)
+        k3.markdown(kpi("本月自給率", f"{self_rate * 100:.0f}" if self_rate == self_rate else "—", "%", C_BAT,
+                        f"台電 {m['buy'].sum():.1f} / 用電 {m['load'].sum():.0f} kWh"), unsafe_allow_html=True)
+        k4.markdown(kpi("預測誤差", f"{fc_err * 100:.0f}" if fc_err == fc_err else "—", "%", "#FDE68A",
+                        f"近 {min(len(fc_join), 30)} 天平均" if len(fc_join) else "存檔累積幾天後顯示"), unsafe_allow_html=True)
+
+        # 每日發電：兩組堆疊 + 正常年 + 預測
+        fd_ = go.Figure()
+        for col, name, color in (("pv1", "PV1 西坡", "#3B82F6"), ("pv3", "PV3 東坡", "#F59E0B"), ("pv2", "PV2（改線前混串）", "#64748B")):
+            if v[col].fillna(0).sum() > 0:
+                fd_.add_trace(go.Bar(x=v["date"], y=v[col], name=name, marker_color=color))
+        fd_.add_trace(go.Scatter(x=v["date"], y=v["normal"], name="正常年平均", mode="lines",
+                                 line=dict(color="#94A3B8", width=1.5, dash="dot", shape="hv")))
+        if not fc_log.empty:
+            fv = fc_log[fc_log["date"].between(v["date"].min(), v["date"].max())]
+            fd_.add_trace(go.Scatter(x=fv["date"], y=fv["pv"], name="當天預測", mode="markers",
+                                     marker=dict(color="#FDE68A", size=7, symbol="diamond")))
+        rewire = pd.Timestamp("2026-10-22")
+        if v["date"].min() <= rewire <= v["date"].max():
+            fd_.add_vline(x=rewire, line=dict(color="#E2E8F0", width=1, dash="dot"))
+            fd_.add_annotation(x=rewire, y=1, yref="paper", text="改線", showarrow=False, xanchor="left", yanchor="top",
+                               font=dict(color="#E2E8F0", size=11))
+        fd_.update_layout(**{**chart_layout, "height": 320}, barmode="stack", bargap=0.15,
+                          xaxis=dict(showgrid=False), yaxis=dict(gridcolor="#334155", title="每天 kWh", rangemode="tozero"))
+        st.plotly_chart(fd_, width="stretch", theme=None)
+
+        # 每月摘要
+        mm = d.assign(month=d["date"].dt.to_period("M")).groupby("month").agg(
+            days=("pv", "size"), pv=("pv", "sum"), load=("load", "sum"), buy=("buy", "sum"), lost=("lost", "sum"),
+            normal=("normal", "mean")).reset_index()
+        mm["avg"] = mm["pv"] / mm["days"]
+        rows_html = "".join(
+            f"<tr><td>{r.month}</td><td>{r.days}</td><td><b>{r.pv:.0f}</b></td><td>{r.avg:.1f}"
+            f"<span style='color:#64748B'>（正常 {r.normal:.0f}，{r.avg / r.normal * 100 - 100:+.0f}%）</span></td>"
+            f"<td>{r.load:.0f}</td><td>{r.buy:.1f}</td><td>{(1 - r.buy / r.load) * 100 if r.load else 0:.0f}%</td><td>{r.lost:.0f}</td></tr>"
+            for r in mm.iloc[::-1].itertuples())
+        st.markdown(f"""<div class="card" style="overflow-x:auto;"><table style="width:100%; color:#CBD5E1; font-size:13px; border-collapse:collapse;">
+          <tr style="color:#94A3B8; text-align:left;"><th>月份</th><th>天數</th><th>發電 kWh</th><th>平均每天</th><th>用電</th><th>台電</th><th>自給率</th><th>限發估計</th></tr>
+          {rows_html}</table></div>""", unsafe_allow_html=True)
+        st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:6px;">'
+                    "每天凌晨自動存檔前一天的總量（只存每日總量，不存 5 分鐘明細）。從 2026/7/28 起以逆變器 5 分鐘資料計算；"
+                    "Growatt 電站日報偏低約 3 成且每天誤差很大，所以更早的資料不列入比較。"
+                    "「正常年」是過去 10 年天氣套用本系統配置推算的平均（改線前扣掉混串損失 6%），沒有扣掉電池充滿後的限發，所以限發多的月份會偏低；黃色菱形是當天凌晨的發電預測。</div>", unsafe_allow_html=True)
 
 st.markdown("<div style='height: 40px;'></div>", unsafe_allow_html=True)
