@@ -835,6 +835,7 @@ with tab_trend:
         fc_join = fc_log.merge(d[["date", "pv", "points"]], on="date", suffixes=("_fc", "")) if not fc_log.empty else pd.DataFrame()
         fc_join = fc_join[fc_join["points"] >= 270] if not fc_join.empty else fc_join
         fc_err = (fc_join["pv_fc"] / fc_join["pv"] - 1).abs().tail(30).mean() if len(fc_join) else float("nan")
+        st.markdown('<div class="section-title" style="margin-top:6px;">⚡ 本月概況</div>', unsafe_allow_html=True)
         k1, k2, k3, k4 = st.columns(4)
         k1.markdown(kpi("本月發電", f"{m['pv'].sum():.0f}", "kWh", C_PV, f"{len(m)} 天（含今天）"), unsafe_allow_html=True)
         k2.markdown(kpi("本月平均每天", f"{avg:.1f}" if avg == avg else "—", "kWh", C_PV,
@@ -863,27 +864,32 @@ with tab_trend:
             cost_default = int(st.query_params.get("cost", 200_000))
         except ValueError:
             cost_default = 200_000
-        s1, s2, s3 = st.columns([1, 1, 1])
-        s1.markdown(kpi("本月省下電費", f"{this_m.saved:,.0f}", "元", "#34D399",
-                        f"沒有太陽能約 {this_m.without:,.0f} 元，實際約 {this_m.bill:,.0f} 元"), unsafe_allow_html=True)
-        s2.markdown(kpi("安裝至今累計省下", f"{total_saved:,.0f}", "元", "#34D399",
-                        f"實測 {measured_saved:,.0f}（{d['date'].min():%m/%d} 起）+ 推估 {early_saved:,.0f}（安裝起）"), unsafe_allow_html=True)
-        with s3:
+        # 💰 省電與回本：三張卡片 (本月省下 / 累計省下 / 還差) + 進度條；總花費放在可收合的設定裡
+        box = st.container()   # 卡片與進度條先佔位，設定總花費的欄位放在下面
+        with st.expander("⚙️ 修改系統總花費"):
             cost = st.number_input("系統總花費（元）", 0, 5_000_000, cost_default, step=10_000, key="sys_cost",
                                    help="板子、逆變器、電池、配電、施工全部加總；用來計算回收進度")
             if cost != cost_default:
                 st.query_params["cost"] = str(cost)
+        per_day = measured_saved / len(d)
+        remain = max(cost - total_saved, 0)
+        box.markdown(f"""<div class="section-title" style="margin-top:26px;">💰 省電與回本</div>
+        <div class="grid3">
+          {kpi("本月省下電費", f"{this_m.saved:,.0f}", "元", "#34D399", f"沒有太陽能約 {this_m.without:,.0f} 元 · 實際約 {this_m.bill:,.0f} 元")}
+          {kpi("安裝至今累計省下", f"{total_saved:,.0f}", "元", "#34D399", f"實測 {measured_saved:,.0f} + 推估 {early_saved:,.0f}")}
+          {kpi("離回本還差", f"{remain:,.0f}", "元", "#F59E0B",
+               f"總花費 {cost:,.0f} 元 · 約 {remain / per_day / 365:.1f} 年" if cost and per_day > 0 else "請在下方設定總花費")}
+        </div>""", unsafe_allow_html=True)
         if cost > 0:
-            per_day = measured_saved / len(d)
             done = total_saved / cost
-            st.markdown(f"""<div class="card" style="margin-top:4px;">
-              <div style="color:#94A3B8; font-size:13px;">💰 投資回收進度（以目前每天平均省 {per_day:,.0f} 元估算，一年約 {per_day * 365:,.0f} 元）</div>
-              <div style="background:#0F172A; border-radius:8px; height:16px; margin:8px 0; overflow:hidden;">
+            box.markdown(f"""<div class="card" style="margin-top:12px; margin-bottom:8px;">
+              <div style="display:flex; justify-content:space-between; color:#E2E8F0; font-size:14px;">
+                <span>💰 已回收 <b>{done * 100:.1f}%</b></span><span style="color:#94A3B8;">{total_saved:,.0f} / {cost:,.0f} 元</span></div>
+              <div style="background:#0F172A; border-radius:8px; height:16px; margin:10px 0; overflow:hidden;">
                 <div style="width:{min(done, 1) * 100:.1f}%; height:100%; background:linear-gradient(90deg,#10B981,#34D399);"></div></div>
-              <div style="color:#E2E8F0; font-size:14px;">已回收 <b>{done * 100:.1f}%</b>（{total_saved:,.0f} / {cost:,.0f} 元），還差 <b>{max(cost - total_saved, 0):,.0f} 元</b>，
-                約 <b>{max(cost - total_saved, 0) / per_day / 365:.1f} 年</b></div>
-              <div style="color:#64748B; font-size:12px; margin-top:4px;">{d['date'].min():%Y/%m/%d} 以前沒有完整資料，依 Growatt 電站日報（修正少算的部分）推估約 {early_saved:,.0f} 元；
-                夏天電價較高、冬天發電較少，每天平均省多少會隨季節變動，累積滿一年後估算會更準</div>
+              <div style="color:#94A3B8; font-size:13px;">目前每天平均省 {per_day:,.0f} 元，一年約 {per_day * 365:,.0f} 元</div>
+              <div style="color:#64748B; font-size:12px; margin-top:6px; line-height:1.6;">{d['date'].min():%Y/%m/%d} 以前沒有完整資料，依 Growatt 電站日報（修正少算的部分）推估約 {early_saved:,.0f} 元。
+                夏天電價較高、冬天發電較少，每天平均省多少會隨季節變動，累積滿一年後會更準。</div>
             </div>""", unsafe_allow_html=True)
 
         # 每月報告：上個月 (完整) 與本月至今
@@ -896,7 +902,8 @@ with tab_trend:
         if len(mm) > 1:
             last = mm.iloc[-2]
             lines.append(month_report(last, f"{last.month.month} 月" + ("" if last.days >= last.month.days_in_month - 1 else f"（{last.days} 天）")))
-        st.markdown('<div class="card" style="margin-top:10px; color:#CBD5E1; font-size:14px; line-height:1.9;">📋 '
+        st.markdown('<div class="section-title" style="margin-top:26px;">📋 每月報告</div>'
+                    '<div class="card" style="color:#CBD5E1; font-size:14px; line-height:1.9;">📋 '
                     + "<br>📋 ".join(lines) + "</div>", unsafe_allow_html=True)
 
         # 系統健康：東西兩串比例、實測 ÷ 預測 (系統效率) 每月追蹤
@@ -914,8 +921,8 @@ with tab_trend:
             health = f"<span style='color:#F59E0B;'>⚠️ 近 7 天東西兩串比例跟預測差超過 15%：{hl}，請確認是否有遮蔭、髒污或接頭鬆脫</span>"
         else:
             health = "<span style='color:#34D399;'>✅ 近 7 天東西兩串比例正常</span>"
-        st.markdown(f"""<div class="card" style="margin-top:10px; color:#CBD5E1; font-size:14px; line-height:1.9;">
-          <b>🩺 系統健康</b><br>{health}<br>實測 ÷ 預測（每月，只算沒限發的完整日子）：{pr_txt}
+        st.markdown(f"""<div class="section-title" style="margin-top:26px;">🩺 系統健康</div>
+        <div class="card" style="color:#CBD5E1; font-size:14px; line-height:1.9;">{health}<br>實測 ÷ 預測（每月，只算沒限發的完整日子）：{pr_txt}
           <div style="color:#64748B; font-size:12px;">這個比例幾個月下來持續往下掉 5% 以上，代表板子可能髒了或開始衰退，可以考慮清洗</div>
         </div>""", unsafe_allow_html=True)
 
