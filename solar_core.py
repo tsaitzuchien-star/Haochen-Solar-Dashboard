@@ -261,3 +261,23 @@ def string_ratio_alerts(daily, forecasts, tol=0.15, min_kwh=15):
     d = d[(d["date"] >= pd.Timestamp("2026-10-22")) & (d["pv"] >= min_kwh) & (d["pv3"] > 0) & (d["pv3_fc"] > 0)]
     d = d.assign(ratio=(d["pv1"] / d["pv3"]) / (d["pv1_fc"] / d["pv3_fc"]))
     return d.loc[(d["ratio"] - 1).abs() > tol, ["date", "ratio"]]
+
+
+def day_advice(s, label, day_load):
+    """依某天的發電預測摘要 (pv_forecast.forecast 的 summary) 給用電建議 (含 <b> 標記)。day_load: 家裡一天約用幾度。"""
+    hrs = s["best_hours"]
+    if hrs:
+        best = (f"💡 {label} <b>{hrs[0]}:00–{hrs[-1] + 1}:00</b> 電池會充滿、太陽能用不完（約浪費 {s['lost']:.0f} 度）："
+                "適合安排洗衣、烘衣、熱水器、冷氣預冷，或電動車充電")
+    elif s["pv"] >= day_load + 8:
+        best = (f"☀️ {label}發電約 {s['pv']:.0f} 度，比家裡一天用電（約 {day_load:.0f} 度）多：大電器盡量排在 <b>10:00–14:00</b> 太陽最強時使用，"
+                "直接用太陽能，不經過電池，損耗最少")
+    elif s["pv"] >= day_load * 0.6:
+        best = (f"⛅ {label}發電約 {s['pv']:.0f} 度，大約只夠白天用加上補一點電池：洗衣、熱水器等集中在 <b>11:00–13:00</b>，"
+                "其他時間避免同時開多個大電器")
+    else:
+        short = day_load - s["pv"] * 0.9
+        best = (f"🌧️ {label}發電只有約 {s['pv']:.0f} 度，家裡一天約用 {day_load:.0f} 度，差的約 <b>{short:.0f} 度</b>會先用電池，"
+                "電池到放電下限後台電自動接手。你家是累進電價（沒有離峰優惠），<b>不建議先用台電幫電池充電</b>"
+                "（多轉一手約損耗 15%）；能延後的大電器（烘衣、洗碗機）可以等晴天再用")
+    return best
