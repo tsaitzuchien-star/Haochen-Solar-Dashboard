@@ -604,7 +604,7 @@ if fd:
                      yaxis2=dict(overlaying="y", side="right", showgrid=False, title="W/m²", rangemode="tozero"))
     st.plotly_chart(ff, width="stretch", theme=None)
     st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:-6px;">資料來源：Open-Meteo ECMWF 逐時短波輻射預報（與中創需量預測同源），'
-                "換算到東西坡板面後估算兩組發電；電池與用電依本站實測平均推估。依 7–10 月實測校正，逐時誤差中位數約 10%；午後雷陣雨或雲量多的日子誤差可能達 30% 以上。</div>",
+                "換算到東西坡板面後估算兩組發電；電池與用電依本站實測平均推估。依 7–10 月與改線後晴天實測校正（晴天效率較高、雲天較低），逐時誤差中位數約 10%；午後雷陣雨或雲量多的日子誤差可能達 30% 以上。</div>",
                 unsafe_allow_html=True)
 
 # ==========================================
