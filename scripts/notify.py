@@ -60,6 +60,33 @@ def line_send(text):
     return True
 
 
+def yesterday_review(now):
+    """昨天回顧 (每日存檔 00:40 寫入)：發電、預測誤差、自給率、省下的電費。"""
+    try:
+        daily = pd.read_csv(ROOT / "data" / "daily.csv", parse_dates=["date"])
+        fc = pd.read_csv(ROOT / "data" / "forecast.csv", parse_dates=["date"])
+    except Exception as e:
+        print(f"::warning::讀不到存檔：{e}")
+        return ""
+    y = pd.Timestamp(now.date()) - pd.Timedelta(days=1)
+    row = daily[(daily["date"] == y) & (daily["source"] != "plant")]
+    if row.empty:
+        return ""
+    r = row.iloc[0]
+    txt = f"\n📊 昨天發電 {r['pv']:.1f} 度"
+    p = fc[fc["date"] == y]
+    if len(p) and r["pv"] > 0:
+        txt += f"（預測 {p.iloc[0]['pv']:.1f}，誤差 {abs(p.iloc[0]['pv'] / r['pv'] - 1) * 100:.0f}%）"
+    # 省下的錢：本月至今的累進電費省下金額 ÷ 本月太陽能供應的度數 = 每度省多少，再乘上昨天太陽能供應的度數
+    m = daily[(daily["source"] != "plant") & (daily["date"].dt.to_period("M") == y.to_period("M")) & (daily["date"] <= y)]
+    own = m["load"].sum() - m["buy"].sum()
+    if own > 0 and r["load"] > 0:
+        saved = C.monthly_savings(m["load"].sum(), m["buy"].sum(), y.month, len(m), y.days_in_month)[0]
+        self_r = (1 - r["buy"] / r["load"]) * 100
+        txt += f"\n用電 {r['load']:.1f} 度，自給率 {self_r:.0f}%，省下約 {saved / own * (r['load'] - r['buy']):.0f} 元"
+    return txt
+
+
 def main():
     now = dt.datetime.now(C.TW_TZ)
     today = now.date().isoformat()
@@ -111,7 +138,7 @@ def main():
                     else f"，預估 {full:%H:%M} 充滿" if full is not None and full.hour >= 7
                     else f"，白天最高約 {s['peak_soc']:.0f}%")) if rt else ""
             lines = [f"☀️ 早安！今天預估發電約 {s['pv']:.0f} 度（西 {s['PV1']:.0f}／東 {s['PV3']:.0f}）",
-                     batt, C.day_advice(s, "今天", day_load)]
+                     batt, C.day_advice(s, "今天", day_load), yesterday_review(now)]
             try:
                 daily = pd.read_csv(ROOT / "data" / "daily.csv", parse_dates=["date"])
                 fc = pd.read_csv(ROOT / "data" / "forecast.csv", parse_dates=["date"])
