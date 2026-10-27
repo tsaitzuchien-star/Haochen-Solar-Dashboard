@@ -197,10 +197,12 @@ def clean_soc(soc):
 
 def soc_jumps(df):
     """電量一次往下跳 8% 以上 (5 分鐘內不可能放掉這麼多電)：
-    原本 85% 以上或正在充電 → 使用者在 BMS 改容量手動校正，讓電池繼續充；其他 → BMS 自己重新估算 (例如電壓過低歸零)。"""
+    原本 85% 以上、正在充電或白天有太陽能 → 使用者在 BMS 改容量手動校正，讓電池繼續充；
+    其他 (夜間放電中) → BMS 自己重新估算 (例如電壓過低歸零)。"""
     d = df["soc"].diff()
     return [(df["time"][i], df["soc"][i - 1], df["soc"][i],
-             df["soc"][i - 1] >= 85 or max(df["charge"][i - 1], df["charge"][i]) > 0.3) for i in d[d <= -8].index]
+             df["soc"][i - 1] >= 85 or max(df["charge"][i - 1], df["charge"][i]) > 0.3 or df["pv"][i] > 0.5)
+            for i in d[d <= -8].index]
 
 
 @st.cache_resource
@@ -823,7 +825,7 @@ with tab_dev:
                          yaxis2=dict(overlaying="y", side="right", showgrid=False, title="V", range=[44, 58]))
         st.plotly_chart(fb, width="stretch", theme=None)
         st.markdown('<div style="color:#94A3B8; font-size:13px;">'
-                    "電量讀數偶爾會瞬間跳一下又回來，圖上已自動平滑。電量從 85% 以上或充電中一次往下跳 8% 以上，是在 BMS 改容量手動校正（🔧），"
+                    "電量讀數偶爾會瞬間跳一下又回來，圖上已自動平滑。電量在白天、充電中或 85% 以上時一次往下跳 8% 以上，是在 BMS 改容量手動校正（🔧），"
                     "讓太陽能繼續把電池充到真正滿電；較低電量時的突降是 BMS 自己重新估算（⚠️，例如電壓跌破約 48 V 直接歸零）。"
                     "電量顯示 100% 但電壓不到 54 V，代表 BMS 電量偏高、還沒真正充滿。</div>", unsafe_allow_html=True)
 
