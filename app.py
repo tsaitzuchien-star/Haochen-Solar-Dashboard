@@ -56,6 +56,12 @@ header[data-testid="stHeader"] {background: transparent;}
 @media (max-width: 640px) {.grid3 {grid-template-columns:1fr;}}
 [data-testid="stExpander"] summary, [data-testid="stExpander"] summary p {color:#CBD5E1 !important;}
 [data-testid="stRadio"] label p {color:#CBD5E1 !important;}
+[data-testid="stNumberInput"] label p {color:#CBD5E1 !important;}
+[data-testid="stNumberInput"] [data-testid="stTooltipIcon"] svg, [data-testid="stNumberInput"] label svg {color:#CBD5E1 !important; stroke:#CBD5E1 !important;}
+[data-testid="stNumberInput"] input {background:#1E293B !important; color:#F8FAFC !important; -webkit-text-fill-color:#F8FAFC !important;}
+[data-testid="stNumberInput"] div[data-baseweb="input"] {background:#1E293B !important; border-color:#334155 !important;}
+[data-testid="stNumberInput"] button {background:#1E293B !important; color:#F8FAFC !important;}
+[data-testid="stNumberInput"] button svg {fill:#F8FAFC !important;}
 .stTabs [data-baseweb="tab-list"] {gap: 6px;}
 .stTabs [data-baseweb="tab"] {background:#1E293B; border-radius:8px 8px 0 0; padding:8px 16px; color:#CBD5E1;}
 </style>
