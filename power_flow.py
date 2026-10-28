@@ -1306,7 +1306,8 @@ for (const f of flows) {
   f.dots = [];
   if (!active) continue;
   // 方向箭頭：沿管線每約 0.5 m 一個圓錐，跟著電流流動並指向電流方向
-  const arrowMat = new THREE.MeshStandardMaterial({ color: f.color, emissive: new THREE.Color(f.color), emissiveIntensity: 0.9, roughness: 0.4 });
+  // 箭頭用不發光的飽和色 (比管線略深)，不會被打光洗成白色，跟淺色光點也有對比
+  const arrowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(f.color).multiplyScalar(0.8) });
   // 箭頭大小一致；短管線 (如逆變器→電池) 間距縮為約 0.25 m，才放得下兩個以上
   // 短管線 (逆變器→電池) 箭頭放大，才看得清楚
   const arrowGeo = len < 1.5 ? new THREE.ConeGeometry(0.125, 0.285, 16) : new THREE.ConeGeometry(0.11, 0.26, 16);
