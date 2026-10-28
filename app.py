@@ -787,6 +787,9 @@ with tab_dev:
     d2.markdown(diag_card("🔋 電池", C_BAT, [
         ("電量 / 電壓", f"{soc} % / {f('vbat'):.1f} V"),
         ("目前狀態", f"充電 {p_charge * 1000:.0f} W" if p_charge > 0.02 else f"放電 {p_discharge * 1000:.0f} W" if p_discharge > 0.02 else "待機 0 W"),
+        # 電流 = 功率 ÷ 電池電壓 (4 組合計；每組約為四分之一)
+        ("電流（4 組合計）", f"{(p_charge or p_discharge) * 1000 / f('vbat'):.1f} A · 每組約 {(p_charge or p_discharge) * 250 / f('vbat'):.0f} A"
+         if f("vbat") > 0 and max(p_charge, p_discharge) > 0.02 else "0 A"),
         ("今日充 / 放電", f"{f('echarge1Today'):.1f} / {f('edischarge1Today'):.1f} kWh"),
         ("溫度", f"{bat_temp:.1f} °C"),
     ]), unsafe_allow_html=True)
