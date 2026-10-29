@@ -63,7 +63,12 @@ header[data-testid="stHeader"] {background: transparent;}
 [data-testid="stNumberInput"] button {background:#1E293B !important; color:#F8FAFC !important;}
 [data-testid="stNumberInput"] button svg {fill:#F8FAFC !important;}
 .stTabs [data-baseweb="tab-list"] {gap: 6px;}
-.stTabs [data-baseweb="tab"] {background:#1E293B; border-radius:8px 8px 0 0; padding:8px 16px; color:#CBD5E1;}
+.stTabs [data-baseweb="tab"] {background:#1E293B !important; border-radius:8px 8px 0 0; padding:8px 16px; border:1px solid #334155 !important;}
+.stTabs [data-baseweb="tab"] p {color:#CBD5E1 !important; font-size:15px !important;}
+.stTabs [data-baseweb="tab"][aria-selected="true"] {background:#334155 !important; border-color:#38BDF8 !important;}
+.stTabs [data-baseweb="tab"][aria-selected="true"] p {color:#F8FAFC !important; font-weight:700 !important;}
+.stTabs [data-baseweb="tab-highlight"] {background-color:#38BDF8 !important; height:3px !important;}
+.stTabs [data-baseweb="tab-border"] {background-color:#334155 !important;}
 </style>
 """, unsafe_allow_html=True)
 
