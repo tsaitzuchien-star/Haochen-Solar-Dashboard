@@ -63,12 +63,12 @@ header[data-testid="stHeader"] {background: transparent;}
 [data-testid="stNumberInput"] button {background:#1E293B !important; color:#F8FAFC !important;}
 [data-testid="stNumberInput"] button svg {fill:#F8FAFC !important;}
 .stTabs [data-baseweb="tab-list"] {gap: 6px;}
-.stTabs [data-baseweb="tab"] {background:#1E293B !important; border-radius:8px 8px 0 0; padding:8px 16px; border:1px solid #334155 !important;}
-.stTabs [data-baseweb="tab"] p {color:#CBD5E1 !important; font-size:15px !important;}
-.stTabs [data-baseweb="tab"][aria-selected="true"] {background:#334155 !important; border-color:#38BDF8 !important;}
-.stTabs [data-baseweb="tab"][aria-selected="true"] p {color:#F8FAFC !important; font-weight:700 !important;}
-.stTabs [data-baseweb="tab-highlight"] {background-color:#38BDF8 !important; height:3px !important;}
-.stTabs [data-baseweb="tab-border"] {background-color:#334155 !important;}
+/* 分頁 (Streamlit 1.66 的 stTab)：黑底白字，選到的分頁白色粗體 + 白色底線 */
+[data-testid="stTab"] {color:#CBD5E1 !important;}
+[data-testid="stTab"] p {color:#CBD5E1 !important; font-size:16px !important;}
+[data-testid="stTab"][aria-selected="true"] {color:#FFFFFF !important; border-bottom-color:#FFFFFF !important;}
+[data-testid="stTab"][aria-selected="true"] p {color:#FFFFFF !important; font-weight:700 !important;}
+[data-testid="stTabs"] .react-aria-SelectionIndicator {background-color:#FFFFFF !important; height:3px !important;}
 </style>
 """, unsafe_allow_html=True)
 
