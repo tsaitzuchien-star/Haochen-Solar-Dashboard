@@ -1,8 +1,8 @@
 """LINE 通知：GitHub Actions 每 30 分鐘執行一次，有狀況或到了固定時間才發訊息 (LINE 官方帳號廣播給所有好友)。
 
 - 異常 (隨時)：逆變器超過 30 分鐘沒回傳、放電中電壓低於 48.5 V、顯示 100% 但電壓不到 54 V (需要校正)
-- 每天早上 6:30–8:30：今日發電預測與用電建議、東西兩串比例異常
-- 每天晚上 19:30–21:30：預估今晚電池撐不到天亮時才提醒
+- 每天早上 6:00–12:00 (當天第一次執行)：今日發電預測與用電建議、東西兩串比例異常
+- 每天晚上 19:00–23:30：預估今晚電池撐不到天亮時才提醒
 - 每月 1 日早上：上個月報告
 同一種通知在冷卻時間內不重發，每天最多 MAX_PER_DAY 則；發送紀錄存在 data/notify_state.json。
 
@@ -124,8 +124,9 @@ def main():
             msgs.append(("calib", f"🔧 電池顯示 {soc}%，但電壓只有 {vbat:.1f} V（真正充滿約 55 V），BMS 電量偏高，建議校正讓太陽能繼續充。"))
 
     # 預報 (早上、晚上才需要)
-    morning = dt.time(6, 30) <= now.time() < dt.time(8, 30) and state.get("morning") != today
-    evening = dt.time(19, 30) <= now.time() < dt.time(21, 30) and state.get("evening") != today
+    # GitHub 的排程常常延遲好幾小時，時段放寬：當天第一次在時段內執行就發
+    morning = dt.time(6, 0) <= now.time() < dt.time(12, 0) and state.get("morning") != today
+    evening = dt.time(19, 0) <= now.time() < dt.time(23, 30) and state.get("evening") != today
     hourly, days = (pv_forecast.forecast(soc7={now.date(): f("soc")} if rt else {})
                     if morning or evening else (None, None))
     day_load = sum(pv_forecast.LOAD_PROFILE.values())
