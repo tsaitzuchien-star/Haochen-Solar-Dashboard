@@ -31,7 +31,7 @@ FLOOR = int(os.environ.get("BATT_FLOOR") or 35)        # 放電下限 (%)，可�
 SITE = "https://haochen-solar-dashboard.streamlit.app/"
 STATE = ROOT / "data" / "notify_state.json"
 MAX_PER_DAY = 6
-COOLDOWN_H = {"offline": 6, "lowv": 6, "calib": 24}
+COOLDOWN_H = {"offline": 6, "lowv": 6, "calib": 24, "fault": 6}
 
 
 def growatt(endpoint, **data):
@@ -120,6 +120,15 @@ def main():
         if 0 < vbat < 48.5 and dis > 0.05 and due("lowv", COOLDOWN_H["lowv"]):
             msgs.append(("lowv", f"🔴 電池電壓 {vbat:.1f} V（顯示 {soc}%），接近 48 V 會直接歸零。"
                                  f"建議把放電下限調高到 {soc}% 左右，讓台電接手。"))
+        # 故障 / 警告碼：出現新的代碼立刻推播 (同一組代碼 6 小時內不重發)，恢復正常時也通知一次
+        faults = C.fault_codes(rt)
+        sig = ",".join(f"{k}={v}" for k, _, v in faults)
+        if faults and (sig != state.get("fault_sig") or due("fault", COOLDOWN_H["fault"])):
+            msgs.append(("fault", "🚨 逆變器回報異常：" + "、".join(f"{n} {v}" for _, n, v in faults)
+                                  + f"\n請打開 ShinePhone App 查看代碼說明，必要時聯絡安裝商。\n{SITE}"))
+        elif not faults and state.get("fault_sig"):
+            msgs.append(("fault_clear", "✅ 逆變器的故障 / 警告碼已經恢復正常。"))
+        state["fault_sig"] = sig
         if soc >= 99 and 0 < vbat < 54 and dis < 0.3 and due("calib", COOLDOWN_H["calib"]):
             msgs.append(("calib", f"🔧 電池顯示 {soc}%，但電壓只有 {vbat:.1f} V（真正充滿約 55 V），BMS 電量偏高，建議校正讓太陽能繼續充。"))
 
@@ -177,7 +186,7 @@ def main():
             print(f"::warning::月報失敗：{e}")
 
     for key, text in msgs:
-        if sent_today["n"] >= MAX_PER_DAY:
+        if sent_today["n"] >= MAX_PER_DAY and not key.startswith("fault"):   # 故障通知不受每日上限限制
             print(f"今天已發 {MAX_PER_DAY} 則，略過：{key}")
             continue
         if line_send(text):

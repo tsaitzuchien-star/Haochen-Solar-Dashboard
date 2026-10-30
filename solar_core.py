@@ -292,3 +292,36 @@ def runtime(today):
     from dateutil.relativedelta import relativedelta
     r = relativedelta(today, INSTALL_DATE)
     return r.years, r.months, r.days, (today - INSTALL_DATE).days
+
+
+# 原廠即時資料的故障 / 警告碼：正常時全部是 0
+# (sysFaultWord* 平常就有非 0 的固定值，看起來是字元編碼，不是故障，不列入)
+FAULT_KEYS = {"faultCode": "故障碼", "faultBitCode": "故障位元", "systemFault": "系統故障",
+              "systemWarn": "系統警告", "warnCode": "警告碼", "warnCode1": "警告碼1", "warnCode2": "警告碼2", "warnCode3": "警告碼3"}
+
+
+def fault_codes(rt):
+    """回傳非 0 的故障 / 警告碼 [(欄位, 中文名稱, 數值)]；全部正常時是空 list。"""
+    out = []
+    for k, name in FAULT_KEYS.items():
+        try:
+            v = int(float(rt.get(k) or 0))
+        except (TypeError, ValueError):
+            continue
+        if v:
+            out.append((k, name, v))
+    return out
+
+
+def lifetime_stats(rt, bat_kwh=64.0):
+    """原廠累計總量 (安裝至今) → 自給率、電池等效循環次數、來回效率；欄位沒有值時回傳 None。"""
+    g = lambda k: float(rt.get(k) or 0)
+    pv, load, buy, sell = g("epvTotal"), g("elocalLoadTotal"), g("etoUserTotal"), g("etoGridTotal")
+    chg, dis = g("echarge1Total"), g("edischarge1Total")
+    if pv <= 0 or load <= 0:
+        return None
+    return {"pv": pv, "load": load, "buy": buy, "sell": sell, "charge": chg, "discharge": dis,
+            "self_rate": 1 - buy / load,
+            "cycles": dis / bat_kwh,
+            "round_trip": dis / chg if chg > 0 else None,
+            "bat_loss": chg - dis}
