@@ -35,6 +35,7 @@ st_autorefresh(interval=300000, key="datarefresh")  # 5 分鐘刷新 (官方資�
 C_PV, C_LOAD, C_BAT, C_GRID = "#10B981", "#F97316", "#A78BFA", "#38BDF8"
 # 人字屋頂、正面朝東：2026/10 起改為東西兩坡各 12 片一串 (PV1 = 西坡、PV3 = 東坡，PV2 停用)
 # (逆變器輸入編號, 名稱, 說明, 顏色)；顏色與 3D 屋頂外框一致
+DISCHARGE_FLOOR = 20   # Growatt 設定的電池放電下限 (SOC %)，到這裡逆變器改由台電供電
 BAT_KWH = solar_core.BATT_KWH_PER_PCT * 100   # 4 組 EVE LF314 ≈ 64 kWh
 STRINGS = [(1, "PV1", "西坡 12 片 · 下午較強", "#3B82F6"), (3, "PV3", "東坡 12 片 · 上午較強", "#F59E0B")]
 
@@ -380,21 +381,12 @@ except Exception as e:
 # ==========================================
 if (fc_hourly is not None and not stale and (now_tw.hour >= 14 or now_tw.hour < 7)
         and (fc_hourly["time"] > pd.Timestamp(now_tw.replace(tzinfo=None))).any()):
-    # 放電下限 (Growatt 設定的 SOC) 網站讀不到，由使用者輸入，記在網址參數裡下次沿用
-    try:
-        floor_default = int(st.query_params.get("floor", 35))
-    except ValueError:
-        floor_default = 35
+    floor = DISCHARGE_FLOOR
     now_naive = pd.Timestamp(now_tw.replace(tzinfo=None))
     # 今晚用電跟平常比：最近 3 小時實際用電 ÷ 平常同時段 (夜間開冷氣、煮飯時會比平常高)
     recent = curve[curve["time"] > now_naive - pd.Timedelta(hours=3)] if not curve.empty else curve
     usual = np.mean([pv_forecast.LOAD_PROFILE[t.hour] for t in recent["time"]]) if len(recent) >= 12 else 0
     scale = float(np.clip(recent["load"].mean() / usual, 0.6, 1.8)) if usual else 1.0
-    o_col, f_col = st.columns([5, 1])
-    floor = f_col.number_input("放電下限 %", 0, 90, floor_default, step=5, key="floor",
-                               help="Growatt 設定的電池放電下限 (SOC)；到這裡逆變器會改由台電供電")
-    if floor != floor_default:
-        st.query_params["floor"] = str(floor)
     out = solar_core.battery_outlook(now_naive, soc, floor, fc_hourly, scale)
     until = out["until"]
     morning_word = "今早" if now_tw.hour < 12 else "明早"
@@ -413,7 +405,7 @@ if (fc_hourly is not None and not stale and (now_tw.hour >= 14 or now_tw.hour < 
     # 電量讀數偏高時 (BMS 尚未校正)，實際可用時間可能更短
     warn = ("<br>⚠️ 目前電壓偏低、電量讀數可能偏高，實際可撐的時間可能比估計短"
             if soc >= 50 and 0 < vbat < 51.6 and p_discharge < 1.0 else "")
-    o_col.markdown(f"""<div class="card" style="border-left:4px solid {color}; margin-bottom:6px;">
+    st.markdown(f"""<div class="card" style="border-left:4px solid {color}; margin-bottom:6px;">
       <div style="color:#E2E8F0; font-size:15px; font-weight:700;">🌙 今晚電池 {icon}</div>
       <div style="color:#F1F5F9; font-size:15px; margin-top:4px;">{head}</div>
       <div style="color:#94A3B8; font-size:12px; margin-top:4px;">目前 {soc}%（約 {max(soc - floor, 0) * solar_core.BATT_KWH_PER_PCT:.0f} 度可用）·
@@ -815,10 +807,6 @@ with tab_dev:
         ("電網頻率", f"{f('fac'):.2f} Hz"),
         ("逆變器送進家裡", eps_txt),
     ]), unsafe_allow_html=True)
-    # 原廠即時資料的所有欄位 (除錯 / 查看還有哪些資料可用)
-    with st.expander("🔧 原廠原始欄位（queryLastData）"):
-        st.dataframe(pd.DataFrame([{"欄位": k, "數值": str(v)} for k, v in s.items()]),
-                     hide_index=True, width="stretch", height=420)
 
 with tab_trend:
     daily, fc_log = load_archive()
