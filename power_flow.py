@@ -555,6 +555,64 @@ const ACT = {
   laundry: inRange(9, 11.5) || (WEEKEND && inRange(14, 16)),
   dehumid: inRange(8, 18),
 };
+// ---------- 家人一天的行程 (依星期、時段，並每天輪替不同活動；示意) ----------
+const DOW = D.ts ? new Date((D.ts + 8 * 3600) * 1000).getUTCDay() : (WEEKEND ? 6 : 2);   // 0 = 週日
+const SEED = (D.doy || 300) * 7;
+const pick = (arr, salt = 0) => arr[(Math.floor(HOUR) + SEED + salt * 3) % arr.length];
+const OUTSIDE_OK = !RAIN && HOUR >= 7 && HOUR < 17.5;      // 白天沒下雨才在屋外活動
+const SCHOOL_END = DOW === 3 ? 12.5 : 16;                  // 週三下午沒課
+const DAD_OFFICE = !WEEKEND && [1, 3, 5].includes(DOW);    // 一三五進公司，二四在家工作
+const MEAL = inRange(6.75, 7.5) ? 'breakfast' : inRange(12, 13) ? 'lunch' : inRange(18, 19) ? 'dinner' : null;
+const KIDS = (() => {
+  if (SLEEP || HOUR >= (WEEKEND ? 22 : 21.5) || (WEEKEND && HOUR < 6.75)) return 'sleep';
+  if (!WEEKEND && inRange(6, 6.75)) return 'getup';
+  if (MEAL && (MEAL !== 'lunch' || WEEKEND)) return 'eat';
+  if (!WEEKEND) {
+    if (inRange(7.5, 8)) return 'toSchool';
+    if (inRange(8, SCHOOL_END)) return 'school';
+    if (inRange(SCHOOL_END, SCHOOL_END + 0.5)) return 'fromSchool';
+    if (inRange(19, 20)) return 'homework';
+  } else if (inRange(9, 10)) return 'homework';
+  if (inRange(21, 21.25)) return 'shower1';
+  if (inRange(21.25, 21.5)) return 'shower2';
+  const outdoor = OUTSIDE_OK && (Math.floor(HOUR) + SEED) % 3 !== 2;
+  return outdoor ? pick(['basketball', 'badminton', 'dogwalk', 'baseball', 'soccer'])
+                 : pick(['videogame', 'crafts', 'dogplay', 'tabletBall', 'blocks', 'videogame'], 1);
+})();
+const KIDS_OUT = ['basketball', 'badminton', 'dogwalk', 'baseball', 'soccer'].includes(KIDS);
+const MOMP = (() => {
+  if (SLEEP) return 'sleep';
+  if (ACT.kitchen) return 'cook';                          // 廚房那段已畫
+  if (MEAL) return 'eat';
+  if (!WEEKEND && inRange(7.5, 8)) return 'seeOff';
+  if (inRange(21.5, 22)) return 'shower';
+  if (KIDS === 'homework') return 'tutor';
+  if (HOUR >= 19) return pick(['tv', 'yoga', 'tv', 'tea'], 2);
+  if (!WEEKEND && inRange(13, 14)) return 'nap';
+  return pick(OUTSIDE_OK ? ['laundry', 'water', 'yoga', 'tea', 'fold', 'shopping'] : ['yoga', 'tea', 'fold', 'call', 'shopping'], 3);
+})();
+const DADP = (() => {
+  if (SLEEP) return 'sleep';
+  if (inRange(6, 6.75)) return RAIN ? 'workout' : 'jog';
+  if (MEAL && !(MEAL === 'lunch' && DAD_OFFICE)) return 'eat';
+  if (DAD_OFFICE) {
+    if (inRange(7.5, 8)) return 'toWork';
+    if (inRange(8, 17.5)) return 'office';
+    if (inRange(17.5, 18)) return 'fromWork';
+  } else if (!WEEKEND && inRange(8, 17.5)) return pick(['laptop', 'meeting', 'laptop', 'coffee'], 4);
+  if (inRange(19, 19.5)) return 'dishes';
+  if (inRange(22.5, 23)) return 'shower';
+  if (KIDS === 'videogame') return 'gameWithKids';
+  if (HOUR >= 19.5) return pick(['tv', 'workout', 'tv', 'tv'], 5);
+  if (KIDS_OUT && KIDS !== 'dogwalk') return 'playWithKids';
+  return pick(OUTSIDE_OK ? ['garden', 'tv', 'workout', 'fix'] : ['tv', 'workout', 'fix', 'laptop'], 6);
+})();
+// 電視：小朋友打電動 → 遊戲；早餐、午餐、晚上 7 點多 → 新聞；其他時間體育台 / 旅遊台輪播
+const TV_WATCH = KIDS === 'videogame' || DADP === 'tv' || MOMP === 'tv' || MEAL === 'breakfast' || MEAL === 'lunch';
+const CHANNEL = KIDS === 'videogame' ? 'game' : !TV_WATCH ? null
+  : (MEAL || inRange(19, 20)) ? 'news' : pick(['sports', 'travel', 'news', 'sports', 'travel'], 7);
+ACT.tv = !!CHANNEL;
+ACT.study = KIDS === 'homework';
 const interior = new THREE.Group(); scene.add(interior);
 const iMat = (c, r = 0.8, extra = {}) => std(c, r, 0, extra);
 const glow = (c, i) => std(c, 0.3, 0, { emissive: new THREE.Color(c), emissiveIntensity: i });
@@ -683,6 +741,7 @@ const tvTex = canvasTex(320, 180, () => {});
 const tv = IN(new THREE.PlaneGeometry(1.9, 1.05), TV_ON ? new THREE.MeshBasicMaterial({ map: tvTex }) : MI.dark, [-2.2, F1 + 1.35, 1.85]);
 function drawTV(t) {   // Roblox 風格的方塊遊戲實況：跑酷闖關 / 舞會兩個畫面輪播，下方跑馬燈
   const g = tvTex.image.getContext('2d'), w = 320, h = 180;
+  if (CHANNEL !== 'game') { drawChannel(g, t, w, h); tvTex.needsUpdate = true; return; }
   // 方塊小人：黃色方頭、上衣、褲子；k = 跑步擺動
   const avatar = (x, y, sc, shirt, pants, k = 0, face = 1) => {
     g.save(); g.translate(x, y); g.scale(sc, sc);
@@ -744,6 +803,97 @@ function drawTV(t) {   // Roblox 風格的方塊遊戲實況：跑酷闖關 / �
   g.fillStyle = '#FFFFFF'; g.font = 'bold 16px system-ui, sans-serif';
   g.fillText('LIVE', 8, 166);
   tvTex.needsUpdate = true;
+}
+
+// 其他頻道：新聞台、體育台 (籃球轉播)、旅遊台 (日月潭 / 墾丁輪播)，下方各有跑馬燈
+function drawChannel(g, t, w, h) {
+  const ticker = (bg, label, text) => {
+    g.fillStyle = '#0F172A'; g.fillRect(0, 150, w, 30);
+    g.fillStyle = '#FFFFFF'; g.font = '14px system-ui, sans-serif'; g.textBaseline = 'middle';
+    g.fillText(text, w - ((t * 45) % (w + 520)), 166);
+    g.fillStyle = bg; g.fillRect(0, 150, 64, 30);
+    g.fillStyle = '#FFFFFF'; g.font = 'bold 14px system-ui, sans-serif'; g.fillText(label, 6, 166);
+  };
+  if (CHANNEL === 'news') {
+    const bg = g.createLinearGradient(0, 0, w, 150); bg.addColorStop(0, '#0C4A6E'); bg.addColorStop(1, '#1E3A8A');
+    g.fillStyle = bg; g.fillRect(0, 0, w, 150);
+    g.fillStyle = 'rgba(255,255,255,0.08)'; for (let i = 0; i < 8; i++) g.fillRect(i * 44, 0, 2, 150);
+    // 主播
+    g.fillStyle = '#1F2937'; g.fillRect(48, 70, 62, 60);
+    g.fillStyle = '#F1C9A5'; g.beginPath(); g.arc(79, 58, 15, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#3B2A1E'; g.beginPath(); g.arc(79, 54, 15, Math.PI, 0); g.fill();
+    g.fillStyle = '#E2E8F0'; g.fillRect(75, 72, 8, 18);
+    g.fillStyle = '#334155'; g.fillRect(20, 112, 130, 38);                        // 主播台
+    g.fillStyle = '#38BDF8'; g.fillRect(20, 112, 130, 4);
+    // 新聞畫面 (每 8 秒換一則)：太陽能電廠、天氣、高鐵
+    const story = Math.floor(t / 8) % 3;
+    g.fillStyle = '#0F172A'; g.fillRect(168, 24, 140, 86);
+    if (story === 0) {
+      g.fillStyle = '#7DD3FC'; g.fillRect(170, 26, 136, 50); g.fillStyle = '#4ADE80'; g.fillRect(170, 76, 136, 32);
+      for (let i = 0; i < 5; i++) { g.fillStyle = '#1E3A8A'; g.fillRect(176 + i * 26, 70, 22, 14); g.fillStyle = '#93C5FD'; g.fillRect(176 + i * 26, 70, 22, 3); }
+      g.fillStyle = '#FDE047'; g.beginPath(); g.arc(290, 40, 9, 0, Math.PI * 2); g.fill();
+    } else if (story === 1) {
+      g.fillStyle = '#1E40AF'; g.fillRect(170, 26, 136, 82);
+      g.fillStyle = '#FFFFFF'; g.font = 'bold 13px system-ui'; g.fillText('明日天氣', 180, 42);
+      ['☀️ 28°', '⛅ 26°', '🌧️ 24°'].forEach((x, i) => { g.font = '13px system-ui'; g.fillText(x, 180 + i * 42, 80); });
+    } else {
+      g.fillStyle = '#A7F3D0'; g.fillRect(170, 26, 136, 82); g.fillStyle = '#6B7280'; g.fillRect(170, 86, 136, 6);
+      const x = 170 + ((t * 60) % 220) - 60; g.fillStyle = '#F8FAFC'; g.fillRect(x, 70, 70, 16); g.fillStyle = '#F97316'; g.fillRect(x, 80, 70, 3);
+    }
+    g.fillStyle = '#DC2626'; g.fillRect(168, 112, 140, 20);
+    g.fillStyle = '#FFFFFF'; g.font = 'bold 12px system-ui'; g.textBaseline = 'middle';
+    g.fillText(['屋頂光電 綠電創新高', '鋒面報到 週末轉涼', '高鐵加開疏運列車'][story], 174, 122);
+    g.fillStyle = 'rgba(255,255,255,0.9)'; g.font = 'bold 12px system-ui'; g.fillText('📺 新聞台', 8, 14);
+    ticker('#DC2626', '快訊', '即時新聞 ・ 台電：今日供電充裕 ・ 南投日照充足 ・ 油價下週調降 ・ 國內旅遊人次創新高');
+  } else if (CHANNEL === 'sports') {
+    g.fillStyle = '#C08A4E'; g.fillRect(0, 0, w, 150);                         // 球場木地板
+    g.strokeStyle = 'rgba(255,255,255,0.85)'; g.lineWidth = 2;
+    g.strokeRect(10, 20, 300, 125); g.beginPath(); g.moveTo(160, 20); g.lineTo(160, 145); g.stroke();
+    g.beginPath(); g.arc(160, 82, 18, 0, Math.PI * 2); g.stroke();
+    g.fillStyle = '#F97316'; g.fillRect(10, 62, 34, 40); g.fillRect(276, 62, 34, 40);
+    // 兩隊球員跑位
+    for (let i = 0; i < 10; i++) {
+      const home = i < 5, a = t * (0.8 + i * 0.07) + i;
+      const x = 160 + Math.sin(a) * 110 * (home ? 1 : -1) * 0.8 + (home ? 20 : -20), y = 82 + Math.cos(a * 1.3) * 45;
+      g.fillStyle = home ? '#2563EB' : '#F8FAFC'; g.fillRect(x - 5, y - 6, 10, 14);
+      g.fillStyle = '#7C4A2D'; g.beginPath(); g.arc(x, y - 10, 4, 0, Math.PI * 2); g.fill();
+    }
+    const bx = 160 + Math.sin(t * 0.9) * 120, by = 82 + Math.cos(t * 1.2) * 40 - Math.abs(Math.sin(t * 6)) * 12;
+    g.fillStyle = '#EA580C'; g.beginPath(); g.arc(bx, by, 4, 0, Math.PI * 2); g.fill();
+    // 比分板
+    const sh = 78 + Math.floor(t / 6) % 9 * 2, sa = 74 + Math.floor(t / 7) % 8 * 2;
+    g.fillStyle = 'rgba(15,23,42,0.85)'; g.fillRect(70, 2, 180, 18);
+    g.fillStyle = '#FFFFFF'; g.font = 'bold 12px system-ui'; g.textBaseline = 'middle';
+    g.fillText(`主隊 ${sh} : ${sa} 客隊   第4節 0${3 - Math.floor(t / 20) % 3}:${String(59 - Math.floor(t) % 60).padStart(2, '0')}`, 78, 11);
+    ticker('#16A34A', '體育台', '籃球聯賽轉播 ・ 主隊三分球命中 ・ 中職季後賽今晚開打 ・ 網球公開賽台將晉級');
+  } else {
+    const spot = Math.floor(t / 10) % 2;   // 0 日月潭、1 墾丁海邊
+    const sky = g.createLinearGradient(0, 0, 0, 150); sky.addColorStop(0, spot ? '#38BDF8' : '#7DD3FC'); sky.addColorStop(1, '#E0F2FE');
+    g.fillStyle = sky; g.fillRect(0, 0, w, 150);
+    g.fillStyle = '#FDE047'; g.beginPath(); g.arc(270, 30, 14, 0, Math.PI * 2); g.fill();
+    g.fillStyle = 'rgba(255,255,255,0.95)';
+    for (const [cx, cy] of [[40, 30], [150, 18], [230, 46]]) { const x = (cx + t * 8) % (w + 60) - 30; g.beginPath(); g.ellipse(x, cy, 22, 8, 0, 0, Math.PI * 2); g.fill(); }
+    if (!spot) {
+      g.fillStyle = '#166534'; g.beginPath(); g.moveTo(0, 95); g.lineTo(70, 45); g.lineTo(140, 92); g.lineTo(210, 50); g.lineTo(320, 95); g.lineTo(320, 100); g.lineTo(0, 100); g.fill();
+      g.fillStyle = '#15803D'; g.beginPath(); g.moveTo(0, 100); g.lineTo(100, 70); g.lineTo(200, 100); g.fill();
+      g.fillStyle = '#0E7490'; g.fillRect(0, 100, w, 50);
+      g.fillStyle = 'rgba(255,255,255,0.35)'; for (let i = 0; i < 6; i++) g.fillRect((i * 60 + t * 20) % w, 110 + (i % 3) * 12, 26, 2);
+      const bx = (t * 18) % (w + 80) - 40; g.fillStyle = '#F8FAFC'; g.fillRect(bx, 118, 34, 9); g.fillStyle = '#DC2626'; g.fillRect(bx + 8, 110, 16, 8);
+      g.fillStyle = '#B91C1C'; g.fillRect(60, 60, 6, 30); g.fillRect(56, 56, 14, 5);   // 慈恩塔
+    } else {
+      g.fillStyle = '#0369A1'; g.fillRect(0, 80, w, 40);
+      g.fillStyle = '#FDE68A'; g.fillRect(0, 120, w, 30);
+      g.fillStyle = 'rgba(255,255,255,0.8)'; for (let i = 0; i < 4; i++) { const y = 112 + Math.sin(t * 2 + i) * 3; g.fillRect(0, y + i, w, 2); }
+      g.fillStyle = '#65A30D'; g.fillRect(250, 70, 6, 50);
+      g.fillStyle = '#16A34A'; for (let i = 0; i < 5; i++) { g.beginPath(); g.ellipse(253 + Math.cos(i * 1.3) * 16, 68 + Math.sin(i * 1.3) * 5, 16, 4, i * 1.3, 0, Math.PI * 2); g.fill(); }
+      g.fillStyle = '#F97316'; g.beginPath(); g.arc(80, 132, 10, Math.PI, 0); g.fill();   // 海灘傘
+      g.fillStyle = '#FFFFFF'; g.fillRect(79, 132, 2, 14);
+    }
+    g.fillStyle = 'rgba(15,23,42,0.6)'; g.fillRect(8, 8, 130, 20);
+    g.fillStyle = '#FFFFFF'; g.font = 'bold 13px system-ui'; g.textBaseline = 'middle';
+    g.fillText(spot ? '🏖️ 台灣好好玩・墾丁' : '🚤 台灣好好玩・日月潭', 14, 18);
+    ticker('#0EA5E9', '旅遊台', '週末小旅行 ・ 日月潭環湖自行車 ・ 墾丁浮潛推薦 ・ 合歡山追星攻略 ・ 南投清境農場');
+  }
 }
 IN(box(2.6, 0.42, 0.9), MI.fabric, [-2.2, F1 + 0.21, 4.75]); IN(box(2.6, 0.5, 0.22), MI.fabric, [-2.2, F1 + 0.6, 5.1]);
 IN(box(0.9, 0.42, 1.6), MI.fabric, [-3.45, F1 + 0.21, 4.2]);                                     // L 型沙發
@@ -1052,7 +1202,7 @@ function screen(x, y, z, rotY = 0) {   // 筆電 / 平板發光螢幕
   const m = IN(box(0.32, 0.22, 0.02), glow('#93C5FD', 1.4), [x, y, z], [0, rotY, 0]);
   anim.push(t => { m.material.emissiveIntensity = 1.1 + 0.3 * Math.sin(t * 3); });
 }
-const eat = inRange(6.75, 7.5) || inRange(12, 13) || inRange(18, 19);
+const eat = !!MEAL;
 // 用餐時餐桌擺滿：早餐吐司、荷包蛋、牛奶；午晚餐白飯配三菜一湯 (熱湯冒煙)
 if (eat) {
   const TY = F1 + 0.787, TX = 2.5, TZ = 3.3;   // 桌面高 F1 + 0.775
@@ -1101,7 +1251,7 @@ if (eat) {
 // 兄弟倆在門口玩：週末上午、下午，平日放學後；下雨、晚上不出去
 const OUTDOOR = !RAIN && !NIGHT && !SLEEP && ((WEEKEND && (inRange(9, 11.5) || inRange(15, 17.5))) || (!WEEKEND && inRange(16, 17.5)));
 function outdoorPlay(kind) {   // 0 羽毛球、1 棒球、2 踢足球；地點在大門前草地 (屋外，外觀模式也看得到)
-  const gy = Y0 + 0.03, Z = 9.4;
+  const gy = Y0 + 0.03, Z = 7.9;
   const k1 = person(-1.8, gy, Z, SON1, 0.95, Math.PI / 2, false, scene);
   const k2 = person(1.8, gy, Z, SON2, 0.9, -Math.PI / 2, false, scene);
   const arc = (u, h) => 4 * u * (1 - u) * h;
@@ -1148,38 +1298,269 @@ function outdoorPlay(kind) {   // 0 羽毛球、1 棒球、2 踢足球；地點�
   }
 }
 
-// 爸爸
-if (SLEEP) lie(2.05, F2f + 0.62, 3.9, DAD, 1.2);
-else if (eat) sit(2.05, F1 + 0.25, 4.05, DAD, 1.3, Math.PI);
-else if (HOUR >= 19) sit(-1.6, F1 + 0.2, 4.75, DAD, 1.35, Math.PI);                    // 客廳看電視
-else { const d = sit(-2.3, F2f + 0.25, -3.35, DAD, 1.3, Math.PI); screen(-2.3, F2f + 0.95, -3.85); }  // 閱讀角用筆電工作
-
-// 媽媽 (下廚時段已在廚房)
-if (SLEEP) lie(2.75, F2f + 0.62, 3.9, MOM, 1.15);
-else if (!(ACT.kitchen && !SLEEP)) {
-  if (eat) sit(2.95, F1 + 0.25, 2.55, MOM, 1.25, 0);
-  else if (HOUR >= 19) sit(-2.6, F1 + 0.2, 4.75, MOM, 1.3, Math.PI);                  // 陪爸爸看電視
-  else { sit(2.95, F1 + 0.25, 2.55, MOM, 1.25, 0); screen(2.95, F1 + 0.83, 2.95, Math.PI); }  // 餐桌用平板
+// ---------- 共用：書包、手持物、沿路線走動、柴犬 ----------
+const GY = Y0 + 0.03;                                   // 屋外地面
+function carry(p, geo, mat, pos) { return mesh(geo, mat, pos, null, p); }
+function backpack(p, c) { carry(p, box(0.3, 0.36, 0.14), iMat(c, 0.7), [0, 0.62, -0.22]); }
+// 沿路線往返或繞圈走動 (物件本身 +z 為正面)；loop = 繞圈，否則來回
+function walk(obj, pts, period, { loop = false, phase = 0, bob = 0.04, y } = {}) {
+  const curve = new THREE.CatmullRomCurve3(pts.map(([x, z]) => V(x, 0, z)), loop);
+  const p = V(), tg = V(), y0 = y ?? obj.position.y;
+  anim.push(t => {
+    let u = ((t / period) + phase) % 1, dir = 1;
+    if (!loop) { u = u * 2; if (u > 1) { u = 2 - u; dir = -1; } }
+    curve.getPointAt(u, p); curve.getTangentAt(u, tg);
+    obj.position.set(p.x, y0 + Math.abs(Math.sin(t * 9)) * bob, p.z);
+    obj.rotation.y = Math.atan2(tg.x * dir, tg.z * dir);
+  });
 }
+function shiba(x, y, z, rotY = 0, parent = interior, pose = 'stand') {
+  const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = rotY; parent.add(g);
+  const tan = iMat('#D9822B', 0.8), cream = iMat('#FFF4E0', 0.8), dark = iMat('#1F2937', 0.6);
+  const lying = pose !== 'stand';
+  const by = lying ? 0.14 : 0.3;
+  mesh(box(0.24, 0.22, 0.5), tan, [0, by, 0], null, g);                                  // 身體
+  mesh(box(0.2, 0.06, 0.42), cream, [0, by - 0.1, 0.02], null, g);                        // 肚子
+  const head = new THREE.Group(); head.position.set(0, by + 0.14, 0.3); g.add(head);
+  mesh(box(0.22, 0.2, 0.2), tan, [0, 0, 0], null, head);
+  mesh(box(0.12, 0.09, 0.12), cream, [0, -0.04, 0.12], null, head);                       // 嘴巴 (白)
+  mesh(box(0.04, 0.03, 0.03), dark, [0, 0, 0.19], null, head);                           // 鼻子
+  for (const k of [-1, 1]) {
+    mesh(new THREE.ConeGeometry(0.045, 0.1, 4), tan, [k * 0.07, 0.14, -0.02], null, head);   // 立耳
+    mesh(box(0.025, 0.025, 0.01), dark, [k * 0.05, 0.03, 0.105], null, head);              // 眼睛
+  }
+  const legs = [];
+  if (!lying) for (const [lx, lz] of [[-0.08, 0.18], [0.08, 0.18], [-0.08, -0.18], [0.08, -0.18]])
+    legs.push(mesh(new THREE.CylinderGeometry(0.035, 0.03, 0.2, 8), tan, [lx, 0.1, lz], null, g));
+  const tail = mesh(new THREE.TorusGeometry(0.07, 0.03, 8, 16, Math.PI * 1.5), cream, [0, by + 0.14, -0.26], [0, Math.PI / 2, 0], g);   // 捲尾巴
+  if (lying) { g.scale.y = 0.85; anim.push(t => { g.scale.y = 0.85 + 0.02 * Math.sin(t * 1.8); }); }   // 睡覺呼吸
+  else anim.push(t => {
+    tail.rotation.z = 0.5 * Math.sin(t * 12);
+    head.rotation.y = 0.25 * Math.sin(t * 1.3);
+    legs.forEach((l, i) => { l.rotation.x = 0.5 * Math.sin(t * 10 + (i % 3 ? Math.PI : 0)); });
+  });
+  return g;
+}
+function steam(x, y, z, n = 6, parent = interior) {   // 浴室熱氣
+  const st = glowTex0();
+  for (let i = 0; i < n; i++) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: st, color: '#E2E8F0', transparent: true, depthWrite: false })); parent.add(sp);
+    anim.push(t => { const k = (t * 0.25 + i / n) % 1; sp.position.set(x + 0.3 * Math.sin(t + i * 2), y + k * 1.2, z + 0.2 * Math.cos(t * 0.7 + i));
+      sp.material.opacity = 0.45 * Math.sin(k * Math.PI); sp.scale.setScalar(0.35 + k * 0.6); });
+  }
+}
+function showerAt(c, sc) {   // 2F 淋浴間：人 + 水柱 + 熱氣
+  const p = person(3.55, F2f, -4.55, c, sc, Math.PI / 2);
+  anim.push(t => { p.rotation.y = Math.PI / 2 + 0.4 * Math.sin(t * 0.8); });
+  for (let i = 0; i < 8; i++) {
+    const d = IN(box(0.012, 0.08, 0.012), iMat('#BAE6FD', 0.1, { transparent: true, opacity: 0.8 }), [3.7, F2f + 1.7, -4.5]);
+    anim.push(t => { const k = (t * 1.6 + i / 8) % 1; d.position.set(3.68 - 0.1 * (i % 3) * 0.3, F2f + 1.75 - k * 1.1, -4.5 + (i % 4 - 1.5) * 0.04); });
+  }
+  steam(3.4, F2f + 1.2, -4.6);
+  const l = new THREE.PointLight('#E0F2FE', 2.5, 3, 2); l.position.set(3.1, F2f + 2.2, -4.6); interior.add(l);
+}
+function toilet1F(c, sc) { const p = sit(0.0, F1 + 0.12, -3.45, c, sc, 0); return p; }   // 1F 客用廁所
+// 籃球架 (大門右前方草地，常設)
+const HOOP = V(-3.6, GY + 2.6, 8.0);   // 大門左前方草地 (預設視角看得到)
+mesh(new THREE.CylinderGeometry(0.05, 0.06, 2.9, 10), M.pole, [-4.05, GY + 1.45, 8.0], null, scene);
+mesh(box(0.05, 0.7, 1.0), MI.white, [-3.85, GY + 2.85, 8.0], null, scene);
+mesh(new THREE.TorusGeometry(0.18, 0.015, 6, 20), iMat('#EA580C', 0.5), [HOOP.x, HOOP.y, HOOP.z], [Math.PI / 2, 0, 0], scene);
+// 狗窩 (客廳電視牆右側)
+IN(new THREE.CylinderGeometry(0.38, 0.4, 0.1, 24), iMat('#A16207', 0.9), [-0.55, F1 + 0.05, 2.45]);
+IN(new THREE.CylinderGeometry(0.3, 0.3, 0.06, 24), iMat('#FDE68A', 0.9), [-0.55, F1 + 0.1, 2.45]);
 
-// 兩個兒子
-if (SLEEP || HOUR >= 22) { lie(-3.45, F2f + 0.62, 4.4, SON1, 0.9); lie(-3.45, F2f + 1.92, 4.4, SON2, 0.85); }
-else if (ACT.study) {
+// ---------- 爸爸 ----------
+const DAD_SC = 1.3;
+if (DADP === 'sleep') lie(2.05, F2f + 0.62, 3.9, DAD, 1.2);
+else if (DADP === 'eat') sit(2.05, F1 + 0.25, 4.05, DAD, DAD_SC, Math.PI);
+else if (DADP === 'jog') {                                                              // 清晨繞著房子慢跑
+  const p = person(0, GY, 9.3, DAD, DAD_SC, 0, false, scene);
+  walk(p, [[-6.5, 8.5], [6.5, 8.5], [7.5, 0], [6.5, -8.5], [-6.5, -8.5], [-7.5, 0]], 40, { loop: true, bob: 0.08 });
+} else if (DADP === 'workout') {                                                        // 客廳伏地挺身
+  IN(box(0.7, 0.01, 1.6), iMat('#334155', 0.9), [-0.9, F1 + 0.01, 3.6]);
+  const p = person(-0.9, F1 + 0.3, 3.6, DAD, DAD_SC, 0); p.rotation.x = Math.PI / 2;
+  anim.push(t => { p.position.y = F1 + 0.22 + 0.1 * Math.abs(Math.sin(t * 2.2)); });
+  for (const dz of [-0.5, 0.5]) IN(box(0.25, 0.08, 0.08), MI.dark, [-0.35, F1 + 0.04, 3.6 + dz]);   // 啞鈴
+} else if (DADP === 'toWork' || DADP === 'fromWork') {                                  // 提公事包上下班
+  const p = person(1.0, GY, 6.6, DAD, DAD_SC, 0, false, scene);
+  carry(p, box(0.3, 0.22, 0.07), iMat('#3F2A1D', 0.6), [0.28, 0.35, 0]);
+  walk(p, [[0.8, 6.6], [5.4, 6.8], [6.4, 8.6], [7.6, 11.2]], 16, { phase: DADP === 'toWork' ? 0 : 0.5 });
+} else if (DADP === 'laptop' || DADP === 'meeting') {                                   // 閱讀角在家工作
+  sit(-2.3, F2f + 0.25, -3.35, DAD, DAD_SC, Math.PI); screen(-2.3, F2f + 0.95, -3.85);
+  if (DADP === 'meeting') IN(new THREE.TorusGeometry(0.17, 0.025, 6, 16, Math.PI), MI.dark, [-2.3, F2f + 1.42, -3.35]);   // 耳機開視訊會議
+} else if (DADP === 'coffee') {                                                         // 中島喝咖啡休息
+  person(1.4, F1, -2.75, DAD, DAD_SC, Math.PI);
+  IN(new THREE.CylinderGeometry(0.04, 0.035, 0.1, 12), MI.white, [1.4, F1 + 0.95, -3.05]);
+  steam(1.4, F1 + 1.0, -3.05, 3);
+} else if (DADP === 'dishes') {                                                         // 晚餐後洗碗
+  const p = person(1.1, F1, -4.45, DAD, DAD_SC, Math.PI);
+  anim.push(t => { p.rotation.z = 0.06 * Math.sin(t * 4); });
+  for (let i = 0; i < 6; i++) {
+    const b = IN(new THREE.SphereGeometry(0.03, 8, 6), iMat('#F0F9FF', 0.2, { transparent: true, opacity: 0.8 }), [1.1, F1 + 1.0, -4.85]);
+    anim.push(t => { const k = (t * 0.6 + i / 6) % 1; b.position.set(1.1 + 0.15 * Math.sin(i * 2), F1 + 0.98 + k * 0.25, -4.8); b.scale.setScalar(1 - k); });
+  }
+} else if (DADP === 'shower') showerAt(DAD, 1.2);
+else if (DADP === 'tv') sit(-1.6, F1 + 0.2, 4.75, DAD, 1.35, Math.PI);
+else if (DADP === 'gameWithKids') { const p = sit(-1.5, F1 + 0.2, 4.75, DAD, 1.35, Math.PI); carry(p, box(0.16, 0.05, 0.08), MI.dark, [0, 0.5, 0.22]); }
+else if (DADP === 'playWithKids') {                                                     // 在草地陪小孩，幫忙加油
+  const p = person(0.6, GY, 9.0, DAD, DAD_SC, Math.PI, false, scene);
+  anim.push(t => { p.position.y = GY + 0.06 * Math.abs(Math.sin(t * 4)); });
+} else if (DADP === 'garden') {                                                         // 推除草機
+  const g = new THREE.Group(); scene.add(g);
+  const p = person(0, 0, -0.5, DAD, DAD_SC, 0, false, g);
+  mesh(box(0.45, 0.25, 0.5), iMat('#DC2626', 0.6), [0, 0.15, 0.25], null, g);
+  mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.8, 6), MI.dark, [0, 0.55, -0.1], [0.8, 0, 0], g);
+  g.position.y = GY; walk(g, [[-6.4, -2.5], [-5.2, 3.5], [-6.8, 4.0], [-7.6, -1.5]], 30, { loop: true, bob: 0.01 });   // 屋子左側草地
+} else if (DADP === 'fix') {                                                            // 修理東西：工具箱
+  sit(-1.0, F1 + 0.0, -0.3, DAD, DAD_SC, Math.PI);
+  IN(box(0.45, 0.22, 0.25), iMat('#DC2626', 0.6), [-0.5, F1 + 0.11, -0.4]);
+  const w = IN(box(0.03, 0.03, 0.25), MI.metal, [-1.0, F1 + 0.45, -0.6]);
+  anim.push(t => { w.rotation.x = 0.6 * Math.sin(t * 5); });
+}
+if (DADP === 'office') { /* 去公司上班，不在家 */ }
+
+// ---------- 媽媽 (下廚時段在廚房那段已畫) ----------
+const MOM_SC = 1.25;
+if (MOMP === 'sleep') lie(2.75, F2f + 0.62, 3.9, MOM, 1.15);
+else if (MOMP === 'eat') sit(2.95, F1 + 0.25, 2.55, MOM, MOM_SC, 0);
+else if (MOMP === 'seeOff') {                                                           // 門口揮手送小孩上學
+  const p = person(0.6, GY, 6.4, MOM, MOM_SC, 0, false, scene);
+  const arm = carry(p, box(0.06, 0.3, 0.06), iMat(MOM, 0.7), [0.24, 0.85, 0]);
+  anim.push(t => { arm.rotation.z = 0.6 + 0.4 * Math.sin(t * 6); });
+} else if (MOMP === 'shower') showerAt(MOM, 1.15);
+else if (MOMP === 'tutor') { const p = person(-1.9, F2f, 2.6, MOM, MOM_SC, Math.PI); anim.push(t => { p.rotation.x = 0.12 + 0.05 * Math.sin(t); }); }
+else if (MOMP === 'tv' || MOMP === 'tea') sit(-2.6, F1 + 0.2, 4.75, MOM, 1.3, Math.PI);
+else if (MOMP === 'yoga') {                                                             // 客廳瑜珈
+  IN(box(0.6, 0.01, 1.7), iMat('#A78BFA', 0.9), [-0.9, F1 + 0.01, 3.6]);
+  const p = person(-0.9, F1 + 0.02, 3.6, MOM, MOM_SC, Math.PI / 2);
+  anim.push(t => { p.rotation.z = 0.5 * Math.sin(t * 0.8) ** 2; });
+} else if (MOMP === 'fold') {                                                           // 沙發上摺衣服
+  sit(-2.6, F1 + 0.2, 4.75, MOM, 1.3, Math.PI);
+  for (let i = 0; i < 4; i++) IN(box(0.32, 0.05, 0.26), iMat(['#93C5FD', '#FCA5A5', '#FDE68A', '#86EFAC'][i], 0.9), [-1.7, F1 + 0.45 + i * 0.05, 4.7]);
+} else if (MOMP === 'call') { sit(2.95, F1 + 0.25, 2.55, MOM, MOM_SC, 0); screen(2.95, F1 + 0.83, 2.95, Math.PI); }   // 跟外婆視訊
+else if (MOMP === 'nap') lie(2.75, F2f + 0.62, 3.9, MOM, 1.15);
+else if (MOMP === 'laundry') {                                                          // 屋外曬衣服
+  const RX = -6.0, RZ = 2.6;   // 屋子左側草地的曬衣架
+  for (const dz of [-0.8, 0.8]) mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.6, 6), M.pole, [RX, GY + 0.8, RZ + dz], null, scene);
+  mesh(new THREE.CylinderGeometry(0.012, 0.012, 1.7, 6), M.pole, [RX, GY + 1.55, RZ], [Math.PI / 2, 0, 0], scene);
+  const clothes = [];
+  for (let i = 0; i < 5; i++) clothes.push(mesh(box(0.02, 0.4, 0.24), iMat(['#3B82F6', '#F97316', '#16A34A', '#F472B6', '#FDE047'][i], 0.9), [RX, GY + 1.33, RZ - 0.65 + i * 0.32], null, scene));
+  anim.push(t => clothes.forEach((c, i) => { c.rotation.z = 0.15 * Math.sin(t * 1.5 + i); }));
+  const p = person(RX + 0.6, GY, RZ, MOM, MOM_SC, -Math.PI / 2, false, scene);
+  anim.push(t => { p.position.z = RZ - 0.6 + 1.2 * (0.5 + 0.5 * Math.sin(t * 0.4)); });
+} else if (MOMP === 'water') {                                                          // 澆花
+  const p = person(-2.4, GY, 7.0, MOM, MOM_SC, Math.PI, false, scene);
+  carry(p, box(0.12, 0.14, 0.2), iMat('#16A34A', 0.6), [0.22, 0.5, 0.12]);
+  for (let i = 0; i < 6; i++) {
+    const d = mesh(new THREE.SphereGeometry(0.018, 6, 4), iMat('#7DD3FC', 0.2), [0, 0, 0], null, scene);
+    anim.push(t => { const k = (t * 1.2 + i / 6) % 1; d.position.set(-2.6 + 0.05 * Math.sin(i), GY + 0.6 - k * 0.5, 6.7 - k * 0.15); });
+  }
+  anim.push(t => { p.position.x = -2.4 - 1.2 * (0.5 + 0.5 * Math.sin(t * 0.3)); });
+}
+// shopping：出門買菜，不在家
+
+// ---------- 兩個兒子 ----------
+const K1 = 0.95, K2 = 0.9;
+let dogMode = 'roam';
+if (KIDS === 'sleep') { lie(-3.45, F2f + 0.62, 4.4, SON1, 0.9); lie(-3.45, F2f + 1.92, 4.4, SON2, 0.85); dogMode = 'sleep'; }
+else if (KIDS === 'getup') {                                                            // 刷牙、換衣服
+  const a = person(-0.6, F1, -3.25, SON1, K1, Math.PI);
+  const brush = carry(a, box(0.02, 0.02, 0.14), iMat('#38BDF8', 0.5), [0.05, 0.95, 0.14]);
+  anim.push(t => { brush.position.x = 0.05 + 0.03 * Math.sin(t * 14); });
+  const b = person(-2.0, F2f, 3.4, SON2, K2, 0);
+  anim.push(t => { b.rotation.z = 0.08 * Math.sin(t * 3); });
+} else if (KIDS === 'eat') {
+  sit(2.95, F1 + 0.25, 4.05, SON1, 1.0, Math.PI); sit(2.05, F1 + 0.25, 2.55, SON2, 0.95, 0); dogMode = 'table';
+} else if (KIDS === 'toSchool' || KIDS === 'fromSchool') {                              // 背書包上下學
+  const route = [[0.4, 6.7], [5.2, 6.9], [6.3, 8.6], [7.5, 11.4]];
+  const ph = KIDS === 'toSchool' ? 0 : 0.5;
+  const a = person(0, GY, 6.7, SON1, K1, 0, false, scene); backpack(a, '#2563EB');
+  const b = person(0, GY, 6.7, SON2, K2, 0, false, scene); backpack(b, '#DC2626');
+  walk(a, route, 14, { phase: ph }); walk(b, route.map(([x, z]) => [x - 0.5, z + 0.1]), 14, { phase: ph + 0.02 });
+  const dog = shiba(0, GY, 6.7, 0, scene); walk(dog, route.slice(0, 2).map(([x, z]) => [x + 0.4, z + 0.5]), 7, { phase: ph, bob: 0.02 });
+  dogMode = 'none';
+} else if (KIDS === 'school') { dogMode = HOUR < 12 ? 'roam' : 'nap'; }                  // 上課中，不在家
+else if (KIDS === 'homework') {
   [sit(-2.5, F2f + 0.15, 1.95, SON1, 1.0, Math.PI), sit(-1.3, F2f + 0.15, 1.95, SON2, 0.95, Math.PI)]
-    .forEach((k, i) => anim.push(t => { k.rotation.x = 0.18 + 0.05 * Math.sin(t * 2 + i * 1.7); }));   // 低頭寫功課
-} else if (eat) { sit(2.95, F1 + 0.25, 4.05, SON1, 1.0, Math.PI); sit(2.05, F1 + 0.25, 2.55, SON2, 0.95, 0); }
-else if (OUTDOOR) outdoorPlay(Math.floor(HOUR) % 3);                                   // 不下雨的白天：門口草地玩球，每小時換一種
-else if (inRange(13, 17.5) || HOUR >= 18.5) {                                          // 客廳地毯：一個玩平板、一個玩球
+    .forEach((k, i) => anim.push(t => { k.rotation.x = 0.18 + 0.05 * Math.sin(t * 2 + i * 1.7); }));
+  dogMode = 'nap';
+} else if (KIDS === 'shower1' || KIDS === 'shower2') {                                  // 輪流洗澡，另一個在床上看故事書
+  showerAt(KIDS === 'shower1' ? SON1 : SON2, 0.9);
+  sit(-3.45, F2f + 0.45, 4.4, KIDS === 'shower1' ? SON2 : SON1, 0.9, Math.PI / 2);
+  IN(box(0.25, 0.02, 0.18), iMat('#FDE68A', 0.8), [-3.1, F2f + 0.85, 4.4]);
+  dogMode = 'sleep';
+} else if (KIDS === 'basketball') {                                                     // 草地投籃
+  const SX = -1.0, SZ = 7.7;
+  const a = person(SX, GY, SZ, SON1, K1, Math.atan2(HOOP.x - SX, HOOP.z - SZ), false, scene);
+  const b = person(-2.4, GY, 7.5, SON2, K2, Math.PI / 2, false, scene);
+  const ball = mesh(new THREE.SphereGeometry(0.1, 14, 10), iMat('#EA580C', 0.6), [0, 0, 0], null, scene);
+  const P = 2.6;
+  anim.push(t => {
+    const c = t % P;
+    if (c < 1.0) { const u = c; ball.position.set(SX + (HOOP.x - SX) * u, GY + 1.3 + (HOOP.y + 0.6 - GY - 1.3) * Math.sin(u * Math.PI) * 0.9 + (HOOP.y - GY - 1.3) * u * 0.6, SZ + (HOOP.z - SZ) * u); }
+    else if (c < 1.6) { const u = (c - 1.0) / 0.6; ball.position.set(HOOP.x + 0.6 * u, HOOP.y - 0.1 - (HOOP.y - GY - 0.1) * u * u, HOOP.z - 0.3 * u); }
+    else { const u = (c - 1.6) / 1.0; ball.position.set(-3.0 + 2.0 * u, GY + 0.1 + 0.6 * Math.abs(Math.sin(u * 9)), 7.7); }
+    a.position.y = GY + (c > 0.8 && c < 1.0 ? 0.15 : 0);
+    b.position.x = -2.4 + 0.8 * Math.sin(t * 1.2);
+  });
+  dogMode = 'yard';
+} else if (KIDS === 'badminton') { outdoorPlay(0); dogMode = 'yard'; }
+else if (KIDS === 'baseball') { outdoorPlay(1); dogMode = 'yard'; }
+else if (KIDS === 'soccer') { outdoorPlay(2); dogMode = 'yard'; }
+else if (KIDS === 'dogwalk') {                                                          // 牽柴犬在院子散步
+  const route = [[-4, 7.6], [-1, 8.6], [2.2, 7.8], [-1, 7.2]];
+  const a = person(0, GY, 9.5, SON1, K1, 0, false, scene); const b = person(0, GY, 9.5, SON2, K2, 0, false, scene);
+  walk(a, route, 22, { loop: true }); walk(b, route, 22, { loop: true, phase: 0.04 });
+  const dog = shiba(0, GY, 9.5, 0, scene); walk(dog, route, 22, { loop: true, phase: 0.08, bob: 0.02 });
+  dogMode = 'none';
+} else if (KIDS === 'videogame') {                                                      // 沙發打電動
+  for (const [x, c, sc] of [[-2.9, SON1, 1.0], [-2.2, SON2, 0.95]]) {
+    const k = sit(x, F1 + 0.2, 4.75, c, sc, Math.PI); carry(k, box(0.16, 0.05, 0.08), MI.dark, [0, 0.5, 0.22]);
+    anim.push(t => { k.rotation.z = 0.1 * Math.sin(t * 3 + x); });
+  }
+  dogMode = 'bed';
+} else if (KIDS === 'crafts') {                                                         // 餐桌做美勞：畫紙、蠟筆、剪刀
+  sit(2.05, F1 + 0.25, 4.05, SON1, 1.0, Math.PI); sit(2.95, F1 + 0.25, 2.55, SON2, 0.95, 0);
+  const TY = F1 + 0.79;
+  [['#FFFFFF', 2.1, 3.65], ['#FDE68A', 2.9, 2.95], ['#BFDBFE', 2.5, 3.3]].forEach(([c, x, z]) => IN(box(0.3, 0.005, 0.22), iMat(c, 0.9), [x, TY, z]));
+  for (let i = 0; i < 6; i++) IN(new THREE.CylinderGeometry(0.008, 0.008, 0.09, 6), iMat(['#EF4444', '#3B82F6', '#22C55E', '#F59E0B', '#A855F7', '#EC4899'][i], 0.5), [2.35 + i * 0.05, TY + 0.01, 3.3], [0, 0, Math.PI / 2]);
+  const cut = IN(box(0.12, 0.01, 0.04), MI.metal, [2.85, TY + 0.02, 3.0]);
+  anim.push(t => { cut.rotation.y = 0.3 * Math.sin(t * 5); });
+  dogMode = 'table';
+} else if (KIDS === 'dogplay') {                                                        // 客廳跟柴犬丟球玩
+  const a = sit(-2.7, F1 - 0.05, 3.3, SON1, K1, Math.PI / 2);
+  const b = sit(-1.2, F1 - 0.05, 4.2, SON2, K2, -Math.PI / 2);
+  const dog = shiba(-1.9, F1, 3.3, 0);
+  const ball = IN(new THREE.SphereGeometry(0.06, 12, 8), iMat('#FACC15', 0.5), [-2.5, F1 + 0.06, 3.3]);
+  anim.push(t => {
+    const c = (t % 4) / 4, u = c < 0.5 ? c * 2 : 2 - c * 2;
+    ball.position.set(-2.5 + 1.3 * u, F1 + 0.06 + Math.sin(u * Math.PI) * 0.6, 3.3 + 0.6 * u);
+    dog.position.set(-2.4 + 1.2 * u, F1, 3.3 + 0.55 * u); dog.rotation.y = c < 0.5 ? Math.atan2(1.3, 0.6) : Math.atan2(-1.3, -0.6);
+  });
+  dogMode = 'none'; void a; void b;
+} else if (KIDS === 'tabletBall') {                                                     // 客廳地毯：一個玩平板、一個玩球
   sit(-2.7, F1 - 0.05, 3.3, SON1, 0.95, Math.PI / 2); screen(-2.35, F1 + 0.42, 3.3, Math.PI / 2);
   const s2 = person(-1.6, F1, 3.0, SON2, 0.9, -Math.PI / 2);
   const ball = IN(new THREE.SphereGeometry(0.1, 16, 12), iMat('#EF4444', 0.5), [-1.2, F1 + 0.1, 3.0]);
   anim.push(t => { const k = Math.abs(Math.sin(t * 3)); ball.position.y = F1 + 0.1 + k * 0.8; s2.position.y = F1 + 0.08 * k; });
-} else {                                                                           // 兒童房：一個在下舖看書、一個在地毯堆積木
+} else {                                                                                // blocks：兒童房，一個在下舖看書、一個在地毯堆積木
   sit(-3.45, F2f + 0.45, 4.4, SON1, 0.95, Math.PI / 2); screen(-3.1, F2f + 1.0, 4.4, Math.PI / 2);
   const s2 = sit(-1.8, F2f + 0.0, 3.5, SON2, 0.9, Math.PI);
   for (let i = 0; i < 5; i++) IN(box(0.12, 0.12, 0.12), iMat(['#EF4444', '#3B82F6', '#F59E0B', '#10B981', '#A855F7'][i], 0.6), [-1.8 + (i % 3 - 1) * 0.15, F2f + 0.06 + Math.floor(i / 3) * 0.12, 3.05]);
   anim.push(t => { s2.rotation.x = 0.15 + 0.08 * Math.sin(t * 1.5); });
 }
+// 偶爾有人去上廁所 (每小時 :27–:36，輪到在家、沒在忙的人)
+if ((HOUR % 1) >= 0.45 && (HOUR % 1) < 0.6 && !SLEEP) {
+  const who = pick(['dad', 'son', 'mom', null, null], 8);
+  if (who === 'dad' && ['tv', 'laptop', 'meeting', 'fix'].includes(DADP)) toilet1F(DAD, 1.2);
+  else if (who === 'mom' && ['tea', 'fold', 'call'].includes(MOMP)) toilet1F(MOM, 1.15);
+  else if (who === 'son' && ['blocks', 'tabletBall', 'crafts'].includes(KIDS)) toilet1F(SON2, 0.9);
+}
+// 柴犬：睡覺 (狗窩)、吃飯時在餐桌下、白天在客廳餐廳晃、小孩在院子玩時跟著跑
+if (dogMode === 'sleep' || dogMode === 'bed' || dogMode === 'nap') shiba(-0.55, F1 + 0.1, 2.45, 0.6, interior, 'lie');
+else if (dogMode === 'table') shiba(2.5, F1, 3.3, 1.2, interior, 'lie');
+else if (dogMode === 'yard') { const d = shiba(0, GY, 9.0, 0, scene); walk(d, [[-3, 7.3], [1.5, 7.5], [2.3, 8.4], [-2, 8.7]], 12, { loop: true, bob: 0.03 }); }
+else if (dogMode === 'roam') { const d = shiba(0, F1, 3.0, 0); walk(d, [[-0.8, 2.6], [1.5, 4.8], [3.5, 4.6], [1.0, 2.4]], 26, { loop: true, bob: 0.02 }); }
 
 // ===== 家中微電網：配電盤 → 各房間電器，金色 = 再生能源 (太陽能/電池)，紅色 = 台電 =====
 // (綠色已代表屋頂太陽能管線，室內改用暖金色，與紅色台電電力明顯區隔)
