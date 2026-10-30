@@ -35,6 +35,7 @@ st_autorefresh(interval=300000, key="datarefresh")  # 5 分鐘刷新 (官方資�
 C_PV, C_LOAD, C_BAT, C_GRID = "#10B981", "#F97316", "#A78BFA", "#38BDF8"
 # 人字屋頂、正面朝東：2026/10 起改為東西兩坡各 12 片一串 (PV1 = 西坡、PV3 = 東坡，PV2 停用)
 # (逆變器輸入編號, 名稱, 說明, 顏色)；顏色與 3D 屋頂外框一致
+BAT_KWH = solar_core.BATT_KWH_PER_PCT * 100   # 4 組 EVE LF314 ≈ 64 kWh
 STRINGS = [(1, "PV1", "西坡 12 片 · 下午較強", "#3B82F6"), (3, "PV3", "東坡 12 片 · 上午較強", "#F59E0B")]
 
 st.markdown("""
@@ -310,6 +311,13 @@ if 0 < vbat < 49 and not stale and p_discharge > 0.05:
         msg = f"電池電壓 {vbat:.1f} V 偏低（電量 {soc}%），建議把放電下限 (SOC) 調高一些，避免跌破 48 V 電量歸零"
     st.markdown(f'<div style="background:{c}1F; border:1px solid {c}; color:{c}; border-radius:10px; padding:10px 14px; '
                 f'font-size:15px; font-weight:600; margin:-4px 0 12px;">{"🔴" if red else "🟡"} {msg}</div>', unsafe_allow_html=True)
+
+# 逆變器故障 / 警告碼：正常時全部是 0，有任何非 0 就在首頁最上面紅色提醒
+_faults = solar_core.fault_codes(s)
+if _faults and not stale:
+    st.markdown('<div style="background:#EF44441F; border:1px solid #EF4444; color:#EF4444; border-radius:10px; padding:10px 14px; '
+                'font-size:15px; font-weight:600; margin:-4px 0 12px;">🚨 逆變器回報 '
+                + "、".join(f"{n} {v}" for _, n, v in _faults) + '，請到 ShinePhone App 查看代碼說明</div>', unsafe_allow_html=True)
 
 # 東西兩串比例異常 (每日存檔比對預測)：最近 2 天都偏離就在首頁提醒
 try:
@@ -807,6 +815,10 @@ with tab_dev:
         ("電網頻率", f"{f('fac'):.2f} Hz"),
         ("逆變器送進家裡", eps_txt),
     ]), unsafe_allow_html=True)
+    # 原廠即時資料的所有欄位 (除錯 / 查看還有哪些資料可用)
+    with st.expander("🔧 原廠原始欄位（queryLastData）"):
+        st.dataframe(pd.DataFrame([{"欄位": k, "數值": str(v)} for k, v in s.items()]),
+                     hide_index=True, width="stretch", height=420)
 
 with tab_trend:
     daily, fc_log = load_archive()
@@ -839,6 +851,10 @@ with tab_trend:
         fc_err = (fc_join["pv_fc"] / fc_join["pv"] - 1).abs().tail(30).mean() if len(fc_join) else float("nan")
         # ⏱️ 運轉時間：啟用至今，累計發電 = 有完整資料的實測 + 之前的電站日報 (偏低約 3 成，x1.24 修正)
         life_kwh = d["pv"].sum() + float(daily[(daily["source"] == "plant") & (daily["date"] < d["date"].min())]["pv"].sum()) * 1.24
+        # 原廠逆變器的累計總量比較準，有的話優先用
+        life = solar_core.lifetime_stats(s, BAT_KWH)
+        if life:
+            life_kwh = life["pv"]
         units = [(_ry, "年"), (_rm, "個月"), (_rd, "天")]
         big = "".join(f'<span style="font-size:34px; font-weight:800; color:#F8FAFC;">{n}</span>'
                       f'<span style="font-size:15px; color:#94A3B8; margin:0 14px 0 4px;">{u}</span>' for n, u in units if n or u == "天")
@@ -849,6 +865,23 @@ with tab_trend:
             ☀️ 累計發電約 <b>{life_kwh:,.0f} 度</b>（平均每天 {life_kwh / max(run_days, 1):.1f} 度）<br>
             🌳 減少碳排約 <b>{life_kwh * 0.474 / 1000:,.1f} 公噸</b> CO₂（台電 2024 年電力排碳係數 0.474 kg/度）</div>
         </div>""", unsafe_allow_html=True)
+        if life:
+            # 安裝至今的累計 (逆變器內部計數)：自給率、電池循環、充放電來回效率
+            rt_txt = f"{life['round_trip'] * 100:.0f}%" if life["round_trip"] else "—"
+            rt_note = ("一般磷酸鐵鋰加轉換損耗約 85–90%；偏低的部分可能包含逆變器夜間待機耗電、充放電轉換與 BMS 平衡，"
+                       "逐月變差才需要留意")
+            cells = [
+                ("🏠 安裝至今自給率", f"{life['self_rate'] * 100:.1f}%", f"用電 {life['load']:,.0f} 度，台電只占 {life['buy']:,.0f} 度"),
+                ("🔁 電池等效循環", f"{life['cycles']:,.0f} 次", f"累計放電 {life['discharge']:,.0f} 度 ÷ {BAT_KWH:.0f} 度；LF314 標稱 8,000 次以上"),
+                ("⚖️ 電池來回效率", rt_txt, f"充入 {life['charge']:,.0f} → 放出 {life['discharge']:,.0f} 度（差 {life['bat_loss']:,.0f} 度）"),
+                ("📤 賣回台電", f"{life['sell']:,.1f} 度", "電幾乎都自己用掉"),
+            ]
+            st.markdown('<div class="grid3" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; margin-top:10px;">'
+                        + "".join(f'<div class="card" style="margin:0;"><div class="kpi-label">{a}</div>'
+                                  f'<div style="font-size:26px; font-weight:800; color:#F8FAFC; margin:2px 0;">{b}</div>'
+                                  f'<div class="kpi-sub">{c}</div></div>' for a, b, c in cells)
+                        + f'</div><div style="color:#64748B; font-size:12px; margin-top:6px;">逆變器內部累計（{solar_core.INSTALL_DATE:%Y/%m/%d} 至今）。來回效率：{rt_note}</div>',
+                        unsafe_allow_html=True)
         st.markdown('<div class="section-title" style="margin-top:22px;">⚡ 本月概況</div>', unsafe_allow_html=True)
         k1, k2, k3, k4 = st.columns(4)
         k1.markdown(kpi("本月發電", f"{m['pv'].sum():.0f}", "kWh", C_PV, f"{len(m)} 天（含今天）"), unsafe_allow_html=True)
@@ -935,8 +968,11 @@ with tab_trend:
             health = f"<span style='color:#F59E0B;'>⚠️ 近 7 天東西兩串比例跟預測差超過 15%：{hl}，請確認是否有遮蔭、髒污或接頭鬆脫</span>"
         else:
             health = "<span style='color:#34D399;'>✅ 近 7 天東西兩串比例正常</span>"
+        faults = solar_core.fault_codes(s)
+        fault_txt = ("<span style='color:#EF4444;'>🚨 逆變器回報：" + "、".join(f"{n} {v}" for _, n, v in faults)
+                     + "，請到 ShinePhone App 查看代碼說明</span>") if faults else "<span style='color:#34D399;'>✅ 逆變器沒有故障或警告碼</span>"
         st.markdown(f"""<div class="section-title" style="margin-top:26px;">🩺 系統健康</div>
-        <div class="card" style="color:#CBD5E1; font-size:14px; line-height:1.9;">{health}<br>實測 ÷ 預測（每月，只算沒限發的完整日子）：{pr_txt}
+        <div class="card" style="color:#CBD5E1; font-size:14px; line-height:1.9;">{fault_txt}<br>{health}<br>實測 ÷ 預測（每月，只算沒限發的完整日子）：{pr_txt}
           <div style="color:#64748B; font-size:12px;">這個比例幾個月下來持續往下掉 5% 以上，代表板子可能髒了或開始衰退，可以考慮清洗</div>
         </div>""", unsafe_allow_html=True)
 
