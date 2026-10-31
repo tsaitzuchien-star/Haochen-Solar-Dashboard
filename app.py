@@ -806,8 +806,7 @@ with tab_dev:
         ("還差多少充滿", (lambda need: "已充滿" if soc >= 99 else
                           f"{need:.1f} 度" + (f"（照目前速度約 {need / p_charge:.1f} 小時）" if p_charge > 0.3 else ""))(
                               (100 - soc) * solar_core.BATT_KWH_PER_PCT)),
-        ("可用到放電下限", f"{max(soc - DISCHARGE_FLOOR, 0) * solar_core.BATT_KWH_PER_PCT * solar_core.DISCHARGE_EFF:.1f} 度"
-                          f"（{DISCHARGE_FLOOR}% 以上的部分，扣放電損耗）"),
+        (f"距離 {DISCHARGE_FLOOR}% 還剩", f"{max(soc - DISCHARGE_FLOOR, 0) * solar_core.BATT_KWH_PER_PCT * solar_core.DISCHARGE_EFF:.1f} 度"),
         ("今日充 / 放電", (f"{_tc:.1f} / {_td:.1f} kWh"
                           if (_tc := _today_kwh("charge")) is not None and (_td := _today_kwh("discharge")) is not None
                           else "—")),
