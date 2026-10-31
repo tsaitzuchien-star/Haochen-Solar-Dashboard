@@ -323,7 +323,9 @@ def fault_codes(rt):
 def lifetime_stats(rt, bat_kwh=66.0):
     """原廠累計總量 (安裝至今) → 自給率、電池等效循環次數、來回效率；欄位沒有值時回傳 None。"""
     g = lambda k: float(rt.get(k) or 0)
-    pv, load, buy, sell = g("epvTotal"), g("elocalLoadTotal"), g("etoUserTotal"), g("etoGridTotal")
+    pv, buy, sell = g("epvTotal"), g("etoUserTotal"), g("etoGridTotal")
+    # 用電 = 逆變器累計輸出 + 台電；原廠 elocalLoadTotal 會多算，只在沒有 eacTotal 時備用
+    load = g("eacTotal") + buy if g("eacTotal") > 0 else g("elocalLoadTotal")
     chg, dis = g("echarge1Total"), g("edischarge1Total")
     if pv <= 0 or load <= 0:
         return None
