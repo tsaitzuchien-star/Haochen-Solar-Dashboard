@@ -14,6 +14,7 @@ from streamlit_autorefresh import st_autorefresh
 
 import power_flow
 import pv_forecast
+import battery_page
 import solar_core
 
 # Streamlit Cloud 更新程式後只會重跑 app.py，已載入的模組可能還是舊版 (曾因此讀不到新欄位而 KeyError)；
@@ -749,7 +750,11 @@ with st.expander("📥 下載逐 5 分鐘明細（CSV）"):
 # 9. 分頁：設備與溫度 / 趨勢
 # ==========================================
 st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
-tab_dev, tab_trend = st.tabs(["🌡️ 溫度與設備", "📊 趨勢"])
+tab_dev, tab_bat, tab_trend = st.tabs(["🌡️ 溫度與設備", "🔋 儲能", "📊 趨勢"])
+
+with tab_bat:
+    # 4 組 JK BMS 電池：目前用人工旁聽的快照 (data/bms_snapshot.json)，樹莓派上線後改成即時資料
+    st.html(battery_page.render(battery_page.load_snapshot(), live_soc=soc))
 
 with tab_dev:
     if not curve.empty:
