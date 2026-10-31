@@ -800,13 +800,16 @@ with tab_dev:
     d2.markdown(diag_card("🔋 電池", C_BAT, [
         ("電量 / 電壓", f"{soc} % / {f('vbat'):.1f} V"),
         ("目前狀態", f"充電 {p_charge * 1000:.0f} W" if p_charge > 0.02 else f"放電 {p_discharge * 1000:.0f} W" if p_discharge > 0.02 else "待機 0 W"),
-        # 電流 = 功率 ÷ 電池電壓 (4 組合計；每組約為四分之一)
-        ("電流（4 組合計）", f"{(p_charge or p_discharge) * 1000 / f('vbat'):.1f} A · 每組約 {(p_charge or p_discharge) * 250 / f('vbat'):.0f} A"
-         if f("vbat") > 0 and max(p_charge, p_discharge) > 0.02 else "0 A"),
-        # 逆變器的今日充電計數 (echarge1Today) 只算到主機那一組電池 (約 1/4)，改用網站修正後的 5 分鐘資料積分；逆變器數字放在後面對照
-        ("今日充 / 放電", (f"{_tc:.1f} / {_td:.1f} kWh（逆變器計數 {f('echarge1Today'):.1f} / {f('edischarge1Today'):.1f}）"
+        # 儲能度數：BMS 容量 4 組 x 323 Ah (≈ 66 度) x SOC；逆變器的電流 / 充電計數只算到主機那組，不顯示
+        ("目前儲存", f"{soc * solar_core.BATT_KWH_PER_PCT:.1f} / {BAT_KWH:.0f} 度"),
+        ("還差多少充滿", (lambda need: "已充滿" if soc >= 99 else
+                          f"{need:.1f} 度" + (f"（照目前速度約 {need / p_charge:.1f} 小時）" if p_charge > 0.3 else ""))(
+                              (100 - soc) * solar_core.BATT_KWH_PER_PCT)),
+        ("可用到放電下限", f"{max(soc - DISCHARGE_FLOOR, 0) * solar_core.BATT_KWH_PER_PCT * solar_core.DISCHARGE_EFF:.1f} 度"
+                          f"（{DISCHARGE_FLOOR}% 以上的部分，扣放電損耗）"),
+        ("今日充 / 放電", (f"{_tc:.1f} / {_td:.1f} kWh"
                           if (_tc := _today_kwh("charge")) is not None and (_td := _today_kwh("discharge")) is not None
-                          else f"{f('echarge1Today'):.1f} / {f('edischarge1Today'):.1f} kWh")),
+                          else "—")),
         ("溫度（主機那組）", f"{bat_temp:.1f} °C"),
     ]), unsafe_allow_html=True)
     # 家裡的負載接在逆變器的備援 (EPS) 輸出：平常家中用電都經過這裡 (L1 + L2)；
