@@ -756,8 +756,9 @@ with tab_dev:
         ft = go.Figure()
         ft.add_hrect(y0=60, y1=70, fillcolor="#F59E0B", opacity=0.08, line_width=0)
         ft.add_hrect(y0=70, y1=90, fillcolor="#EF4444", opacity=0.08, line_width=0)
-        ft.add_trace(go.Scatter(x=curve["time"], y=curve["inv_temp"].replace(0, np.nan), name="逆變器 (temp1)", line=dict(color="#E2E8F0", width=2)))
-        ft.add_trace(go.Scatter(x=curve["time"], y=curve["inv_temp2"].replace(0, np.nan), name="逆變器 (temp2)", line=dict(color="#94A3B8", width=1.3, dash="dot")))
+        # temp1 = 逆變器內部溫度、temp2 = 功率模組 (IPM)；IPM 熱容量小、靠風扇散熱，風扇啟停時會鋸齒狀起伏 (RS485 實測對照)
+        ft.add_trace(go.Scatter(x=curve["time"], y=curve["inv_temp"].replace(0, np.nan), name="逆變器內部", line=dict(color="#E2E8F0", width=2)))
+        ft.add_trace(go.Scatter(x=curve["time"], y=curve["inv_temp2"].replace(0, np.nan), name="功率模組 (IPM)", line=dict(color="#94A3B8", width=1.3, dash="dot")))
         ft.add_trace(go.Scatter(x=curve["time"], y=curve["bat_temp"].replace(0, np.nan), name="電池", line=dict(color=C_BAT, width=2)))
         ft.update_layout(**{**chart_layout, "height": 320}, xaxis=dict(showgrid=False, tickformat="%H:%M"),
                          yaxis=dict(gridcolor="#334155", title="°C", range=[15, 80]))

@@ -108,6 +108,8 @@ def u32(r, kind, a):
 
 def live(ser, unit, log=None):
     # SPH 10000TL-HU-US 實測對應 (2026-10-31 掃描)：input 0–124 逆變器、1000–1124 儲能 / BMS
+    # 注意：1009–1010 (放電) 實測放電時仍為 0，放電功率的位址待晚上放電時重新掃描確認；
+    # 1088 不是真實電流 (只出現 17.1 的倍數)
     print("\n每 5 秒更新 (Ctrl+C 結束)")
     print("時間      PV西   PV東   輸出   負載L1/L2    充電   放電  逆變器充電A  BMS電流  電池V  SOC  逆變器°C 電池°C")
     while True:
@@ -125,7 +127,8 @@ def live(ser, unit, log=None):
         if log:
             log.writerow([dt.datetime.now().isoformat(timespec="seconds"), w(5), w(13), w(1), w(35), w(1031), w(1033),
                           w(1037), w(1011), w(1009), g(1088) / 100, vb, g(1014), g(93) / 10, g(1040) / 10,
-                          u32(r, "input", 1021) / 10, u32(r, "input", 1029) / 10])
+                          u32(r, "input", 1021) / 10, u32(r, "input", 1029) / 10,
+                          g(3) / 10, g(4) / 10, g(11) / 10, g(12) / 10])
         time.sleep(5)
 
 
@@ -155,7 +158,8 @@ def main():
             fh = open(fn, "w", newline="", encoding="utf-8-sig")
             log = csv.writer(fh, lineterminator="\n")
             log.writerow(["時間", "PV西W", "PV東W", "PV總W", "輸出W", "負載L1W", "負載L2W", "負載總W", "充電W", "放電W",
-                          "BMS電流A", "電池V", "SOC%", "逆變器溫度", "電池溫度", "買電W", "賣電W"])
+                          "BMS電流A", "電池V", "SOC%", "逆變器溫度", "電池溫度", "買電W", "賣電W",
+                          "PV西V", "PV西A", "PV東V", "PV東A"])
             print(f"同時記錄到 {fn}")
         try:
             live(ser, unit, log)
