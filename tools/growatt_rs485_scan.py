@@ -106,17 +106,21 @@ def u32(r, kind, a):
 
 
 def live(ser, unit):
-    # 常見的 Growatt 儲能機位址 (input 0–124 與 1000–1124 區段)；實際對應要看掃描結果確認
-    print("\n每 5 秒更新 (Ctrl+C 結束)；數值對應待確認，先看有沒有在變化")
+    # SPH 10000TL-HU-US 實測對應 (2026-10-31 掃描)：input 0–124 逆變器、1000–1124 儲能 / BMS
+    print("\n每 5 秒更新 (Ctrl+C 結束)")
+    print("時間      PV西   PV東   輸出   負載L1/L2    充電   放電  逆變器充電A  BMS電流  電池V  SOC  逆變器°C 電池°C")
     while True:
         r = {}
-        for start in (0, 25, 50, 75, 100, 1000, 1025, 1050, 1075, 1100):
+        for start in (0, 25, 50, 75, 1000, 1025, 1050, 1075, 1100):
             vals = read_regs(ser, unit, READ_INPUT, start, 25)
             if vals:
                 r.update({f"input:{start + i}": v for i, v in enumerate(vals)})
-        print(f"{dt.datetime.now():%H:%M:%S}  PV1 {r.get('input:3', 0) / 10:.1f}V {r.get('input:4', 0) / 10:.1f}A  "
-              f"PV2 {r.get('input:7', 0) / 10:.1f}V  PV 總 {u32(r, 'input', 1) / 10:.0f}W  "
-              f"電池 {r.get('input:1013', 0) / 100:.2f}V SOC {r.get('input:1014', 0)}%")
+        g = lambda a: r.get(f"input:{a}", 0)
+        w = lambda a: u32(r, "input", a) / 10
+        vb = g(1013) / 10
+        print(f"{dt.datetime.now():%H:%M:%S}  {w(5):5.0f}  {w(13):5.0f}  {w(35):5.0f}  {w(1031):5.0f}/{w(1033):<5.0f}  "
+              f"{w(1011):5.0f}  {w(1009):5.0f}  {w(1011) / vb if vb else 0:9.1f}A  {g(1088) / 100:6.2f}A  "
+              f"{vb:5.1f}  {g(1014):3d}%  {g(93) / 10:6.1f}  {g(1040) / 10:5.1f}")
         time.sleep(5)
 
 
@@ -137,7 +141,10 @@ def main():
                    "baud": ser.baudrate, "unit": unit, "registers": regs}, f, indent=1)
     print(f"\n✅ 完成：共 {len(regs)} 個暫存器，已存成 {fn}，請把這個檔案傳給 Claude")
     if a.live:
-        live(ser, unit)
+        try:
+            live(ser, unit)
+        except KeyboardInterrupt:
+            print("\n已停止")
 
 
 if __name__ == "__main__":
