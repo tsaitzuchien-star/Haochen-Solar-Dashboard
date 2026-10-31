@@ -956,12 +956,27 @@ with tab_trend:
             health = f"<span style='color:#F59E0B;'>⚠️ 近 7 天東西兩串比例跟預測差超過 15%：{hl}，請確認是否有遮蔭、髒污或接頭鬆脫</span>"
         else:
             health = "<span style='color:#34D399;'>✅ 近 7 天東西兩串比例正常</span>"
+        # 每串板子檢查：中午兩串工作電壓比對 (近似 I-V 檢測)、清晨開路電壓、最高電壓
+        sh = d.dropna(subset=["vmp_diff"]).sort_values("date").tail(7) if "vmp_diff" in d else pd.DataFrame()
+        if len(sh):
+            r = sh.iloc[-1]
+            per = solar_core.PANEL["n"]
+            _v = lambda x: f"{x:.0f}" if x == x else "—"
+            ok_v = abs(r.vmp_diff) <= 5
+            vmax_all = float(d["vmax"].max())
+            panel_txt = (f"<span style='color:{'#34D399' if ok_v else '#F59E0B'};'>{'✅' if ok_v else '⚠️'} 板子檢查（{r.date:%m/%d} 中午工作電壓）："
+                         f"西 {r.vmp1:.0f} V / 東 {r.vmp3:.0f} V，每片 {r.vmp1 / per:.1f} / {r.vmp3 / per:.1f} V，差 {r.vmp_diff:+.1f}%</span>"
+                         f"<br><span style='color:#94A3B8;'>近 7 天差異：" + "　".join(f"{x.date:%m/%d} {x.vmp_diff:+.1f}%" for x in sh.itertuples())
+                         + f"<br>清晨開路電壓 西 {_v(r.voc1)} / 東 {_v(r.voc3)} V · 最高電壓 {vmax_all:.0f} V（逆變器上限 {solar_core.INV_MAX_DC_V} V）</span>")
+        else:
+            panel_txt = "<span style='color:#64748B'>板子檢查：每天存檔後開始累積</span>"
         faults = solar_core.fault_codes(s)
         fault_txt = ("<span style='color:#EF4444;'>🚨 逆變器回報：" + "、".join(f"{n} {v}" for _, n, v in faults)
                      + "，請到 ShinePhone App 查看代碼說明</span>") if faults else "<span style='color:#34D399;'>✅ 逆變器沒有故障或警告碼</span>"
         st.markdown(f"""<div class="section-title" style="margin-top:26px;">🩺 系統健康</div>
-        <div class="card" style="color:#CBD5E1; font-size:14px; line-height:1.9;">{fault_txt}<br>{health}<br>實測 ÷ 預測（每月，只算沒限發的完整日子）：{pr_txt}
-          <div style="color:#64748B; font-size:12px;">這個比例幾個月下來持續往下掉 5% 以上，代表板子可能髒了或開始衰退，可以考慮清洗</div>
+        <div class="card" style="color:#CBD5E1; font-size:14px; line-height:1.9;">{fault_txt}<br>{health}<br>{panel_txt}<br>實測 ÷ 預測（每月，只算沒限發的完整日子）：{pr_txt}
+          <div style="color:#64748B; font-size:12px;">這個比例幾個月下來持續往下掉 5% 以上，代表板子可能髒了或開始衰退，可以考慮清洗。<br>
+          板子檢查：兩串都是 12 片，中午溫度接近，工作電壓應該幾乎一樣；一顆旁路二極體導通少約 2.8%、整片沒作用少約 8%，連續兩天差超過 5% 會通知</div>
         </div>""", unsafe_allow_html=True)
 
         # 每日發電：兩組堆疊 + 正常年 + 預測
