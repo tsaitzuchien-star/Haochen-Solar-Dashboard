@@ -87,6 +87,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port")
     ap.add_argument("--csv", action="store_true")
+    ap.add_argument("--snapshot", action="store_true",
+                    help="收齊每組電池的資料後存成網站用的 bms_snapshot.json (同資料夾有 battery_page.py 時也產生預覽網頁)")
     a = ap.parse_args()
     port = a.port or find_port()
     ser = serial.Serial(port, 115200, timeout=0.2)
@@ -100,6 +102,7 @@ def main():
                          "溫度1", "溫度2", "MOS溫度", "累計循環Ah", "SOH%", "告警"] + [f"電芯{n}" for n in range(1, 17)])
         print(f"同時記錄到 {fn}")
     buf, shown_settings = bytearray(), set()
+    latest, settings = {}, {}
     try:
         while True:
             buf += ser.read(4096)          # 只讀取；整個程式沒有任何 write
@@ -108,6 +111,7 @@ def main():
                 now = dt.datetime.now()
                 if f[4] == 0x02:
                     d = decode_cells(f)
+                    latest[addr] = d
                     print(f"{now:%H:%M:%S} 電池{addr}  {d['volt']:.2f}V  {d['curr']:+6.1f}A  SOC {d['soc']:3d}%  "
                           f"剩 {d['remain_ah']:.0f}/{d['full_ah']:.0f}Ah  單體 {min(d['cells']):.3f}–{max(d['cells']):.3f}V "
                           f"(差 {d['delta'] * 1000:.0f}mV)  溫度 {d['t1']:.1f}/{d['t2']:.1f}°C  MOS {d['mos_t']:.1f}°C  "
@@ -120,9 +124,38 @@ def main():
                 elif f[4] == 0x01 and addr not in shown_settings:
                     shown_settings.add(addr)
                     s = decode_settings(f)
+                    settings[addr] = s
                     print(f"         電池{addr} 設定：" + "、".join(f"{k} {v}" for k, v in s.items()))
+            # 每組都有即時資料、且主機設定也收到 → 存快照後結束
+            if a.snapshot and latest and settings and len(latest) >= 4 and 0 in settings:
+                save_snapshot(latest, settings[0])
+                return
     except KeyboardInterrupt:
         print("\n已停止")
+
+
+def save_snapshot(latest, settings):
+    import json
+    import os
+    snap = {"time": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+            "source": "筆電旁聽電池 RS485C",
+            "packs": [{"addr": a, **{k: (round(v, 3) if isinstance(v, float) else v) for k, v in d.items()},
+                       "cells": [round(c, 3) for c in d["cells"]]} for a, d in sorted(latest.items())],
+            "settings": settings}
+    with open("bms_snapshot.json", "w", encoding="utf-8") as f:
+        json.dump(snap, f, ensure_ascii=False, indent=1)
+    print(f"\n✅ 已存成 bms_snapshot.json（{len(latest)} 組電池），請把這個檔案傳給 Claude")
+    here = os.path.dirname(os.path.abspath(__file__))
+    if os.path.exists(os.path.join(here, "battery_page.py")):
+        import sys
+        import webbrowser
+        sys.path.insert(0, here)
+        import battery_page
+        with open("bms_preview.html", "w", encoding="utf-8") as f:
+            f.write('<!doctype html><meta charset="utf-8"><title>儲能預覽</title>'
+                    '<body style="background:#0F172A;margin:0;padding:16px">' + battery_page.render(snap) + "</body>")
+        print("✅ 預覽網頁 bms_preview.html 已產生，正在用瀏覽器打開")
+        webbrowser.open("file://" + os.path.abspath("bms_preview.html"))
 
 
 if __name__ == "__main__":
