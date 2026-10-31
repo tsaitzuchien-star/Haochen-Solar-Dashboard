@@ -14,6 +14,7 @@
 安全：程式只使用 Modbus 功能碼 03 / 04 (讀取)，沒有任何寫入指令。
 """
 import argparse
+import csv
 import datetime as dt
 import json
 import struct
@@ -105,7 +106,7 @@ def u32(r, kind, a):
     return (r.get(f"{kind}:{a}", 0) << 16) | r.get(f"{kind}:{a + 1}", 0)
 
 
-def live(ser, unit):
+def live(ser, unit, log=None):
     # SPH 10000TL-HU-US 實測對應 (2026-10-31 掃描)：input 0–124 逆變器、1000–1124 儲能 / BMS
     print("\n每 5 秒更新 (Ctrl+C 結束)")
     print("時間      PV西   PV東   輸出   負載L1/L2    充電   放電  逆變器充電A  BMS電流  電池V  SOC  逆變器°C 電池°C")
@@ -121,6 +122,10 @@ def live(ser, unit):
         print(f"{dt.datetime.now():%H:%M:%S}  {w(5):5.0f}  {w(13):5.0f}  {w(35):5.0f}  {w(1031):5.0f}/{w(1033):<5.0f}  "
               f"{w(1011):5.0f}  {w(1009):5.0f}  {w(1011) / vb if vb else 0:9.1f}A  {g(1088) / 100:6.2f}A  "
               f"{vb:5.1f}  {g(1014):3d}%  {g(93) / 10:6.1f}  {g(1040) / 10:5.1f}")
+        if log:
+            log.writerow([dt.datetime.now().isoformat(timespec="seconds"), w(5), w(13), w(1), w(35), w(1031), w(1033),
+                          w(1037), w(1011), w(1009), g(1088) / 100, vb, g(1014), g(93) / 10, g(1040) / 10,
+                          u32(r, "input", 1021) / 10, u32(r, "input", 1029) / 10])
         time.sleep(5)
 
 
@@ -130,19 +135,30 @@ def main():
     ap.add_argument("--baud", type=int)
     ap.add_argument("--unit", type=int)
     ap.add_argument("--live", action="store_true")
+    ap.add_argument("--quick", action="store_true", help="跳過掃描，直接即時記錄")
+    ap.add_argument("--csv", action="store_true", help="即時資料同時存成 CSV")
     a = ap.parse_args()
     port = a.port or find_port()
     ser, unit = connect(port, [a.baud] if a.baud else [115200, 9600, 38400], [a.unit] if a.unit else [1, 2, 3])
-    print("開始掃描 (約 1 分鐘)…")
-    regs = scan(ser, unit)
-    fn = f"growatt_scan_{dt.datetime.now():%Y%m%d_%H%M}.json"
-    with open(fn, "w", encoding="utf-8") as f:
-        json.dump({"time": dt.datetime.now().isoformat(timespec="seconds"), "port": port,
-                   "baud": ser.baudrate, "unit": unit, "registers": regs}, f, indent=1)
-    print(f"\n✅ 完成：共 {len(regs)} 個暫存器，已存成 {fn}，請把這個檔案傳給 Claude")
-    if a.live:
+    if not a.quick:
+        print("開始掃描 (約 1 分鐘)…")
+        regs = scan(ser, unit)
+        fn = f"growatt_scan_{dt.datetime.now():%Y%m%d_%H%M}.json"
+        with open(fn, "w", encoding="utf-8") as f:
+            json.dump({"time": dt.datetime.now().isoformat(timespec="seconds"), "port": port,
+                       "baud": ser.baudrate, "unit": unit, "registers": regs}, f, indent=1)
+        print(f"\n✅ 完成：共 {len(regs)} 個暫存器，已存成 {fn}，請把這個檔案傳給 Claude")
+    if a.live or a.quick:
+        log = None
+        if a.csv:
+            fn = f"growatt_live_{dt.datetime.now():%Y%m%d_%H%M}.csv"
+            fh = open(fn, "w", newline="", encoding="utf-8-sig")
+            log = csv.writer(fh, lineterminator="\n")
+            log.writerow(["時間", "PV西W", "PV東W", "PV總W", "輸出W", "負載L1W", "負載L2W", "負載總W", "充電W", "放電W",
+                          "BMS電流A", "電池V", "SOC%", "逆變器溫度", "電池溫度", "買電W", "賣電W"])
+            print(f"同時記錄到 {fn}")
         try:
-            live(ser, unit)
+            live(ser, unit, log)
         except KeyboardInterrupt:
             print("\n已停止")
 
