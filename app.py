@@ -307,19 +307,19 @@ else:
 st.markdown(f'<div style="color:#F1F5F9; font-size:19px; font-weight:600; margin:2px 0 12px;">{status}</div>',
             unsafe_allow_html=True)
 
-# 電池低電壓提醒：這組電池電壓跌破約 48 V 時，BMS 會把電量直接歸零 (不論當時顯示幾 %)，
-# 所以接近時提醒提高放電下限 (SOC) 讓台電接手
+# 電池低電壓提醒：48.5 V ≈ 每顆 3.03 V，已經接近沒電 (不論當時顯示幾 %)；BMS 在每顆 2.90 V (46.4 V) 把電量校正成 0%，
+# 2.80 V (44.8 V) 斷電保護。所以接近時提醒提高放電下限 (SOC) 讓台電接手
 vbat = f("vbat")
 # 只在電池「還在放電」時提醒：電池已停止放電 (台電接手或待機) 就沒有要調整的東西，上面的狀態句已說明
 if 0 < vbat < 49 and not stale and p_discharge > 0.05:
     red = vbat < 48.5
     c = "#EF4444" if red else "#F59E0B"
     if vbat < 48:
-        msg = f"電池電壓 {vbat:.1f} V，已低於 48 V，電量隨時可能直接歸零，請立即把放電下限 (SOC) 調高到目前電量 {soc}% 以上，讓台電接手供電"
+        msg = f"電池電壓 {vbat:.1f} V，電池其實快沒電了（顯示的 {soc}% 偏高），請立即把放電下限 (SOC) 調高到 {soc}% 以上，讓台電接手供電，避免跌到 44.8 V 斷電保護"
     elif red:
-        msg = f"電池電壓 {vbat:.1f} V，快要跌破 48 V，請立即把放電下限 (SOC) 調高到目前電量 {soc}% 附近，讓台電接手供電"
+        msg = f"電池電壓 {vbat:.1f} V（每顆約 {vbat / 16:.2f} V），已接近沒電，請把放電下限 (SOC) 調高到目前電量 {soc}% 附近，讓台電接手供電"
     else:
-        msg = f"電池電壓 {vbat:.1f} V 偏低（電量 {soc}%），建議把放電下限 (SOC) 調高一些，避免跌破 48 V 電量歸零"
+        msg = f"電池電壓 {vbat:.1f} V 偏低（顯示 {soc}%，實際可能更少），建議把放電下限 (SOC) 調高一些"
     st.markdown(f'<div style="background:{c}1F; border:1px solid {c}; color:{c}; border-radius:10px; padding:10px 14px; '
                 f'font-size:15px; font-weight:600; margin:-4px 0 12px;">{"🔴" if red else "🟡"} {msg}</div>', unsafe_allow_html=True)
 
@@ -343,12 +343,13 @@ if len(_al) >= 2 and not stale:
                 'font-size:15px; font-weight:600; margin:-4px 0 12px;">🩺 最近兩天東西兩串的發電比例跟預測差超過 15%，'
                 '可能有遮蔭、髒污或接頭鬆脫，詳見「📊 趨勢」分頁的系統健康</div>', unsafe_allow_html=True)
 
-# BMS 電量偏高：顯示 99~100% 時逆變器就停止充電，但鋰鐵電池真正充滿時每顆約 3.45 V (整組約 55 V)；
-# 電壓低於 54 V 代表 BMS 累積誤差、其實還沒滿 (放電中電壓會被拉低，所以只在沒大量放電時判斷)
-if soc >= 99 and 0 < vbat < 54 and not stale and p_discharge < 0.3:
+# BMS 電量偏高：顯示 99~100% 時逆變器就停止充電、太陽能被限發。但充滿後休息的鋰鐵電池每顆會從 3.45 V 慢慢回落到
+# 3.38~3.40 V (整組 54~54.4 V，10/31 實測) 屬正常；只有白天正在限發、電壓卻低於 53.6 V (每顆 3.35 V) 才代表 BMS 偏高
+if (soc >= 99 and 0 < vbat < 53.6 and not stale and p_discharge < 0.1 and is_limited
+        and 9 <= now_tw.hour < 15):
     st.markdown(f'<div style="background:#F59E0B1F; border:1px solid #F59E0B; color:#F59E0B; border-radius:10px; padding:10px 14px; '
-                f'font-size:15px; font-weight:600; margin:-4px 0 12px;">🔧 電池顯示 {soc}%，但電壓只有 {vbat:.1f} V（每顆約 {vbat / 16:.2f} V，'
-                f'真正充滿約 55 V）。BMS 電量偏高，建議校正讓太陽能繼續充到真正滿電</div>', unsafe_allow_html=True)
+                f'font-size:15px; font-weight:600; margin:-4px 0 12px;">🔧 電池顯示 {soc}% 而停止充電、太陽能被限發，但電壓只有 {vbat:.1f} V'
+                f'（每顆約 {vbat / 16:.2f} V，充滿應有 3.40 V 以上）。BMS 電量可能偏高，可以校正讓太陽能繼續充</div>', unsafe_allow_html=True)
 
 if is_limited and not stale:
     spare = f"，估計還有約 <b>{ana['lost_now']:.1f} kW</b> 用不到" if ana and ana["lost_now"] >= 0.3 else ""
@@ -508,7 +509,7 @@ with col_side:
     st.markdown("<div class='section-title' style='margin-top:16px;'>🌡️ 設備溫度</div>", unsafe_allow_html=True)
     st.markdown('<div class="grid2">'
                 + temp_card("逆變器", inv_temp, INV_TEMP_LEVELS, curve["inv_temp"] if not curve.empty else None, "#94A3B8")
-                + temp_card("電池", bat_temp, BAT_TEMP_LEVELS, curve["bat_temp"] if not curve.empty else None, C_BAT)
+                + temp_card("電池（主機那組）", bat_temp, BAT_TEMP_LEVELS, curve["bat_temp"] if not curve.empty else None, C_BAT)
                 + "</div>", unsafe_allow_html=True)
 
 chart_layout = dict(
@@ -792,11 +793,12 @@ with tab_dev:
         if (curve["vbat"] > 0).any():
             fb.add_trace(go.Scatter(x=curve["time"], y=curve["vbat"].replace(0, np.nan), name="電壓 V", yaxis="y2",
                                     line=dict(color="#E2E8F0", width=1.3, dash="dot")))
-            for v, txt, col in ((48, "48 V 歸零", "#EF4444"), (55.2, "55.2 V 真正充滿", "#10B981")):
+            for v, txt, col in ((46.4, "46.4 V 電量校正為 0%", "#EF4444"), (55.2, "55.2 V 充滿校正點", "#10B981")):
                 fb.add_hline(y=v, yref="y2", line=dict(color=col, width=1, dash="dash"), opacity=0.6,
                              annotation_text=txt, annotation_position="top left", annotation_font=dict(color=col, size=11))
-        for t, a, b, manual in soc_jumps(curve):
-            fb.add_annotation(x=t, y=b, text=f"{'🔧 手動校正' if manual else '⚠️ BMS 重新估算'} {a:.0f}→{b:.0f}%",
+        for t, a, b, kind in soc_jumps(curve):
+            label = {"full": "✅ 充滿校正", "manual": "🔧 手動校正", "bms": "⚠️ BMS 重新估算"}[kind]
+            fb.add_annotation(x=t, y=b, text=f"{label} {a:.0f}→{b:.0f}%",
                               showarrow=True, arrowhead=2, arrowcolor="#FBBF24", ay=-34, bgcolor="rgba(15,23,42,0.8)",
                               font=dict(color="#FDE68A", size=12))
         fb.update_layout(**{**chart_layout, "height": 300}, xaxis=dict(showgrid=False, tickformat="%H:%M"),
@@ -804,9 +806,10 @@ with tab_dev:
                          yaxis2=dict(overlaying="y", side="right", showgrid=False, title="V", range=[44, 58]))
         st.plotly_chart(fb, width="stretch", theme=None)
         st.markdown('<div style="color:#94A3B8; font-size:13px;">'
-                    "電量讀數偶爾會瞬間跳一下又回來，圖上已自動平滑。電量在白天、充電中或 85% 以上時一次往下跳 8% 以上，是在 BMS 改容量手動校正（🔧），"
-                    "讓太陽能繼續把電池充到真正滿電；較低電量時的突降是 BMS 自己重新估算（⚠️，例如電壓跌破約 48 V 直接歸零）。"
-                    "電量顯示 100% 但電壓不到 54 V，代表 BMS 電量偏高、還沒真正充滿。</div>", unsafe_allow_html=True)
+                    "電量讀數偶爾會瞬間跳一下又回來，圖上已自動平滑。快充滿時電量一下跳到 100%（✅），是最高那顆電芯碰到 3.45 V、"
+                    "BMS 把累積誤差校正回來，屬正常；白天往下跳是在 BMS App 寫入容量（🔧，BMS 會用電壓重估，不準）；"
+                    "夜間的突降是 BMS 自己重新估算（⚠️，例如碰到每顆 2.90 V 校正成 0%）。"
+                    "電壓在 20–90% 之間幾乎不動，看電量要以 BMS 為準；充滿後休息時每顆約 3.38–3.40 V（54 V 上下）是正常的。</div>", unsafe_allow_html=True)
 
     def diag_card(title, color, rows):
         rows_html = "".join(f'<div style="display:flex; justify-content:space-between; margin-bottom:7px; font-size:13px;">'
