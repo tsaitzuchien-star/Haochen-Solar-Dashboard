@@ -141,7 +141,10 @@ def main():
                    "baud": ser.baudrate, "unit": unit, "registers": regs}, f, indent=1)
     print(f"\n✅ 完成：共 {len(regs)} 個暫存器，已存成 {fn}，請把這個檔案傳給 Claude")
     if a.live:
-        live(ser, unit)
+        try:
+            live(ser, unit)
+        except KeyboardInterrupt:
+            print("\n已停止")
 
 
 if __name__ == "__main__":
