@@ -404,7 +404,8 @@ if (fc_hourly is not None and not stale and (now_tw.hour >= 14 or now_tw.hour < 
     usage = ("比平常高 " if scale > 1.05 else "比平常低 " if scale < 0.95 else "") + (f"{abs(scale - 1) * 100:.0f}%" if abs(scale - 1) >= 0.05 else "跟平常差不多")
     if out["empty_at"] is None:
         icon, color = "✅", "#10B981"
-        head = f"電池撐得到{until_txt}，屆時約剩 <b>{out['soc_end']:.0f}%</b>"
+        left_kwh = max(out["soc_end"] - floor, 0) * solar_core.BATT_KWH_PER_PCT * solar_core.DISCHARGE_EFF
+        head = f"電池撐得到{until_txt}，屆時約剩 <b>{out['soc_end']:.0f}%</b>（距離 {floor}% 還有 {left_kwh:.0f} 度）"
     else:
         icon, color = "⚠️", "#F59E0B"
         when = out["empty_at"]
@@ -418,8 +419,8 @@ if (fc_hourly is not None and not stale and (now_tw.hour >= 14 or now_tw.hour < 
     st.markdown(f"""<div class="card" style="border-left:4px solid {color}; margin-bottom:6px;">
       <div style="color:#E2E8F0; font-size:15px; font-weight:700;">🌙 今晚電池 {icon}</div>
       <div style="color:#F1F5F9; font-size:15px; margin-top:4px;">{head}</div>
-      <div style="color:#94A3B8; font-size:12px; margin-top:4px;">目前 {soc}%（約 {max(soc - floor, 0) * solar_core.BATT_KWH_PER_PCT:.0f} 度可用）·
-        最近 3 小時用電{usage} · 依平常各時段用電與明天預報推估{warn}</div>
+      <div style="color:#94A3B8; font-size:12px; margin-top:4px;">目前 {soc}%（距離 {floor}% 還剩約 {max(soc - floor, 0) * solar_core.BATT_KWH_PER_PCT * solar_core.DISCHARGE_EFF:.0f} 度）·
+        最近 3 小時用電{usage}（只套用在接下來幾小時）· 依平常各時段用電與明天預報推估{warn}</div>
     </div>""", unsafe_allow_html=True)
 
 
