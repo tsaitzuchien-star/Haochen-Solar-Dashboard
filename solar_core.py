@@ -86,7 +86,8 @@ def rows_to_curve(rows):
 
 
 def solar_charge_kw(charge, discharge, pv, inv_load, sell):
-    """電池充電功率：Growatt 的 pcharge1 常常瞬間偏低 (例如太陽能 6.6 kW、家用 0.3 kW 卻只回報 2.4 kW)，
+    """電池充電功率：Growatt 的 pcharge1 穩定充電時只算到主機那一組電池的電流 (約 4 組合計的 1/4；
+    2026-10-31 RS485 實測：BMS 4 組合計 84 A ≈ 4.5 kW，逆變器同時只報 20 A ≈ 1.1 kW)，
     但電就只有家用、賣電、電池三個去處，所以太陽能扣掉逆變器供給家裡與賣電的部分 x 0.92 (實測轉換效率上限) 就是電池至少收到的電。
     電池在放電時不套用。"""
     if discharge > 0.05 or pv < 0.1:
@@ -187,7 +188,9 @@ def daily_summary(curve, source="growatt"):
 # 改線後配置在這裡的「正常年」：過去 10 年 (2016–2025) ERA5 天氣套用東西兩坡模型、以 7–10 月實測校正，各月平均每天發電 (kWh)
 CLIMATE_DAILY = {1: 28.2, 2: 32.7, 3: 38.1, 4: 41.8, 5: 40.4, 6: 39.3, 7: 39.7, 8: 36.5, 9: 35.8, 10: 32.6, 11: 28.8, 12: 26.2}
 
-BATT_KWH_PER_PCT = 0.64      # EVE 314 Ah x 16 串 x 4 組 ≈ 64 kWh
+# 電池：4 組 EVE LF314 16 串，BMS 標稱容量 323 Ah (2026-10-31 RS485 讀 JK BMS 確認)
+BATT_PACKS, BATT_AH, BATT_NOM_V = 4, 323, 51.2
+BATT_KWH_PER_PCT = BATT_PACKS * BATT_AH * BATT_NOM_V / 1000 / 100   # ≈ 0.66 kWh (整組約 66 kWh)
 DISCHARGE_EFF = 0.95         # 電池 → 逆變器 → 家裡
 CHARGE_EFF = 0.92            # 太陽能 → 電池 (實測)
 MAX_CHARGE_KW = 5.0
@@ -315,7 +318,7 @@ def fault_codes(rt):
     return out
 
 
-def lifetime_stats(rt, bat_kwh=64.0):
+def lifetime_stats(rt, bat_kwh=66.0):
     """原廠累計總量 (安裝至今) → 自給率、電池等效循環次數、來回效率；欄位沒有值時回傳 None。"""
     g = lambda k: float(rt.get(k) or 0)
     pv, load, buy, sell = g("epvTotal"), g("elocalLoadTotal"), g("etoUserTotal"), g("etoGridTotal")
@@ -372,3 +375,15 @@ def panel_alerts(daily, tol=5.0):
     n = pct / (100 / PANEL["n"])
     return (f"{low} 中午工作電壓連續兩天比另一串低 {pct:.1f}%（約 {n:.1f} 片板子的電壓），"
             "可能有一片板子、接頭或旁路二極體異常，或有固定遮蔭")
+
+
+# 電池 BMS 人工檢查紀錄 (筆電接電池 RS485C 旁聽 JK BMS)；樹莓派長期記錄上線後改成自動
+BMS_CHECK = {
+    "date": "2026-10-31",
+    "packs": 4, "cells": 64,
+    "delta_mv_max": 5,              # 單體最大壓差
+    "temp_range": (28.3, 30.7),     # 電芯 / MOS 溫度範圍 °C
+    "soh": 100,
+    "charge_a": (19.5, 22.4),       # 中午充電時各組電流 (4 組合計約 84 A)
+    "settings": "4 組一致：充電 2–55°C、放電 ≤60°C、RCV 3.50 V、SOC-100% 3.45 V、均衡 3.40 V 起",
+}

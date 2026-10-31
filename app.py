@@ -36,7 +36,7 @@ C_PV, C_LOAD, C_BAT, C_GRID = "#10B981", "#F97316", "#A78BFA", "#38BDF8"
 # 人字屋頂、正面朝東：2026/10 起改為東西兩坡各 12 片一串 (PV1 = 西坡、PV3 = 東坡，PV2 停用)
 # (逆變器輸入編號, 名稱, 說明, 顏色)；顏色與 3D 屋頂外框一致
 DISCHARGE_FLOOR = 20   # Growatt 設定的電池放電下限 (SOC %)，到這裡逆變器改由台電供電
-BAT_KWH = solar_core.BATT_KWH_PER_PCT * 100   # 4 組 EVE LF314 ≈ 64 kWh
+BAT_KWH = solar_core.BATT_KWH_PER_PCT * 100   # 4 組 x 323 Ah x 51.2 V ≈ 66 kWh
 STRINGS = [(1, "PV1", "西坡 12 片 · 下午較強", "#3B82F6"), (3, "PV3", "東坡 12 片 · 上午較強", "#F59E0B")]
 
 st.markdown("""
@@ -803,16 +803,17 @@ with tab_dev:
         # 電流 = 功率 ÷ 電池電壓 (4 組合計；每組約為四分之一)
         ("電流（4 組合計）", f"{(p_charge or p_discharge) * 1000 / f('vbat'):.1f} A · 每組約 {(p_charge or p_discharge) * 250 / f('vbat'):.0f} A"
          if f("vbat") > 0 and max(p_charge, p_discharge) > 0.02 else "0 A"),
-        # 逆變器的今日充電計數 (echarge1Today) 跟瞬間充電功率一樣常常偏低，改用網站修正後的 5 分鐘資料積分；逆變器數字放在後面對照
+        # 逆變器的今日充電計數 (echarge1Today) 只算到主機那一組電池 (約 1/4)，改用網站修正後的 5 分鐘資料積分；逆變器數字放在後面對照
         ("今日充 / 放電", (f"{_tc:.1f} / {_td:.1f} kWh（逆變器計數 {f('echarge1Today'):.1f} / {f('edischarge1Today'):.1f}）"
                           if (_tc := _today_kwh("charge")) is not None and (_td := _today_kwh("discharge")) is not None
                           else f"{f('echarge1Today'):.1f} / {f('edischarge1Today'):.1f} kWh")),
-        ("溫度", f"{bat_temp:.1f} °C"),
+        ("溫度（主機那組）", f"{bat_temp:.1f} °C"),
     ]), unsafe_allow_html=True)
     # 家裡的負載接在逆變器的備援 (EPS) 輸出：平常家中用電都經過這裡 (L1 + L2)；
     # 電池到放電下限時逆變器切到旁路，台電經內部繼電器直接供電給家裡，這裡就量不到 (接近 0)
     eps_w = f("upsPac1") + f("upsPac2")
-    eps_txt = f"{eps_w:.0f} W" + ("（台電直供中）" if eps_w < 50 and p_buy > 0.05 else "")
+    eps_txt = f"{eps_w:.0f} W" + ("（台電直供中）" if eps_w < 50 and p_buy > 0.05
+                                  else f"（L1 {f('upsPac1'):.0f} / L2 {f('upsPac2'):.0f}）" if f("upsPac2") > 0 else "")
     d3.markdown(diag_card("⚡ 市電 / 逆變器供電", C_GRID, [
         ("電網電壓 L1 / L2", f"{f('vac1'):.1f} / {f('vac2'):.1f} V"),
         ("電網頻率", f"{f('fac'):.2f} Hz"),
@@ -866,20 +867,18 @@ with tab_trend:
         </div>""", unsafe_allow_html=True)
         if life:
             # 安裝至今的累計 (逆變器內部計數)：自給率、電池循環、充放電來回效率
-            rt_txt = f"{life['round_trip'] * 100:.0f}%" if life["round_trip"] else "—"
-            rt_note = ("一般磷酸鐵鋰加轉換損耗約 85–90%。逆變器的充放電計數器當天常常跟實際對不上 (例如電池 % 已經上升很多、"
-                       "計數器卻只加一點)，所以這個數字只當參考，等 RS485 直接讀 BMS 後再確認")
             cells = [
                 ("🏠 安裝至今自給率", f"{life['self_rate'] * 100:.1f}%", f"用電 {life['load']:,.0f} 度，台電只占 {life['buy']:,.0f} 度"),
                 ("🔁 電池等效循環", f"{life['cycles']:,.0f} 次", f"累計放電 {life['discharge']:,.0f} 度 ÷ {BAT_KWH:.0f} 度；LF314 標稱 8,000 次以上"),
-                ("⚖️ 電池來回效率", rt_txt, f"充入 {life['charge']:,.0f} → 放出 {life['discharge']:,.0f} 度（差 {life['bat_loss']:,.0f} 度）"),
+                ("🔋 電池組", f"{BAT_KWH:.0f} 度", f"{solar_core.BATT_PACKS} 組 × {solar_core.BATT_AH} Ah（EVE LF314 16 串，BMS 實測容量設定）"),
                 ("📤 賣回台電", f"{life['sell']:,.1f} 度", "電幾乎都自己用掉"),
             ]
             st.markdown('<div class="grid3" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; margin-top:10px;">'
                         + "".join(f'<div class="card" style="margin:0;"><div class="kpi-label">{a}</div>'
                                   f'<div style="font-size:26px; font-weight:800; color:#F8FAFC; margin:2px 0;">{b}</div>'
                                   f'<div class="kpi-sub">{c}</div></div>' for a, b, c in cells)
-                        + f'</div><div style="color:#64748B; font-size:12px; margin-top:6px;">逆變器內部累計（{solar_core.INSTALL_DATE:%Y/%m/%d} 至今）。來回效率：{rt_note}</div>',
+                        + f'</div><div style="color:#64748B; font-size:12px; margin-top:6px;">逆變器內部累計（{solar_core.INSTALL_DATE:%Y/%m/%d} 至今）。'
+                        '逆變器只讀得到主機那一組電池的充電電流，充放電計數不準，所以不再顯示來回效率</div>',
                         unsafe_allow_html=True)
         st.markdown('<div class="section-title" style="margin-top:22px;">⚡ 本月概況</div>', unsafe_allow_html=True)
         k1, k2, k3, k4 = st.columns(4)
@@ -981,11 +980,16 @@ with tab_trend:
                          + f"<br>清晨開路電壓 西 {_v(r.voc1)} / 東 {_v(r.voc3)} V · 最高電壓 {vmax_all:.0f} V（逆變器上限 {solar_core.INV_MAX_DC_V} V）</span>")
         else:
             panel_txt = "<span style='color:#64748B'>板子檢查：每天存檔後開始累積</span>"
+        bc = solar_core.BMS_CHECK
+        bms_txt = (f"<span style='color:#34D399;'>✅ 電池 BMS 檢查（{bc['date'][5:].replace('-', '/')} 人工旁聽）：{bc['packs']} 組 {bc['cells']} 顆電芯"
+                   f"壓差最大 {bc['delta_mv_max']} mV、溫度 {bc['temp_range'][0]:.0f}–{bc['temp_range'][1]:.0f}°C、SOH {bc['soh']}%，"
+                   f"充電時各組電流 {bc['charge_a'][0]:.0f}–{bc['charge_a'][1]:.0f} A 很平均</span>"
+                   f"<br><span style='color:#94A3B8;'>BMS 設定 {bc['settings']}</span>")
         faults = solar_core.fault_codes(s)
         fault_txt = ("<span style='color:#EF4444;'>🚨 逆變器回報：" + "、".join(f"{n} {v}" for _, n, v in faults)
                      + "，請到 ShinePhone App 查看代碼說明</span>") if faults else "<span style='color:#34D399;'>✅ 逆變器沒有故障或警告碼</span>"
         st.markdown(f"""<div class="section-title" style="margin-top:26px;">🩺 系統健康</div>
-        <div class="card" style="color:#CBD5E1; font-size:14px; line-height:1.9;">{fault_txt}<br>{health}<br>{panel_txt}<br>實測 ÷ 預測（每月，只算沒限發的完整日子）：{pr_txt}
+        <div class="card" style="color:#CBD5E1; font-size:14px; line-height:1.9;">{fault_txt}<br>{health}<br>{panel_txt}<br>{bms_txt}<br>實測 ÷ 預測（每月，只算沒限發的完整日子）：{pr_txt}
           <div style="color:#64748B; font-size:12px;">這個比例幾個月下來持續往下掉 5% 以上，代表板子可能髒了或開始衰退，可以考慮清洗。<br>
           板子檢查：兩串都是 12 片，中午溫度接近，工作電壓應該幾乎一樣；一顆旁路二極體導通少約 2.8%、整片沒作用少約 8%，連續兩天差超過 5% 會通知</div>
         </div>""", unsafe_allow_html=True)
