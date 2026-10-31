@@ -120,7 +120,7 @@ def main():
                 elif f[4] == 0x01 and addr not in shown_settings:
                     shown_settings.add(addr)
                     s = decode_settings(f)
-                    print(f"         電池{addr} 設定：" + "、".join(f"{k} {v}" for k, v in list(s.items())[:12]) + " …")
+                    print(f"         電池{addr} 設定：" + "、".join(f"{k} {v}" for k, v in s.items()))
     except KeyboardInterrupt:
         print("\n已停止")
 
