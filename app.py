@@ -387,6 +387,16 @@ except Exception as e:
     fc_error = e
 
 # ==========================================
+# 6.5 熱水器加熱時機 (目前只提示；樹莓派上線後改成自動開關)
+# ==========================================
+if not stale:
+    _lvl, _txt = solar_core.heater_advice(now_tw.hour, soc, pv_kw, load_kw, ana["lost_now"] if ana else 0.0)
+    _c = {"go": "#34D399", "keep": "#34D399", "topup": "#FBBF24", "stop": "#F97316"}.get(_lvl, "#64748B")
+    _icon = {"go": "🟢", "keep": "🟢", "topup": "🟡", "stop": "🟠"}.get(_lvl, "⚪")
+    st.markdown(f'<div style="border:1px solid {_c}55; background:{_c}14; border-radius:10px; padding:8px 14px; margin:0 0 10px; '
+                f'font-size:14px; color:#E2E8F0;">♨️ <b>熱水器</b> {_icon} {_txt}</div>', unsafe_allow_html=True)
+
+# ==========================================
 # 6.6 今晚電池撐得到嗎：下午 2 點到隔天早上 7 點顯示
 # ==========================================
 if (fc_hourly is not None and not stale and (now_tw.hour >= 14 or now_tw.hour < 7)
