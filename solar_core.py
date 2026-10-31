@@ -424,3 +424,35 @@ def heater_advice(hour, soc, pv_kw, load_kw, lost_now=0.0):
         return "topup", f"陰天補熱時機：電池還有 {soc}%，今天太陽能不多，現在加熱最划算"
     need = "電池還沒充到 95%" if soc < 95 else f"太陽能只多 {max(surplus, 0):.1f} kW"
     return "wait", f"先等等：{need}（目標：電池 ≥ 95% 且太陽能多 3 kW 以上）"
+
+
+# SOC 與電壓的落差檢查：磷酸鐵鋰 20–90% 電壓很平，只有低電量區才看得出來，所以用「電壓推得出的電量上限」來比
+# 每顆電壓 (已扣除放電時的壓降) → 電量最多約多少 %（EVE LF314 典型曲線，10/31 實測校正）
+SOC_V_CEILING = [(3.10, 5), (3.18, 10), (3.22, 20), (3.25, 30)]
+CELL_SAG_PER_A = 0.0015      # 放電時每組每 1 A 電流，每顆電壓約被拉低 1.5 mV
+
+
+def soc_voltage_check(soc, vbat, dis_kw, chg_kw=0.0):
+    """回傳 None (正常) 或 dict(level=red/orange, soc_max=電壓推估電量上限, cell_v, msg, action)。
+    充電中電壓會被抬高，不判斷。"""
+    if not vbat or vbat < 30 or chg_kw > 0.1:
+        return None
+    pack_a = dis_kw * 1000 / vbat / BATT_PACKS if dis_kw > 0 else 0.0
+    cell = vbat / 16 + pack_a * CELL_SAG_PER_A           # 換算成「沒有放電壓降」時的每顆電壓
+    soc_max = next((m for v, m in SOC_V_CEILING if cell < v), None)
+    if soc_max is None:
+        return None
+    if (cell < 3.10 and soc >= 15) or (cell < 3.18 and soc >= 25):     # 實際只剩 10% 以下
+        level = "red"
+    elif soc >= soc_max + 15:
+        level = "orange"
+    else:
+        return None
+    floor_now = min(95, int(soc // 5 * 5 + 5))
+    return {
+        "level": level, "soc_max": soc_max, "cell_v": cell,
+        "msg": (f"電量顯示 {soc}%，但電池電壓 {vbat:.1f} V（每顆約 {cell:.2f} V）只對得上約 {soc_max}% 以下，"
+                f"BMS 電量偏高{'，電池其實快沒電了' if level == 'red' else ''}"),
+        "action": (f"請在逆變器（或 ShinePhone App）把放電下限 SOC 暫時調高到 {floor_now}%，讓台電接手供電，避免電壓繼續往下掉；"
+                   "等下一個晴天電池充到真正滿電（每顆 3.45 V）、BMS 自動校正後，再把放電下限改回 20%"),
+    }

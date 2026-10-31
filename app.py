@@ -323,6 +323,15 @@ if 0 < vbat < 49 and not stale and p_discharge > 0.05:
     st.markdown(f'<div style="background:{c}1F; border:1px solid {c}; color:{c}; border-radius:10px; padding:10px 14px; '
                 f'font-size:15px; font-weight:600; margin:-4px 0 12px;">{"🔴" if red else "🟡"} {msg}</div>', unsafe_allow_html=True)
 
+# SOC 與電壓落差：顯示的電量明顯高於電壓對得上的電量 (BMS 偏高)，在首頁最上面提醒並說明怎麼處理
+_sv = solar_core.soc_voltage_check(soc, vbat, p_discharge, p_charge) if not stale else None
+if _sv:
+    _c = "#EF4444" if _sv["level"] == "red" else "#F59E0B"
+    st.markdown(f'<div style="background:{_c}1F; border:1px solid {_c}; color:{_c}; border-radius:10px; padding:10px 14px; '
+                f'font-size:15px; font-weight:600; margin:-4px 0 12px;">{"🔴" if _sv["level"] == "red" else "🟠"} SOC 與電壓有落差：{_sv["msg"]}'
+                f'<div style="font-weight:400; font-size:14px; margin-top:4px; color:#F1F5F9;">👉 {_sv["action"]}</div></div>',
+                unsafe_allow_html=True)
+
 # 逆變器故障 / 警告碼：正常時全部是 0，有任何非 0 就在首頁最上面紅色提醒
 _faults = solar_core.fault_codes(s)
 if _faults and not stale:

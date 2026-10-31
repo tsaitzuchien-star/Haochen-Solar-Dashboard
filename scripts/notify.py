@@ -31,7 +31,7 @@ FLOOR = int(os.environ.get("BATT_FLOOR") or 20)        # 放電下限 (%)，可�
 SITE = "https://haochen-solar-dashboard.streamlit.app/"
 STATE = ROOT / "data" / "notify_state.json"
 MAX_PER_DAY = 6
-COOLDOWN_H = {"offline": 6, "lowv": 6, "calib": 24, "fault": 6}
+COOLDOWN_H = {"offline": 6, "lowv": 6, "calib": 24, "fault": 6, "socv": 6, "socv_red": 2}
 
 
 def growatt(endpoint, **data):
@@ -129,6 +129,10 @@ def main():
         elif not faults and state.get("fault_sig"):
             msgs.append(("fault_clear", "✅ 逆變器的故障 / 警告碼已經恢復正常。"))
         state["fault_sig"] = sig
+        # SOC 與電壓落差 (BMS 偏高)：顯示 30% 但電壓已掉到 50 V 這類情況，馬上推播並說明怎麼處理
+        sv = C.soc_voltage_check(soc, vbat, dis, f("pcharge1") / 1000)
+        if sv and due("socv", COOLDOWN_H["socv_red" if sv["level"] == "red" else "socv"]):
+            msgs.append(("socv", f"{'🔴' if sv['level'] == 'red' else '🟠'} SOC 與電壓有落差\n{sv['msg']}。\n👉 {sv['action']}。\n{SITE}"))
         # 充滿後休息時每顆會回落到 3.38~3.40 V (54 V 上下) 屬正常；只有白天、有太陽能、電壓卻低於 53.6 V 才是 BMS 偏高
         if (soc >= 99 and 0 < vbat < 53.6 and dis < 0.1 and f("ppv") > 300 and 9 <= now.hour < 15
                 and due("calib", COOLDOWN_H["calib"])):
@@ -195,7 +199,7 @@ def main():
             print(f"::warning::月報失敗：{e}")
 
     for key, text in msgs:
-        if sent_today["n"] >= MAX_PER_DAY and not key.startswith("fault"):   # 故障通知不受每日上限限制
+        if sent_today["n"] >= MAX_PER_DAY and not key.startswith(("fault", "socv", "lowv")):   # 安全相關通知不受每日上限限制
             print(f"今天已發 {MAX_PER_DAY} 則，略過：{key}")
             continue
         if line_send(text):
