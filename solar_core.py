@@ -389,3 +389,27 @@ BMS_CHECK = {
     "charge_a": (19.5, 22.4),       # 中午充電時各組電流 (4 組合計約 84 A)
     "settings": "4 組一致：充電 2–55°C、放電 ≤60°C、RCV 3.50 V、SOC-100% 3.45 V、均衡 3.40 V 起",
 }
+
+
+# 電熱水器 (鑫司 KS-30S：4 kW、113 公升) 的加熱時機：中午電池快滿、太陽能有剩時加熱，等於把多的太陽能存成熱水
+HEATER_KW = 4.0
+
+
+def heater_advice(hour, soc, pv_kw, load_kw, lost_now=0.0):
+    """回傳 (等級, 文字)。等級：go / keep / stop / topup / wait / night。
+    load_kw 含熱水器；用電比平常多 ≥ 3.7 kW 視為熱水器正在加熱。lost_now = 電池滿了被限發、其實還發得出來的功率。"""
+    running = load_kw >= HEATER_KW * 0.85 + 0.3
+    base = load_kw - HEATER_KW if running else load_kw
+    surplus = pv_kw + lost_now - base           # 不算熱水器時，太陽能比家裡用電多出來的
+    if not 9 <= hour < 16:
+        return "night", "太陽能不夠，先不要開（需要熱水請手動，或等明天中午）"
+    if running:
+        if soc >= 85 and surplus >= HEATER_KW * 0.5:
+            return "keep", f"正在加熱，太陽能多 {surplus:.1f} kW 夠用，繼續"
+        return "stop", f"正在加熱但太陽能只多 {max(surplus, 0):.1f} kW，大部分在用電池，建議關掉"
+    if soc >= 95 and surplus >= 3.0:
+        return "go", f"現在適合加熱：電池 {soc}%、太陽能多 {surplus:.1f} kW"
+    if hour >= 15 and soc >= 80:
+        return "topup", f"陰天補熱時機：電池還有 {soc}%，今天太陽能不多，現在加熱最划算"
+    need = "電池還沒充到 95%" if soc < 95 else f"太陽能只多 {max(surplus, 0):.1f} kW"
+    return "wait", f"先等等：{need}（目標：電池 ≥ 95% 且太陽能多 3 kW 以上）"
