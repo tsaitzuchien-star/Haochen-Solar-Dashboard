@@ -506,13 +506,18 @@ with col_side:
     # 今日用電 = 逆變器今日輸出 (eacToday，跟逆變器螢幕的「負載」一致) + 跟台電買的電。
     # 原廠的 elocalLoadToday 實測約多算 1.5 倍 (RS485 對照：同 5 分鐘輸出 2 kW，它卻增加 0.4 度)，不採用
     day_load = (f("eacToday") + f("etoUserToday")) if f("eacToday") > 0 else f("elocalLoadToday")
+    # 剛過午夜時逆變器的「今日」計數還沒歸零 (半夜卻有發電量)，顯示的其實是昨天整天的總量
+    carried = now_tw.hour < 5 and f("epvToday") > 0.3
+    day_word = "昨日" if carried else "今日"
+    carry_note = "（逆變器還沒歸零）" if carried else ""
     self_rate = (1 - f("etoUserToday") / day_load) * 100 if day_load > 0 else 0
     lost_text = f"{ana['lost_kwh']:.1f}" if ana and ana["calibrated"] else "—"
     # 用 CSS grid 排版，手機上也維持兩欄
     st.markdown('<div class="grid2">'
-                + kpi("☀️ 今日發電", f"{f('epvToday'):.1f}", "kWh", C_PV, f"{f('epvToday') / CAPACITY_KWP:.2f} kWh/kWp")
-                + kpi("🏠 今日用電", f"{day_load:.1f}", "kWh", C_LOAD, f"買電 {f('etoUserToday'):.1f} kWh")
-                + kpi("⚖️ 自給率", f"{self_rate:.0f}", "%", C_GRID, "不靠台電的用電比例")
+                + kpi(f"☀️ {day_word}發電", f"{f('epvToday'):.1f}", "kWh", C_PV, f"{f('epvToday') / CAPACITY_KWP:.2f} kWh/kWp")
+                + kpi(f"🏠 {day_word}用電", f"{day_load:.1f}", "kWh", C_LOAD, f"買電 {f('etoUserToday'):.1f} kWh{carry_note}")
+                + kpi("⚖️ 自給率", f"{self_rate:.0f}", "%", C_GRID, "不靠台電的用電比例"
+                      if not carry_note else "昨天整天，不靠台電的用電比例")
                 + kpi("🗑️ 浪費掉", lost_text, "kWh", "#F59E0B", "電池滿後被限發（晴天推估）")
                 + "</div>", unsafe_allow_html=True)
 
