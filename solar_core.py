@@ -103,13 +103,22 @@ def clean_soc(soc):
 
 
 def soc_jumps(df):
-    """電量一次往下跳 8% 以上 (5 分鐘內不可能放掉這麼多電)：
-    原本 85% 以上、正在充電或白天有太陽能 → 使用者在 BMS 改容量手動校正，讓電池繼續充；
-    其他 (夜間放電中) → BMS 自己重新估算 (例如電壓過低歸零)。"""
+    """電量一次跳 8% 以上 (5 分鐘內不可能充放這麼多電)，回傳 (時間, 前, 後, 種類)：
+    往上跳 → "full"：最高那顆電芯碰到 SOC-100% 校正電壓 (3.45 V)，BMS 把累積誤差校正回 100%；
+    往下跳、原本 85% 以上 / 正在充電 / 白天有太陽能 → "manual"：在 BMS App 寫入容量，BMS 用電壓重估電量；
+    其他往下跳 (夜間放電中) → "bms"：BMS 自己重新估算 (例如碰到 SOC-0% 校正電壓 2.90 V)。"""
     d = df["soc"].diff()
-    return [(df["time"][i], df["soc"][i - 1], df["soc"][i],
-             df["soc"][i - 1] >= 85 or max(df["charge"][i - 1], df["charge"][i]) > 0.3 or df["pv"][i] > 0.5)
-            for i in d[d <= -8].index]
+    out = []
+    for i in d[d.abs() >= 8].index:
+        a, b = df["soc"][i - 1], df["soc"][i]
+        if b > a:
+            kind = "full"
+        elif a >= 85 or max(df["charge"][i - 1], df["charge"][i]) > 0.3 or df["pv"][i] > 0.5:
+            kind = "manual"
+        else:
+            kind = "bms"
+        out.append((df["time"][i], a, b, kind))
+    return out
 
 
 def sun_shape(times):

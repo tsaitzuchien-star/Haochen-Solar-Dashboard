@@ -1,6 +1,6 @@
 """LINE 通知：GitHub Actions 每 30 分鐘執行一次，有狀況或到了固定時間才發訊息 (LINE 官方帳號廣播給所有好友)。
 
-- 異常 (隨時)：逆變器超過 30 分鐘沒回傳、放電中電壓低於 48.5 V、顯示 100% 但電壓不到 54 V (需要校正)
+- 異常 (隨時)：逆變器超過 30 分鐘沒回傳、放電中電壓低於 48.5 V (每顆約 3.03 V，快沒電)、白天顯示 100% 卻只有 53.6 V 以下 (BMS 偏高)
 - 每天早上 6:00–12:00 (當天第一次執行)：今日發電預測與用電建議、東西兩串比例異常
 - 每天晚上 19:00–23:30：預估今晚電池撐不到天亮時才提醒
 - 每月 1 日早上：上個月報告
@@ -118,7 +118,7 @@ def main():
         if age > 30 and due("offline", COOLDOWN_H["offline"]):
             msgs.append(("offline", f"⚠️ 逆變器已經 {age:.0f} 分鐘沒有回傳資料，請檢查逆變器與採集器網路。\n{SITE}"))
         if 0 < vbat < 48.5 and dis > 0.05 and due("lowv", COOLDOWN_H["lowv"]):
-            msgs.append(("lowv", f"🔴 電池電壓 {vbat:.1f} V（顯示 {soc}%），接近 48 V 會直接歸零。"
+            msgs.append(("lowv", f"🔴 電池電壓 {vbat:.1f} V（顯示 {soc}%），每顆約 {vbat / 16:.2f} V，電池其實快沒電了。"
                                  f"建議把放電下限調高到 {soc}% 左右，讓台電接手。"))
         # 故障 / 警告碼：出現新的代碼立刻推播 (同一組代碼 6 小時內不重發)，恢復正常時也通知一次
         faults = C.fault_codes(rt)
@@ -129,8 +129,11 @@ def main():
         elif not faults and state.get("fault_sig"):
             msgs.append(("fault_clear", "✅ 逆變器的故障 / 警告碼已經恢復正常。"))
         state["fault_sig"] = sig
-        if soc >= 99 and 0 < vbat < 54 and dis < 0.3 and due("calib", COOLDOWN_H["calib"]):
-            msgs.append(("calib", f"🔧 電池顯示 {soc}%，但電壓只有 {vbat:.1f} V（真正充滿約 55 V），BMS 電量偏高，建議校正讓太陽能繼續充。"))
+        # 充滿後休息時每顆會回落到 3.38~3.40 V (54 V 上下) 屬正常；只有白天、有太陽能、電壓卻低於 53.6 V 才是 BMS 偏高
+        if (soc >= 99 and 0 < vbat < 53.6 and dis < 0.1 and f("ppv") > 300 and 9 <= now.hour < 15
+                and due("calib", COOLDOWN_H["calib"])):
+            msgs.append(("calib", f"🔧 電池顯示 {soc}%、逆變器停止充電，但電壓只有 {vbat:.1f} V（每顆 {vbat / 16:.2f} V，充滿應有 3.40 V 以上），"
+                                  "BMS 電量可能偏高，可以校正讓太陽能繼續充。"))
 
     # 預報 (早上、晚上才需要)
     # GitHub 的排程常常延遲好幾小時，時段放寬：當天第一次在時段內執行就發
