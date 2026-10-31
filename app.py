@@ -246,6 +246,7 @@ if not curve.empty and "eto_user" in curve:
         p_buy = rate
 p_sell = f("pacToGridTotal") / 1000
 p_charge = solar_charge_kw(p_charge, p_discharge, pv_kw, f("plocalLoadTotal") / 1000, p_sell)
+p_discharge = solar_core.battery_discharge_kw(p_discharge, pv_kw, f("plocalLoadTotal") / 1000)
 soc = int(f("soc"))
 inv_temp = f("temp1") or f("invTemp")
 bat_temp = f("bmsBatteryTemp")
