@@ -207,7 +207,9 @@ def battery_outlook(now, soc, floor, hourly, load_scale=1.0):
     for r in hourly[hourly["time"] > now].itertuples():
         start = r.time - pd.Timedelta(hours=1)
         frac = min(1.0, (r.time - now).total_seconds() / 3600)
-        load = r.load * load_scale
+        # 「最近用電比平常高 / 低」只反映眼前 (例如正在開冷氣)：前 2 小時照比例，之後 4 小時內慢慢回到平常
+        k = max(0.0, min(1.0, (hours - 2) / 4))
+        load = r.load * (load_scale * (1 - k) + k)
         # 明天早上太陽能已經夠家裡用：電池任務結束
         if start >= tomorrow + pd.Timedelta(hours=5) and r.pv >= load:
             until = start
