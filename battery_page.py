@@ -255,5 +255,5 @@ def render(snap, live_soc=None):
       </div>
     </div>
 
-    <div class="muted" style="text-align:center">資料時間 {t:%Y/%m/%d %H:%M} · {html.escape(snap.get("source", ""))} · 樹莓派上線後改成即時更新</div>
+    <div class="muted" style="text-align:center">資料時間 {t:%Y/%m/%d %H:%M} · {html.escape(snap.get("source", ""))} · {"每分鐘自動更新" if "樹莓派" in snap.get("source", "") else "樹莓派上線後改成即時更新"}</div>
     </div></div>'''

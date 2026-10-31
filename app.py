@@ -1,5 +1,6 @@
 import importlib
 import io
+import json
 import math
 import os
 from datetime import datetime, timedelta
@@ -777,9 +778,34 @@ with st.expander("📥 下載逐 5 分鐘明細（CSV）"):
 st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
 tab_dev, tab_bat, tab_trend = st.tabs(["🌡️ 溫度與設備", "🔋 儲能", "📊 趨勢"])
 
+@st.cache_data(ttl=60, show_spinner=False)
+def load_live_bms(gist_id, token):
+    """樹莓派每分鐘上傳到私人 Gist 的即時資料；讀不到回傳 None。"""
+    try:
+        r = requests.get(f"https://api.github.com/gists/{gist_id}", timeout=10,
+                         headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"})
+        r.raise_for_status()
+        f = r.json()["files"]["solar_live.json"]
+        content = f["content"] if not f.get("truncated") else requests.get(f["raw_url"], timeout=10).text
+        return json.loads(content)
+    except Exception:
+        return None
+
+
 with tab_bat:
-    # 4 組 JK BMS 電池：目前用人工旁聽的快照 (data/bms_snapshot.json)，樹莓派上線後改成即時資料
-    st.html(battery_page.render(battery_page.load_snapshot(), live_soc=soc))
+    # 4 組 JK BMS 電池：樹莓派即時資料 (15 分鐘內) 優先，否則用人工旁聽的快照 (data/bms_snapshot.json)
+    snap = battery_page.load_snapshot()
+    _gid, _tok = get_secret("LIVE_GIST_ID"), get_secret("GIST_TOKEN")
+    live = load_live_bms(_gid, _tok) if _gid and _tok else None
+    if live and live.get("packs"):
+        age = (datetime.now(TW_TZ) - datetime.fromisoformat(live["time"])).total_seconds() / 60
+        if age <= 15:
+            live["settings"] = live.get("settings") or (snap or {}).get("settings", {})
+            snap = live
+        else:
+            st.markdown(f'<div style="color:#F59E0B; font-size:13px; margin-bottom:6px;">⚠️ 樹莓派已經 {age:.0f} 分鐘沒有更新，'
+                        '以下顯示上一次的人工快照</div>', unsafe_allow_html=True)
+    st.html(battery_page.render(snap, live_soc=soc))
 
 with tab_dev:
     if not curve.empty:

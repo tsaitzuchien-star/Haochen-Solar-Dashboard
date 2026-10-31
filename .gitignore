@@ -3,3 +3,8 @@
 gcp_key.json
 .env
 __pycache__/
+
+# 樹莓派本機設定與狀態 (含金鑰)
+pi/config.json
+pi/alert_state.json
+.venv/
