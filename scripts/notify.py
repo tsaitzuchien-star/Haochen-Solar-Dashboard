@@ -156,6 +156,12 @@ def main():
                 al = al[al["date"] >= daily["date"].max() - pd.Timedelta(days=1)]
                 if len(al) >= 2:
                     lines.append("🩺 最近兩天東西兩串發電比例跟預測差超過 15%，可能有遮蔭、髒污或接頭鬆脫。")
+                pa = C.panel_alerts(daily)
+                if pa:
+                    lines.append(f"🔬 {pa}。")
+                vmax = pd.to_numeric(daily["vmax"], errors="coerce").tail(2).max() if "vmax" in daily else float("nan")
+                if vmax >= C.INV_MAX_DC_V - 20:
+                    lines.append(f"⚡ 昨天 PV 最高電壓 {vmax:.0f} V，接近逆變器上限 {C.INV_MAX_DC_V} V（冬天清晨低溫時開路電壓會升高）。")
             except Exception as e:
                 print(f"::warning::兩串比例檢查失敗：{e}")
             msgs.append(("morning", "\n".join(x for x in lines if x)))

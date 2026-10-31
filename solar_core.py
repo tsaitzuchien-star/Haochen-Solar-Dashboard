@@ -161,7 +161,8 @@ CSV_COLS = {"time": "時間", "pv": "總發電kW", "pv1": "PV1西坡kW", "vpv1":
 
 # 每日摘要 (data/daily.csv) 的欄位；kWh 以 5 分鐘資料積分
 DAILY_COLUMNS = ["date", "pv", "pv1", "pv2", "pv3", "load", "buy", "sell", "charge", "discharge", "lost",
-                 "peak_kw", "soc_min", "soc_max", "vbat_min", "points", "source"]
+                 "peak_kw", "soc_min", "soc_max", "vbat_min", "points", "source",
+                 "vmp1", "vmp3", "vmp_diff", "voc1", "voc3", "vmax"]
 
 
 def daily_summary(curve, source="growatt"):
@@ -179,6 +180,7 @@ def daily_summary(curve, source="growatt"):
         "soc_min": int(c["soc"].min()), "soc_max": int(c["soc"].max()),
         "vbat_min": round(float(vb.min()), 1) if len(vb) else "",
         "points": len(c), "source": source,
+        **string_health(c),
     }
 
 
@@ -325,3 +327,48 @@ def lifetime_stats(rt, bat_kwh=64.0):
             "cycles": dis / bat_kwh,
             "round_trip": dis / chg if chg > 0 else None,
             "bat_loss": chg - dis}
+
+
+# 元晶 TSEC TS60-BMH-445 H1 銘牌 (STC)；PV1 西坡、PV3 東坡各 12 片串聯，每片 3 顆旁路二極體
+PANEL = {"voc": 41.05, "isc": 13.56, "vmp": 34.01, "imp": 13.11, "n": 12, "diodes": 3}
+INV_MAX_DC_V = 525          # 逆變器最大輸入電壓
+INV_MPPT_MIN_V = 150        # 啟動電壓 / MPPT 下限
+
+
+def string_health(curve):
+    """5 分鐘資料 → 兩串板子的工作點檢查 (逆變器沒有 I-V 掃描，用 MPPT 工作點近似)。
+
+    vmp1 / vmp3：中午 10:30–13:30 兩串都有明顯電流時的工作電壓中位數。兩串同樣 12 片、同時間溫度接近，
+      電壓應該幾乎一樣；一顆旁路二極體導通 (局部遮蔭或故障) 少約 1/36 ≈ 2.8%，整片沒作用少約 1/12 ≈ 8%。
+    voc1 / voc3：清晨電流還是零點偏移 (≤ 0.5 A) 時的最高電壓，接近開路電壓 (日照弱所以比銘牌低，看自己的長期趨勢)。
+    vmax：全天最高 PV 電壓 (不能超過逆變器 525 V)。"""
+    out = {k: "" for k in ("vmp1", "vmp3", "vmp_diff", "voc1", "voc3", "vmax")}
+    if curve is None or curve.empty or "vpv1" not in curve:
+        return out
+    c = curve
+    h = c["time"].dt.hour + c["time"].dt.minute / 60
+    noon = c[(h >= 10.5) & (h <= 13.5) & (c["ipv1"] > 3) & (c["ipv3"] > 3)]
+    if len(noon) >= 6:
+        v1, v3 = float(noon["vpv1"].median()), float(noon["vpv3"].median())
+        out.update(vmp1=round(v1, 1), vmp3=round(v3, 1), vmp_diff=round((v1 / v3 - 1) * 100, 1))
+    dawn = c[(h < 9) & (h >= 4)]
+    for i in (1, 3):
+        v = dawn[dawn[f"ipv{i}"] <= 0.5][f"vpv{i}"]
+        if len(v) and v.max() > INV_MPPT_MIN_V:
+            out[f"voc{i}"] = round(float(v.max()), 1)
+    out["vmax"] = round(float(c[["vpv1", "vpv3"]].max().max()), 1)
+    return out
+
+
+def panel_alerts(daily, tol=5.0):
+    """最近兩天中午兩串工作電壓都差超過 tol%：可能有一片板子、接頭或旁路二極體出問題。回傳說明文字或 None。"""
+    if "vmp_diff" not in daily:
+        return None
+    d = daily.dropna(subset=["vmp_diff"]).sort_values("date").tail(2)
+    if len(d) < 2 or not (d["vmp_diff"].abs() > tol).all():
+        return None
+    low = "西坡 PV1" if d["vmp_diff"].iloc[-1] < 0 else "東坡 PV3"
+    pct = abs(float(d["vmp_diff"].iloc[-1]))
+    n = pct / (100 / PANEL["n"])
+    return (f"{low} 中午工作電壓連續兩天比另一串低 {pct:.1f}%（約 {n:.1f} 片板子的電壓），"
+            "可能有一片板子、接頭或旁路二極體異常，或有固定遮蔭")
