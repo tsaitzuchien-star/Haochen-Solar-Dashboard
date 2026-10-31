@@ -82,7 +82,16 @@ def rows_to_curve(rows):
     df["load"] += extra
     df["soc_raw"], df["soc"] = df["soc"], clean_soc(df["soc"])
     df["charge"] = [solar_charge_kw(*r) for r in zip(df["charge"], df["discharge"], df["pv"], df["load"] - extra, df["sell"])]
+    df["discharge"] = [battery_discharge_kw(*r) for r in zip(df["discharge"], df["pv"], df["load"] - extra)]
     return df
+
+
+def battery_discharge_kw(discharge, pv, inv_load):
+    """電池放電功率 (電池端)：逆變器回報的 pdischarge1 在小負載時偏低 (10/31 夜間實測：輸出 1.67 kW、它只報 1.64 kW，
+    但電池送出的電至少要「輸出 ÷ 95% 效率」)。所以放電時取「(輸出 − 太陽能) ÷ 0.95」與回報值的較大者。"""
+    if discharge <= 0.05:
+        return discharge
+    return max(discharge, (inv_load - pv * 0.97) / DISCHARGE_EFF)
 
 
 def solar_charge_kw(charge, discharge, pv, inv_load, sell):
