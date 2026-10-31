@@ -10,12 +10,13 @@ on:
     - cron: "37 23 * * *"
     - cron: "7 12 * * *"
     - cron: "37 12 * * *"
+  # 手動執行 (Actions 頁面按 Run workflow，可勾選測試訊息)；cron-job.org 每 10 分鐘用 API 觸發一次 (不帶參數 = 正常檢查)
   workflow_dispatch:
     inputs:
       test:
         description: "傳一則測試訊息"
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: write
