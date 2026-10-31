@@ -67,7 +67,10 @@ def render(snap, live_soc=None):
     t = datetime.fromisoformat(snap["time"])
     state = ("充電中" if curr > 1 else "放電中" if curr < -1 else "待機")
     state_c = "#34D399" if curr > 1 else "#60A5FA" if curr < -1 else "#94A3B8"
-    ok = not alarms and delta_pack <= 30 and max(temps) < 45
+    # 磷酸鐵鋰在中段電壓很平，壓差看不出來；快充滿 (平均 3.38 V 以上) 時各顆差異才顯現，壓差變大是正常的
+    top = avg_cell >= 3.38
+    delta_limit = 80 if top else 30
+    ok = not alarms and delta_pack <= delta_limit and max(temps) < 45
     chip = (f'<span class="chip ok">● 全部正常</span>' if ok else
             f'<span class="chip warn">● 需要注意</span>')
     to_full = (100 - soc) / 100 * full_kwh
@@ -93,6 +96,7 @@ def render(snap, live_soc=None):
               <div class="row"><span>溫度</span><b>{max(p["t1"], p["t2"]):.1f}°C</b></div>
               <div class="row"><span>MOS</span><b>{p["mos_t"]:.1f}°C</b></div>
               <div class="row"><span>SOH</span><b>{p["soh"]}%</b></div>
+              <div class="row"><span>均衡</span><b>{"⚡ " + format(abs(p.get("bal_curr", 0)), ".1f") + " A" if p.get("bal") else "待命"}</b></div>
             </div>
           </div>
         </div>''')
@@ -233,7 +237,7 @@ def render(snap, live_soc=None):
     <div class="card">
       <h3>單體電壓 <span class="muted">64 顆電芯，數字是 3.xxx V 的小數（例如 345 = 3.345 V）· ▲ 最高 ▼ 最低</span></h3>
       <div class="heat"><div class="hrow"><div></div>{head_nums}<div class="hnum">壓差</div></div>{"".join(heat_rows)}</div>
-      <div class="legend">比平均低 <div class="grad"></div> 比平均高 · 全部 64 顆最高最低差 {delta_all:.0f} mV（組內最大 {delta_pack:.0f} mV，30 mV 以內都算很平均）</div>
+      <div class="legend">比平均低 <div class="grad"></div> 比平均高 · 全部 64 顆最高最低差 {delta_all:.0f} mV（組內最大 {delta_pack:.0f} mV。{"接近充滿時電芯差異才會顯現，80 mV 以內正常，主動均衡會慢慢拉平" if top else "30 mV 以內都算很平均"}）</div>
     </div>
 
     <div class="two">
