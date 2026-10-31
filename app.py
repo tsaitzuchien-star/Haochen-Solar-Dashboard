@@ -893,7 +893,9 @@ with tab_trend:
                            pd.DataFrame([{**solar_core.daily_summary(curve, source="today"), "date": pd.Timestamp(now_tw.date())}])])
         d = d.sort_values("date").reset_index(drop=True)
         # 今天的摘要在資料不足時 (例如半夜) 會有空字串，全部轉成數字，避免加總時型別錯誤
+        # 存檔還沒有新欄位 (例如剛加上的板子檢查)、半夜又還沒有今天的資料時，缺的欄位補空值，避免 KeyError
         num = [c for c in solar_core.DAILY_COLUMNS if c not in ("date", "source")]
+        d = d.reindex(columns=list(dict.fromkeys(list(d.columns) + num)))
         d[num] = d[num].apply(pd.to_numeric, errors="coerce")
         # 正常年是改線後的配置；改線前 PV2 東西混串約少 6%
         d["normal"] = d["date"].dt.month.map(solar_core.CLIMATE_DAILY) * np.where(d["date"] < pd.Timestamp("2026-10-22"), 0.94, 1.0)
