@@ -216,6 +216,14 @@ except Exception as e:
     curve, curve_error = pd.DataFrame(), e
 ana = analyze_curve(curve)
 
+
+def _today_kwh(col):
+    """今天 5 分鐘資料積分 (kWh)；沒有資料時回傳 None。"""
+    if curve.empty or col not in curve:
+        return None
+    hrs = curve["time"].diff().dt.total_seconds().div(3600).clip(upper=0.25).fillna(5 / 60)
+    return float((curve[col] * hrs).sum())
+
 f = lambda k: float(s.get(k) or 0)
 last_update = datetime.fromtimestamp(s["calendar"] / 1000, TW_TZ)
 age_min = max(int((now_tw - last_update).total_seconds() // 60), 0)
@@ -795,7 +803,10 @@ with tab_dev:
         # 電流 = 功率 ÷ 電池電壓 (4 組合計；每組約為四分之一)
         ("電流（4 組合計）", f"{(p_charge or p_discharge) * 1000 / f('vbat'):.1f} A · 每組約 {(p_charge or p_discharge) * 250 / f('vbat'):.0f} A"
          if f("vbat") > 0 and max(p_charge, p_discharge) > 0.02 else "0 A"),
-        ("今日充 / 放電", f"{f('echarge1Today'):.1f} / {f('edischarge1Today'):.1f} kWh"),
+        # 逆變器的今日充電計數 (echarge1Today) 跟瞬間充電功率一樣常常偏低，改用網站修正後的 5 分鐘資料積分；逆變器數字放在後面對照
+        ("今日充 / 放電", (f"{_tc:.1f} / {_td:.1f} kWh（逆變器計數 {f('echarge1Today'):.1f} / {f('edischarge1Today'):.1f}）"
+                          if (_tc := _today_kwh("charge")) is not None and (_td := _today_kwh("discharge")) is not None
+                          else f"{f('echarge1Today'):.1f} / {f('edischarge1Today'):.1f} kWh")),
         ("溫度", f"{bat_temp:.1f} °C"),
     ]), unsafe_allow_html=True)
     # 家裡的負載接在逆變器的備援 (EPS) 輸出：平常家中用電都經過這裡 (L1 + L2)；
@@ -856,8 +867,8 @@ with tab_trend:
         if life:
             # 安裝至今的累計 (逆變器內部計數)：自給率、電池循環、充放電來回效率
             rt_txt = f"{life['round_trip'] * 100:.0f}%" if life["round_trip"] else "—"
-            rt_note = ("一般磷酸鐵鋰加轉換損耗約 85–90%；偏低的部分可能包含逆變器夜間待機耗電、充放電轉換與 BMS 平衡，"
-                       "逐月變差才需要留意")
+            rt_note = ("一般磷酸鐵鋰加轉換損耗約 85–90%。逆變器的充放電計數器當天常常跟實際對不上 (例如電池 % 已經上升很多、"
+                       "計數器卻只加一點)，所以這個數字只當參考，等 RS485 直接讀 BMS 後再確認")
             cells = [
                 ("🏠 安裝至今自給率", f"{life['self_rate'] * 100:.1f}%", f"用電 {life['load']:,.0f} 度，台電只占 {life['buy']:,.0f} 度"),
                 ("🔁 電池等效循環", f"{life['cycles']:,.0f} 次", f"累計放電 {life['discharge']:,.0f} 度 ÷ {BAT_KWH:.0f} 度；LF314 標稱 8,000 次以上"),
