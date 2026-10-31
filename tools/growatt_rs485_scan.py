@@ -119,7 +119,8 @@ def live(ser, unit, log=None):
             if vals:
                 r.update({f"input:{start + i}": v for i, v in enumerate(vals)})
         g = lambda a: r.get(f"input:{a}", 0)
-        w = lambda a: u32(r, "input", a) / 10
+        # 功率是有正負號的 32 位元：瞬間反向 (例如雲散開、功率急升的那一下) 會是負數，不能當成無號數讀
+        w = lambda a: (lambda v: v - (1 << 32) if v >= 1 << 31 else v)(u32(r, "input", a)) / 10
         vb = g(1013) / 10
         print(f"{dt.datetime.now():%H:%M:%S}  {w(5):5.0f}  {w(13):5.0f}  {w(35):5.0f}  {w(1031):5.0f}/{w(1033):<5.0f}  "
               f"{w(1011):5.0f}  {w(1009):5.0f}  {w(1011) / vb if vb else 0:9.1f}A  {g(1088) / 100:6.2f}A  "

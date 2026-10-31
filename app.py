@@ -22,6 +22,7 @@ import solar_core
 importlib.reload(power_flow)
 importlib.reload(pv_forecast)
 importlib.reload(solar_core)
+importlib.reload(battery_page)
 power_flow_html = power_flow.power_flow_html
 from solar_core import (CAPACITY_KWP, TW_TZ, analyze_curve, grid_buy_kw, grid_rate_kw, rows_to_curve,  # noqa: E402
                         soc_jumps, solar_charge_kw, solar_surplus, sun_shape)
