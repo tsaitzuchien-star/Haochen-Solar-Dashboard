@@ -38,7 +38,7 @@ st_autorefresh(interval=300000, key="datarefresh")  # 5 分鐘刷新 (官方資�
 C_PV, C_LOAD, C_BAT, C_GRID = "#10B981", "#F97316", "#A78BFA", "#38BDF8"
 # 人字屋頂、正面朝東：2026/10 起改為東西兩坡各 12 片一串 (PV1 = 西坡、PV3 = 東坡，PV2 停用)
 # (逆變器輸入編號, 名稱, 說明, 顏色)；顏色與 3D 屋頂外框一致
-DISCHARGE_FLOOR = 20   # Growatt 設定的電池放電下限 (SOC %)，到這裡逆變器改由台電供電
+DISCHARGE_FLOOR = solar_core.DISCHARGE_FLOOR   # 逆變器設定的電池放電下限 (SOC %)
 BAT_KWH = solar_core.BATT_KWH_PER_PCT * 100   # 4 組 x 323 Ah x 51.2 V ≈ 66 kWh
 STRINGS = [(1, "PV1", "西坡 12 片 · 下午較強", "#3B82F6"), (3, "PV3", "東坡 12 片 · 上午較強", "#F59E0B")]
 

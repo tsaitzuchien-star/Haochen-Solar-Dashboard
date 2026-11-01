@@ -212,6 +212,7 @@ BATT_KWH_PER_PCT = BATT_PACKS * BATT_AH * BATT_NOM_V / 1000 / 100   # ≈ 0.66 k
 DISCHARGE_EFF = 0.95         # 電池 → 逆變器 → 家裡
 CHARGE_EFF = 0.92            # 太陽能 → 電池 (實測)
 MAX_CHARGE_KW = 5.0
+DISCHARGE_FLOOR = 16         # 逆變器設定的電池放電下限 (SOC %)，到這裡改由台電供電 (11/1 由 20% 改成 16%)
 
 
 def battery_outlook(now, soc, floor, hourly, load_scale=1.0):
@@ -463,5 +464,5 @@ def soc_voltage_check(soc, vbat, dis_kw, chg_kw=0.0):
         "msg": (f"電量顯示 {soc}%，但電池電壓 {vbat:.1f} V（每顆約 {cell:.2f} V）只對得上約 {soc_max}% 以下，"
                 f"BMS 電量偏高{'，電池其實快沒電了' if level == 'red' else ''}"),
         "action": (f"請在逆變器（或 ShinePhone App）把放電下限 SOC 暫時調高到 {floor_now}%，讓台電接手供電，避免電壓繼續往下掉；"
-                   "等下一個晴天電池充到真正滿電（每顆 3.45 V）、BMS 自動校正後，再把放電下限改回 20%"),
+                   f"等下一個晴天電池充到真正滿電（每顆 3.45 V）、BMS 自動校正後，再把放電下限改回 {DISCHARGE_FLOOR}%"),
     }
