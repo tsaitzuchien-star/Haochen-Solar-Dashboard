@@ -339,7 +339,7 @@ _faults = solar_core.fault_codes(s)
 if _faults and not stale:
     st.markdown('<div style="background:#EF44441F; border:1px solid #EF4444; color:#EF4444; border-radius:10px; padding:10px 14px; '
                 'font-size:15px; font-weight:600; margin:-4px 0 12px;">🚨 逆變器回報 '
-                + "、".join(f"{n} {v}" for _, n, v in _faults) + '，請到 ShinePhone App 查看代碼說明</div>', unsafe_allow_html=True)
+                + "、".join(f"{n} = {v}" for _, n, v in _faults) + '，請到 ShinePhone App 查看代碼說明</div>', unsafe_allow_html=True)
 
 # 東西兩串比例異常 (每日存檔比對預測)：最近 2 天都偏離就在首頁提醒
 try:
@@ -1056,7 +1056,7 @@ with tab_trend:
                    f"充電時各組電流 {bc['charge_a'][0]:.0f}–{bc['charge_a'][1]:.0f} A 很平均</span>"
                    f"<br><span style='color:#94A3B8;'>BMS 設定 {bc['settings']}</span>")
         faults = solar_core.fault_codes(s)
-        fault_txt = ("<span style='color:#EF4444;'>🚨 逆變器回報：" + "、".join(f"{n} {v}" for _, n, v in faults)
+        fault_txt = ("<span style='color:#EF4444;'>🚨 逆變器回報：" + "、".join(f"{n} = {v}" for _, n, v in faults)
                      + "，請到 ShinePhone App 查看代碼說明</span>") if faults else "<span style='color:#34D399;'>✅ 逆變器沒有故障或警告碼</span>"
         st.markdown(f"""<div class="section-title" style="margin-top:26px;">🩺 系統健康</div>
         <div class="card" style="color:#CBD5E1; font-size:14px; line-height:1.9;">{fault_txt}<br>{health}<br>{panel_txt}<br>{bms_txt}<br>實測 ÷ 預測（每月，只算沒限發的完整日子）：{pr_txt}

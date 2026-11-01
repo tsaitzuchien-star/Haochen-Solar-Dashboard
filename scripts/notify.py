@@ -124,7 +124,7 @@ def main():
         faults = C.fault_codes(rt)
         sig = ",".join(f"{k}={v}" for k, _, v in faults)
         if faults and (sig != state.get("fault_sig") or due("fault", COOLDOWN_H["fault"])):
-            msgs.append(("fault", "🚨 逆變器回報異常：" + "、".join(f"{n} {v}" for _, n, v in faults)
+            msgs.append(("fault", "🚨 逆變器回報異常：" + "、".join(f"{n} = {v}" for _, n, v in faults)
                                   + f"\n請打開 ShinePhone App 查看代碼說明，必要時聯絡安裝商。\n{SITE}"))
         elif not faults and state.get("fault_sig"):
             msgs.append(("fault_clear", "✅ 逆變器的故障 / 警告碼已經恢復正常。"))
