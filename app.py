@@ -868,7 +868,8 @@ with tab_dev:
         # 儲能度數：BMS 容量 4 組 x 323 Ah (≈ 66 度) x SOC；逆變器的電流 / 充電計數只算到主機那組，不顯示
         ("目前儲存", f"{soc * solar_core.BATT_KWH_PER_PCT:.1f} / {BAT_KWH:.0f} 度"),
         ("還差多少充滿", (lambda need: "已充滿" if soc >= 99 else
-                          f"{need:.1f} 度" + (f"（照目前速度約 {need / p_charge:.1f} 小時）" if p_charge > 0.3 else ""))(
+                          f"{need:.1f} 度" + (f"（照目前速度約 {need / p_charge:.1f} 小時）"
+                                              if p_charge >= 1.0 and need / p_charge <= 12 else ""))(
                               (100 - soc) * solar_core.BATT_KWH_PER_PCT)),
         (f"距離 {DISCHARGE_FLOOR}% 還剩", f"{max(soc - DISCHARGE_FLOOR, 0) * solar_core.BATT_KWH_PER_PCT * solar_core.DISCHARGE_EFF:.1f} 度"),
         ("今日充 / 放電", (f"{_tc:.1f} / {_td:.1f} kWh"
