@@ -401,10 +401,10 @@ def panel_alerts(daily, tol=5.0):
 
 # 電池 BMS 人工檢查紀錄 (筆電接電池 RS485C 旁聽 JK BMS)；樹莓派長期記錄上線後改成自動
 BMS_CHECK = {
-    "date": "2026-10-31",
+    "date": "2026-11-01",
     "packs": 4, "cells": 64,
-    "delta_mv_max": 5,              # 單體最大壓差
-    "temp_range": (28.3, 30.7),     # 電芯 / MOS 溫度範圍 °C
+    "delta_mv_max": 7,              # 10/31 傍晚到 11/1 早上連續 15 小時，單體最大壓差
+    "temp_range": (27.8, 32.3),     # 電芯 / MOS 溫度範圍 °C
     "soh": 100,
     "charge_a": (19.5, 22.4),       # 中午充電時各組電流 (4 組合計約 84 A)
     "settings": "4 組一致：充電 2–55°C、放電 ≤60°C、RCV 3.50 V、SOC-100% 3.45 V、均衡 3.40 V 起",
