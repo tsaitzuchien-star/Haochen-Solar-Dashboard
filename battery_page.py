@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 
 NOM_V = 51.2           # 磷酸鐵鋰 16 串標稱電壓
-FLOOR = 20             # 逆變器放電下限 SOC %
+FLOOR = 16             # 逆變器放電下限 SOC % (跟 solar_core.DISCHARGE_FLOOR 一致)
 
 
 def load_snapshot(path=None):
