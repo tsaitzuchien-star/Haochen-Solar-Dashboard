@@ -416,10 +416,11 @@ BMS_CHECK = {
 HEATER_KW = 4.0
 
 
-def heater_advice(hour, soc, pv_kw, load_kw, lost_now=0.0):
+def heater_advice(hour, soc, pv_kw, load_kw, lost_now=0.0, sustained=True):
     """回傳 (等級, 文字)。等級：go / keep / stop / topup / wait / night。
     load_kw 含熱水器；用電比平常多 ≥ 3.7 kW 視為熱水器正在加熱。lost_now = 電池滿了被限發、其實還發得出來的功率。"""
-    running = load_kw >= HEATER_KW * 0.85 + 0.3
+    # sustained：最近 15 分鐘都維持高用電才算儲熱熱水器在加熱 (廚房瞬熱型熱水器只是幾分鐘的尖峰)
+    running = load_kw >= HEATER_KW * 0.85 + 0.3 and sustained
     base = load_kw - HEATER_KW if running else load_kw
     surplus = pv_kw + lost_now - base           # 不算熱水器時，太陽能比家裡用電多出來的
     if not 9 <= hour < 16:

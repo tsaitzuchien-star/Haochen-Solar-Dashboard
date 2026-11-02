@@ -356,7 +356,7 @@ if len(_al) >= 2 and not stale:
 
 # BMS 電量偏高：顯示 99~100% 時逆變器就停止充電、太陽能被限發。但充滿後休息的鋰鐵電池每顆會從 3.45 V 慢慢回落到
 # 3.38~3.40 V (整組 54~54.4 V，10/31 實測) 屬正常；只有白天正在限發、電壓卻低於 53.6 V (每顆 3.35 V) 才代表 BMS 偏高
-if (soc >= 99 and 0 < vbat < 53.6 and not stale and p_discharge < 0.1 and is_limited
+if (soc >= 99 and 0 < vbat < 53.6 and not stale and p_discharge < 0.1 and p_charge < 0.5
         and 9 <= now_tw.hour < 15):
     st.markdown(f'<div style="background:#F59E0B1F; border:1px solid #F59E0B; color:#F59E0B; border-radius:10px; padding:10px 14px; '
                 f'font-size:15px; font-weight:600; margin:-4px 0 12px;">🔧 電池顯示 {soc}% 而停止充電、太陽能被限發，但電壓只有 {vbat:.1f} V'
@@ -402,7 +402,9 @@ except Exception as e:
 # 6.5 熱水器加熱時機 (目前只提示；樹莓派上線後改成自動開關)
 # ==========================================
 if not stale:
-    _lvl, _txt = solar_core.heater_advice(now_tw.hour, soc, pv_kw, load_kw, ana["lost_now"] if ana else 0.0)
+    _recent = curve[curve["time"] > pd.Timestamp(now_tw.replace(tzinfo=None)) - pd.Timedelta(minutes=16)] if not curve.empty else curve
+    _sustained = len(_recent) >= 3 and bool((_recent["load"] >= solar_core.HEATER_KW * 0.85 + 0.3).all())
+    _lvl, _txt = solar_core.heater_advice(now_tw.hour, soc, pv_kw, load_kw, ana["lost_now"] if ana else 0.0, _sustained)
     _c = {"go": "#34D399", "keep": "#34D399", "topup": "#FBBF24", "stop": "#F97316"}.get(_lvl, "#64748B")
     _icon = {"go": "🟢", "keep": "🟢", "topup": "🟡", "stop": "🟠"}.get(_lvl, "⚪")
     st.markdown(f'<div style="border:1px solid {_c}55; background:{_c}14; border-radius:10px; padding:8px 14px; margin:0 0 10px; '
