@@ -134,7 +134,7 @@ def main():
         if sv and due("socv", COOLDOWN_H["socv_red" if sv["level"] == "red" else "socv"]):
             msgs.append(("socv", f"{'🔴' if sv['level'] == 'red' else '🟠'} SOC 與電壓有落差\n{sv['msg']}。\n👉 {sv['action']}。\n{SITE}"))
         # 充滿後休息時每顆會回落到 3.38~3.40 V (54 V 上下) 屬正常；只有白天、有太陽能、電壓卻低於 53.6 V 才是 BMS 偏高
-        if (soc >= 99 and 0 < vbat < 53.6 and dis < 0.1 and f("ppv") > 300 and 9 <= now.hour < 15
+        if (soc >= 99 and 0 < vbat < 53.6 and dis < 0.1 and f("pcharge1") < 500 and 9 <= now.hour < 15
                 and due("calib", COOLDOWN_H["calib"])):
             msgs.append(("calib", f"🔧 電池顯示 {soc}%、逆變器停止充電，但電壓只有 {vbat:.1f} V（每顆 {vbat / 16:.2f} V，充滿應有 3.40 V 以上），"
                                   "BMS 電量可能偏高，可以校正讓太陽能繼續充。"))
