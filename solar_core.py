@@ -151,9 +151,14 @@ def analyze_curve(curve):
         return None
     c = curve.copy()
     c["shape"] = sun_shape(c["time"])
-    hour = c["time"].dt.hour
-    c["limited"] = ((hour >= 8) & (hour < 16) & (c["soc"] >= 95) & (c["charge"] < 0.1)
-                    & (c["sell"] < 0.05) & (c["pv"] > 0.05))
+    # 限發：電池 (顯示) 已滿、沒在放電也沒賣電，逆變器把太陽能壓到只供家裡用。
+    # 被壓住時 MPPT 會把組串電壓推高到接近開路電壓 (10/31、11/2 實測 420–440 V，正常發電約 340–370 V)，
+    # 有組串電壓時用它確認，避免把「雲遮住、發電變少」誤當成限發
+    vmax = c[["vpv1", "vpv3"]].max(axis=1) if {"vpv1", "vpv3"} <= set(c.columns) else pd.Series(0.0, index=c.index)
+    volt_ok = (vmax >= 395) | (vmax <= 0)
+    dis = c["discharge"] if "discharge" in c else 0.0
+    c["limited"] = ((c["shape"] > 0.12) & (c["soc"] >= 95) & (c["charge"] < 0.3) & (dis < 0.05)
+                    & (c["sell"] < 0.05) & (c["pv"] > 0.05) & volt_ok)
     # 用未限發、太陽夠高的時段校正系統可發功率
     ref = c[~c["limited"] & (c["shape"] > 0.35) & (c["pv"] > 0.3)]
     k = float(np.quantile(ref["pv"] / ref["shape"], 0.75)) if len(ref) >= 6 else np.nan

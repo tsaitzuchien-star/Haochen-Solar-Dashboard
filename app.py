@@ -1071,6 +1071,12 @@ with tab_trend:
         for col, name, color in (("pv1", "PV1 西坡", "#3B82F6"), ("pv3", "PV3 東坡", "#F59E0B"), ("pv2", "PV2（改線前混串）", "#64748B")):
             if v[col].fillna(0).sum() > 0:
                 fd_.add_trace(go.Bar(x=v["date"], y=v[col].where(v[col] > 0), name=name, marker_color=color))   # 0 的不顯示在提示框
+        # 電池充滿、家裡也用不完而被限發的太陽能 (晴天推估)：疊在發電量上面，用斜線表示「本來可以發、但浪費掉」
+        if v["lost"].fillna(0).sum() > 0:
+            fd_.add_trace(go.Bar(x=v["date"], y=v["lost"].where(v["lost"] >= 0.1), name="浪費掉（電池滿、限發）",
+                                 marker=dict(color="rgba(148,163,184,0.12)", line=dict(color="#94A3B8", width=1),
+                                             pattern=dict(shape="/", fgcolor="#94A3B8", size=6)),
+                                 hovertemplate="浪費約 %{y:.1f} kWh<extra></extra>"))
         # 當天實際總發電：放在長條頂端的白色短線，提示框裡可以直接跟預測比
         fd_.add_trace(go.Scatter(x=v["date"], y=v["pv"], name="當天實際", mode="markers",
                                  marker=dict(color="#F8FAFC", size=14, symbol="line-ew-open", line=dict(width=2, color="#F8FAFC"))))
