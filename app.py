@@ -402,7 +402,9 @@ except Exception as e:
 # 6.5 熱水器加熱時機 (目前只提示；樹莓派上線後改成自動開關)
 # ==========================================
 if not stale:
-    _lvl, _txt = solar_core.heater_advice(now_tw.hour, soc, pv_kw, load_kw, ana["lost_now"] if ana else 0.0)
+    _recent = curve[curve["time"] > pd.Timestamp(now_tw.replace(tzinfo=None)) - pd.Timedelta(minutes=16)] if not curve.empty else curve
+    _sustained = len(_recent) >= 3 and bool((_recent["load"] >= solar_core.HEATER_KW * 0.85 + 0.3).all())
+    _lvl, _txt = solar_core.heater_advice(now_tw.hour, soc, pv_kw, load_kw, ana["lost_now"] if ana else 0.0, _sustained)
     _c = {"go": "#34D399", "keep": "#34D399", "topup": "#FBBF24", "stop": "#F97316"}.get(_lvl, "#64748B")
     _icon = {"go": "🟢", "keep": "🟢", "topup": "🟡", "stop": "🟠"}.get(_lvl, "⚪")
     st.markdown(f'<div style="border:1px solid {_c}55; background:{_c}14; border-radius:10px; padding:8px 14px; margin:0 0 10px; '
