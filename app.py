@@ -1073,7 +1073,8 @@ with tab_trend:
                 fd_.add_trace(go.Bar(x=v["date"], y=v[col].where(v[col] > 0), name=name, marker_color=color))   # 0 的不顯示在提示框
         # 電池充滿、家裡也用不完而被限發的太陽能 (晴天推估)：疊在發電量上面，用斜線表示「本來可以發、但浪費掉」
         if v["lost"].fillna(0).sum() > 0:
-            fd_.add_trace(go.Bar(x=v["date"], y=v["lost"].where(v["lost"] >= 0.1), name="浪費掉（電池滿、限發）",
+            # 明確指定從當天總發電量往上疊 (前面有整欄空值的 PV2 時，Plotly 的自動堆疊會把它畫回 0)
+            fd_.add_trace(go.Bar(x=v["date"], y=v["lost"].where(v["lost"] >= 0.1), base=v["pv"], name="浪費掉（電池滿、限發）",
                                  marker=dict(color="rgba(148,163,184,0.12)", line=dict(color="#94A3B8", width=1),
                                              pattern=dict(shape="/", fgcolor="#94A3B8", size=6)),
                                  hovertemplate="浪費約 %{y:.1f} kWh<extra></extra>"))
