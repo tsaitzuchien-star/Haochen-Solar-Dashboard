@@ -33,7 +33,15 @@ from solar_core import (CAPACITY_KWP, TW_TZ, analyze_curve, grid_buy_kw, grid_ra
 #    全站顏色語意固定：綠=太陽能、橘=用電、紫=電池、藍=台電
 # ==========================================
 st.set_page_config(page_title="澔宸小窩 - 智慧能源", layout="wide", initial_sidebar_state="collapsed")
-st_autorefresh(interval=300000, key="datarefresh")  # 5 分鐘刷新 (官方資料約每 5 分鐘更新一次)
+# 有樹莓派即時資料時每分鐘刷新，否則 5 分鐘 (官方資料約每 5 分鐘更新一次)
+def _has_live():
+    try:
+        return bool(os.environ.get("LIVE_GIST_ID") or st.secrets.get("LIVE_GIST_ID"))
+    except Exception:
+        return False
+
+
+st_autorefresh(interval=60000 if _has_live() else 300000, key="datarefresh")
 
 C_PV, C_LOAD, C_BAT, C_GRID = "#10B981", "#F97316", "#A78BFA", "#38BDF8"
 # 人字屋頂、正面朝東：2026/10 起改為東西兩坡各 12 片一串 (PV1 = 西坡、PV3 = 東坡，PV2 停用)
@@ -205,11 +213,53 @@ def sparkline_svg(values, color, w=240, h=42):
 # ==========================================
 # 4. 取得資料
 # ==========================================
+@st.cache_data(ttl=60, show_spinner=False)
+def load_live_bms(gist_id, token):
+    """樹莓派每分鐘上傳到私人 Gist 的即時資料；讀不到回傳 None。"""
+    try:
+        r = requests.get(f"https://api.github.com/gists/{gist_id}", timeout=10,
+                         headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"})
+        r.raise_for_status()
+        f = r.json()["files"]["solar_live.json"]
+        content = f["content"] if not f.get("truncated") else requests.get(f["raw_url"], timeout=10).text
+        return json.loads(content)
+    except Exception:
+        return None
+
+
+def merge_live_inverter(rec, live):
+    """樹莓派 3 分鐘內的逆變器即時讀數蓋過原廠雲端 (5 分鐘才更新) 的即時欄位；今日累計等計數仍用雲端。"""
+    inv = (live or {}).get("inverter")
+    if not inv:
+        return rec, False
+    t = datetime.fromisoformat(live["time"])
+    if (datetime.now(TW_TZ) - t).total_seconds() > 180:
+        return rec, False
+    r = dict(rec)
+    r.update({
+        "calendar": t.timestamp() * 1000, "ppv": inv["pv_w"],
+        "ppv1": inv["pv1"]["w"], "vpv1": inv["pv1"]["v"], "ipv1": inv["pv1"]["a"],
+        "ppv3": inv["pv3"]["w"], "vpv3": inv["pv3"]["v"], "ipv3": inv["pv3"]["a"],
+        "plocalLoadTotal": inv["out_w"], "upsPac1": inv["load_l1_w"], "upsPac2": inv["load_l2_w"],
+        "pacToUserTotal": max(inv["buy_w"], 0), "pacToGridTotal": max(inv["sell_w"], 0),
+        "pdischarge1": max(inv["dis_w"], 0), "pcharge1": 0,      # 充電功率由「太陽能 − 送進家裡 − 賣電」推算
+        "soc": inv["soc"], "vbat": inv["vbat"], "temp1": inv["inv_t"], "temp2": inv["ipm_t"],
+        "bmsBatteryTemp": inv["bat_t"], "fac": inv["fac"], "vac1": inv["vac1"], "vac2": inv["vac2"],
+    })
+    return r, True
+
+
+_live_gid, _live_tok = get_secret("LIVE_GIST_ID"), get_secret("GIST_TOKEN")
+live = load_live_bms(_live_gid, _live_tok) if _live_gid and _live_tok else None
 try:
     s = with_fallback("realtime", fetch_realtime)
 except Exception as e:
-    st.error(f"⚠️ {api_error_text(e)}")
-    st.stop()
+    s = None
+    if not (live and live.get("inverter")):
+        st.error(f"⚠️ {api_error_text(e)}")
+        st.stop()
+# 樹莓派有即時資料時優先用 (每分鐘更新)；雲端讀不到時也能顯示
+s, live_inv = merge_live_inverter(s or {}, live)
 
 now_tw = datetime.now(TW_TZ)
 curve_error = None
@@ -266,6 +316,8 @@ elif age_min < 60:
     age_text = f"{age_min} 分鐘前更新"
 else:
     age_text = f"{age_min // 60} 小時 {age_min % 60} 分鐘前更新"
+if live_inv:
+    age_text += "・樹莓派即時"
 dot_color, dot_text = ("#F59E0B", "資料延遲") if stale else ("#22C55E", "正常")
 
 # 狀態標籤放在標題同一行、資料時間放在副標題下方，手機上也不會錯位
@@ -786,25 +838,9 @@ with st.expander("📥 下載逐 5 分鐘明細（CSV）"):
 st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
 tab_dev, tab_bat, tab_trend = st.tabs(["🌡️ 溫度與設備", "🔋 儲能", "📊 趨勢"])
 
-@st.cache_data(ttl=60, show_spinner=False)
-def load_live_bms(gist_id, token):
-    """樹莓派每分鐘上傳到私人 Gist 的即時資料；讀不到回傳 None。"""
-    try:
-        r = requests.get(f"https://api.github.com/gists/{gist_id}", timeout=10,
-                         headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"})
-        r.raise_for_status()
-        f = r.json()["files"]["solar_live.json"]
-        content = f["content"] if not f.get("truncated") else requests.get(f["raw_url"], timeout=10).text
-        return json.loads(content)
-    except Exception:
-        return None
-
-
 with tab_bat:
     # 4 組 JK BMS 電池：樹莓派即時資料 (15 分鐘內) 優先，否則用人工旁聽的快照 (data/bms_snapshot.json)
     snap = battery_page.load_snapshot()
-    _gid, _tok = get_secret("LIVE_GIST_ID"), get_secret("GIST_TOKEN")
-    live = load_live_bms(_gid, _tok) if _gid and _tok else None
     if live and live.get("packs"):
         age = (datetime.now(TW_TZ) - datetime.fromisoformat(live["time"])).total_seconds() / 60
         if age <= 15:

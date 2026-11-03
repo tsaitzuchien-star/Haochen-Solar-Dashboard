@@ -9,6 +9,7 @@
 安全：逆變器只用 Modbus 讀取指令 (功能碼 03/04)；BMS 那條只接收、完全不發送。
 """
 import argparse
+import getpass
 import csv
 import datetime as dt
 import json
@@ -48,7 +49,7 @@ def setup():
     print("直接按 Enter 保留目前的值")
     for key, label in (("line_token", "LINE Channel access token"),
                        ("github_token", "GitHub 金鑰 (只需要 Gists: Read and write 權限)")):
-        v = input(f"{label}{' (已設定)' if cfg.get(key) else ''}：").strip()
+        v = getpass.getpass(f"{label}{' (已設定)' if cfg.get(key) else ''}（貼上後畫面不會顯示）：").strip()
         if v:
             cfg[key] = v
     if not cfg.get("gist_id"):
