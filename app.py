@@ -213,9 +213,8 @@ def sparkline_svg(values, color, w=240, h=42):
 # ==========================================
 # 4. 取得資料
 # ==========================================
-@st.cache_data(ttl=60, show_spinner=False)
-def load_live_bms(gist_id, token):
-    """樹莓派每分鐘上傳到私人 Gist 的即時資料；讀不到回傳 None。"""
+def _fetch_live(gist_id, token):
+    """樹莓派每 15 秒上傳到私人 Gist 的即時資料；讀不到回傳 None。"""
     try:
         r = requests.get(f"https://api.github.com/gists/{gist_id}", timeout=10,
                          headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"})
@@ -225,6 +224,11 @@ def load_live_bms(gist_id, token):
         return json.loads(content)
     except Exception:
         return None
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def load_live_bms(gist_id, token):
+    return _fetch_live(gist_id, token)
 
 
 def merge_live_inverter(rec, live):
@@ -357,6 +361,44 @@ elif soc < 95:   # 沒太陽能、電池也沒放電：家裡的電只可能來�
     status = f"🪫 電池暫停放電（剩 {soc}%），家中用電由台電供應"
 else:
     status = "💤 系統待機中"
+
+@st.cache_data(ttl=10, show_spinner=False)
+def load_live_fast(gist_id, token):
+    return _fetch_live(gist_id, token)
+
+
+@st.fragment(run_every=15)
+def live_strip():
+    """樹莓派即時區塊：只有這一塊每 15 秒自己更新 (整頁仍是每分鐘)，數字跟電池卡片同樣的修正方式。"""
+    lv = load_live_fast(_live_gid, _live_tok) if _live_gid and _live_tok else None
+    inv = (lv or {}).get("inverter")
+    if not inv:
+        return
+    t = datetime.fromisoformat(lv["time"])
+    age = (datetime.now(TW_TZ) - t).total_seconds()
+    if age > 180:
+        return
+    pv, out, sell, buy = inv["pv_w"] / 1000, inv["out_w"] / 1000, max(inv["sell_w"], 0) / 1000, max(inv["buy_w"], 0) / 1000
+    dis = solar_core.battery_discharge_kw(max(inv["dis_w"], 0) / 1000, pv, out)
+    chg = solar_core.solar_charge_kw(0.0, dis, pv, out, sell)
+    packs = lv.get("packs") or []
+    soc_v = (sum(p["remain_ah"] / p["full_ah"] for p in packs if p.get("full_ah")) / len(packs) * 100) if packs else inv["soc"]
+    bat_txt, bat_c = ((f"充 {chg:.2f}", "#34D399") if chg > 0.05 else (f"放 {dis:.2f}", "#60A5FA") if dis > 0.05 else ("待機", "#94A3B8"))
+    cells = [("☀️ 太陽能", f"{pv:.2f}", "kW", "#FBBF24", f"西 {inv['pv1']['w'] / 1000:.2f} · 東 {inv['pv3']['w'] / 1000:.2f}"),
+             ("🏠 家裡用電", f"{out + buy:.2f}", "kW", "#F97316", f"L1 {inv['load_l1_w'] / 1000:.2f} · L2 {inv['load_l2_w'] / 1000:.2f}"),
+             ("🔋 電池", bat_txt, "kW", bat_c, f"{soc_v:.0f}% · {inv['vbat']:.1f} V"),
+             ("⚡ 台電", f"{buy:.2f}", "kW", "#38BDF8", "賣電 " + f"{sell:.2f}" if sell > 0.01 else "沒有買賣電" if buy < 0.01 else "買電中")]
+    st.markdown(
+        '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px; margin:-4px 0 6px;">'
+        + "".join(f'<div style="background:#1E293B; border:1px solid #334155; border-radius:12px; padding:8px 12px;">'
+                  f'<div style="color:#94A3B8; font-size:12px;">{a}</div>'
+                  f'<div style="color:{c}; font-size:22px; font-weight:800;">{b}<span style="font-size:12px; color:#94A3B8; margin-left:3px;">{u}</span></div>'
+                  f'<div style="color:#64748B; font-size:11px;">{d}</div></div>' for a, b, u, c, d in cells)
+        + f'</div><div style="color:#64748B; font-size:11px; margin-bottom:10px;">🔴 即時 · 樹莓派 {t:%H:%M:%S}（{age:.0f} 秒前）· 這一塊每 15 秒自動更新</div>',
+        unsafe_allow_html=True)
+
+
+live_strip()
 
 st.markdown(f'<div style="color:#F1F5F9; font-size:19px; font-weight:600; margin:2px 0 12px;">{status}</div>',
             unsafe_allow_html=True)
