@@ -289,7 +289,8 @@ def main():
     a = ap.parse_args()
     if a.setup:
         return setup()
-    cfg = load_config()
+    # 測試讀一次 (--once) 不需要金鑰，方便先檢查接線
+    cfg = load_config() if not (a.once and not os.path.exists(CONFIG)) else {}
     inv_ser, bms_port = detect_ports(cfg)
     print(f"逆變器：{inv_ser.port if inv_ser else '找不到'}　電池：{bms_port or '找不到'}", flush=True)
     listener = BmsListener(bms_port) if bms_port else None
