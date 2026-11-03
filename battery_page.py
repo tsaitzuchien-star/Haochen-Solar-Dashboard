@@ -10,6 +10,7 @@ import os
 from datetime import datetime
 
 NOM_V = 51.2           # 磷酸鐵鋰 16 串標稱電壓
+REAL_AH = 323          # 每組實際容量；BMS 的「電池容量」設成 340 只是讓電流累加晚一點到 100%，好讓 3.45 V 先校正
 FLOOR = 16             # 逆變器放電下限 SOC % (跟 solar_core.DISCHARGE_FLOOR 一致)
 
 
@@ -49,10 +50,10 @@ def render(snap, live_soc=None):
         return "<div style='color:#94A3B8;font-family:sans-serif;padding:20px'>還沒有電池 BMS 資料</div>"
     packs = sorted(snap["packs"], key=lambda p: p["addr"])
     n = len(packs)
-    total_ah = sum(p["full_ah"] for p in packs)
-    remain_ah = sum(p["remain_ah"] for p in packs)
-    soc = remain_ah / total_ah * 100 if total_ah else 0
-    stored = remain_ah * NOM_V / 1000
+    # 度數用實際容量 323 Ah 換算 (BMS 容量設定可能比實際大)
+    total_ah = REAL_AH * n
+    soc = sum(p["remain_ah"] / p["full_ah"] for p in packs if p["full_ah"]) / n * 100
+    stored = total_ah * soc / 100 * NOM_V / 1000
     full_kwh = total_ah * NOM_V / 1000
     curr = sum(p["curr"] for p in packs)
     volt = sum(p["volt"] for p in packs) / n
@@ -89,7 +90,7 @@ def render(snap, live_soc=None):
             {_battery_icon(p["soc"], c, pc > 0.5)}
             <div class="pack-stats">
               <div class="big" style="color:{c}">{p["soc"]}<small>%</small></div>
-              <div class="sub">{p["remain_ah"]:.0f} / {p["full_ah"]:.0f} Ah</div>
+              <div class="sub">{p["remain_ah"]:.0f} / {p["full_ah"]:.0f} Ah（BMS 計數）</div>
               <div class="row"><span>電壓</span><b>{p["volt"]:.2f} V</b></div>
               <div class="row"><span>電流</span><b>{cur_txt}</b></div>
               <div class="row"><span>壓差</span><b>{p["delta"] * 1000:.0f} mV</b></div>
