@@ -59,7 +59,7 @@ def setup():
         r.raise_for_status()
         cfg["gist_id"] = r.json()["id"]
         print(f"✅ 已建立私人 Gist：{cfg['gist_id']}")
-    cfg.setdefault("interval_s", 60)
+    cfg.setdefault("interval_s", 15)
     cfg.setdefault("inverter_port", "auto")
     cfg.setdefault("bms_port", "auto")
     with open(CONFIG, "w", encoding="utf-8") as f:
@@ -321,7 +321,8 @@ def main():
         notify(cfg, alerts)
         print(f"{snap['time'][11:19]} 上傳{'✅' if ok else '❌'}  PV {invd['pv_w'] if invd else '-'} W  "
               f"SOC {invd['soc'] if invd else '-'}%  電池 {len(snap['packs'])} 組  警示 {len(alerts)}", flush=True)
-        time.sleep(max(5, cfg.get("interval_s", 60) - (time.time() - t0)))
+        # 每 15 秒讀一次並上傳 (網站最上面的即時區塊每 15 秒更新)；舊設定檔的 60 秒也改用 15 秒
+        time.sleep(max(5, min(cfg.get("interval_s", 15), 15) - (time.time() - t0)))
 
 
 if __name__ == "__main__":
