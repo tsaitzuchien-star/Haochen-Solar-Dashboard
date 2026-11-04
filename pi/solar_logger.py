@@ -174,7 +174,7 @@ class BmsListener(threading.Thread):
 
 # ---------------- 警示 ----------------
 COOLDOWN_H = {"socv": 6, "socv_red": 2, "lowcell": 2, "delta": 12, "temp": 3, "socgap": 12, "alarm": 3,
-              "bms_lost": 6, "inv_lost": 6}
+              "bms_lost": 6, "inv_lost": 6, "pi_hot": 3}
 
 
 def check_alerts(invd, packs, bms_age):
@@ -212,6 +212,9 @@ def check_alerts(invd, packs, bms_age):
                                         + "，請打開 JK App 查看"))
     if bms_age > 300:
         out.append(("bms_lost", "orange", f"已經 {bms_age / 60:.0f} 分鐘沒收到電池 BMS 資料，請檢查電池 RS485C 的網路線"))
+    pt = pi_stats().get("cpu_temp")
+    if pt and pt >= 80:
+        out.append(("pi_hot", "orange", f"樹莓派 CPU 溫度 {pt:.0f}°C 偏高 (85°C 會降速)，請檢查散熱風扇與擺放位置的通風"))
     if invd is None:
         out.append(("inv_lost", "orange", "讀不到逆變器 (CN5) 的資料，請檢查網路線或轉接器"))
     return out
@@ -244,11 +247,68 @@ def notify(cfg, alerts):
 
 
 # ---------------- 上傳與記錄 ----------------
+# ---------------- 樹莓派本身的狀態 (只讀系統檔案，不需要額外套件) ----------------
+_cpu_prev = None
+
+
+def _read(path, default=None):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+
+def pi_stats():
+    global _cpu_prev
+    out = {}
+    t = _read("/sys/class/thermal/thermal_zone0/temp")
+    if t:
+        out["cpu_temp"] = round(int(t) / 1000, 1)
+    # CPU 使用率：兩次讀 /proc/stat 的差
+    f = (_read("/proc/stat", "") or "").splitlines()[0].split()[1:]
+    if f:
+        vals = list(map(int, f))
+        idle, total = vals[3] + vals[4], sum(vals)
+        if _cpu_prev:
+            dt_, di = total - _cpu_prev[1], idle - _cpu_prev[0]
+            out["cpu_pct"] = round(100 * (1 - di / dt_), 1) if dt_ else 0.0
+        _cpu_prev = (idle, total)
+    mem = {}
+    for line in (_read("/proc/meminfo", "") or "").splitlines():
+        k, v = line.split(":", 1)
+        mem[k] = int(v.split()[0])
+    if mem.get("MemTotal"):
+        out["ram_total_mb"] = round(mem["MemTotal"] / 1024)
+        out["ram_used_mb"] = round((mem["MemTotal"] - mem.get("MemAvailable", 0)) / 1024)
+    try:
+        import shutil
+        du = shutil.disk_usage("/")
+        out["disk_used_gb"], out["disk_total_gb"] = round(du.used / 1e9, 1), round(du.total / 1e9, 1)
+    except OSError:
+        pass
+    up = _read("/proc/uptime")
+    if up:
+        out["uptime_h"] = round(float(up.split()[0]) / 3600, 1)
+    out["load1"] = round(os.getloadavg()[0], 2)
+    import glob
+    for fan in glob.glob("/sys/devices/platform/cooling_fan/hwmon/*/fan1_input"):
+        out["fan_rpm"] = int(_read(fan, "0") or 0)
+    thr = _read("/sys/devices/platform/soc/soc:firmware/get_throttled") or ""
+    try:
+        import subprocess
+        thr = thr or subprocess.run(["vcgencmd", "get_throttled"], capture_output=True, text=True, timeout=3).stdout
+        out["throttled"] = int(thr.strip().split("=")[-1], 16) if thr.strip() else 0
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    return out
+
+
 def snapshot(invd, listener):
     packs = [{k: v for k, v in p.items() if k != "t"} for p in sorted(listener.packs.values(), key=lambda p: p["addr"])
              if time.time() - p["t"] < 600]
     return {"time": dt.datetime.now(TW).isoformat(timespec="seconds"), "source": "樹莓派即時讀取",
-            "inverter": invd, "packs": packs, "settings": listener.settings or {}}
+            "inverter": invd, "packs": packs, "settings": listener.settings or {}, "pi": pi_stats()}
 
 
 def upload(cfg, snap):

@@ -878,7 +878,52 @@ with st.expander("📥 下載逐 5 分鐘明細（CSV）"):
 # 9. 分頁：設備與溫度 / 趨勢
 # ==========================================
 st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
-tab_dev, tab_bat, tab_trend = st.tabs(["🌡️ 溫度與設備", "🔋 儲能", "📊 趨勢"])
+tab_dev, tab_bat, tab_pi, tab_trend = st.tabs(["🌡️ 溫度與設備", "🔋 儲能", "🍓 樹莓派", "📊 趨勢"])
+
+with tab_pi:
+    # 樹莓派本身的狀態：每次上傳一起帶過來
+    pi = (live or {}).get("pi")
+    if not pi:
+        st.markdown('<div class="card" style="color:#94A3B8;">還沒有收到樹莓派的狀態資料（樹莓派更新程式後就會出現）。</div>',
+                    unsafe_allow_html=True)
+    else:
+        age_s = (datetime.now(TW_TZ) - datetime.fromisoformat(live["time"])).total_seconds()
+        online = age_s <= 180
+        t_ = pi.get("cpu_temp")
+        t_lvl = ("正常", "#34D399") if t_ is None or t_ < 65 else ("偏高", "#F59E0B") if t_ < 80 else ("過熱", "#EF4444")
+        ram_pct = pi["ram_used_mb"] / pi["ram_total_mb"] * 100 if pi.get("ram_total_mb") else 0
+        disk_pct = pi["disk_used_gb"] / pi["disk_total_gb"] * 100 if pi.get("disk_total_gb") else 0
+        thr = pi.get("throttled", 0) or 0
+        thr_txt = ("✅ 無" if thr == 0 else
+                   ("⚠️ 目前" if thr & 0xF else "曾經") + "有" + "、".join(n for b, n in ((0, "電壓不足"), (2, "降速"), (3, "溫度限制"),
+                                                                                   (16, "電壓不足"), (18, "降速"), (19, "溫度限制")) if thr >> b & 1))
+        up = pi.get("uptime_h", 0)
+        up_txt = f"{int(up // 24)} 天 {int(up % 24)} 小時" if up >= 24 else f"{up:.1f} 小時"
+
+        def bar(pct, color):
+            return (f'<div style="height:8px; background:#0F172A; border-radius:4px; overflow:hidden; margin-top:6px;">'
+                    f'<div style="width:{min(pct, 100):.0f}%; height:100%; background:{color};"></div></div>')
+
+        cards = [
+            ("🌡️ CPU 溫度", f"{t_:.1f}" if t_ is not None else "—", "°C", t_lvl[1],
+             f"{t_lvl[0]}（85°C 開始降速）" + (f" · 風扇 {pi['fan_rpm']:,} rpm" if pi.get("fan_rpm") is not None else ""),
+             bar((t_ or 0) / 85 * 100, t_lvl[1])),
+            ("⚙️ CPU 使用率", f"{pi.get('cpu_pct', 0):.0f}", "%", "#60A5FA", f"負載 {pi.get('load1', 0):.2f}（4 核心）",
+             bar(pi.get("cpu_pct", 0), "#60A5FA")),
+            ("🧠 記憶體", f"{ram_pct:.0f}", "%", "#A78BFA", f"{pi.get('ram_used_mb', 0):,} / {pi.get('ram_total_mb', 0):,} MB",
+             bar(ram_pct, "#A78BFA")),
+            ("💾 記憶卡", f"{disk_pct:.0f}", "%", "#F59E0B" if disk_pct > 85 else "#34D399",
+             f"{pi.get('disk_used_gb', 0):.1f} / {pi.get('disk_total_gb', 0):.0f} GB", bar(disk_pct, "#F59E0B" if disk_pct > 85 else "#34D399")),
+        ]
+        st.markdown('<div class="grid2">' + "".join(
+            f'<div class="card"><div class="kpi-label">{a}</div>'
+            f'<div class="kpi-value" style="color:{c};">{v}<span class="kpi-unit">{u}</span></div>'
+            f'<div class="kpi-sub">{sub}</div>{b}</div>' for a, v, u, c, sub, b in cards) + "</div>", unsafe_allow_html=True)
+        st.markdown(f"""<div class="card" style="color:#CBD5E1; font-size:14px; line-height:1.9;">
+          {"🟢 連線中" if online else "🔴 離線"}（最後回報 {datetime.fromisoformat(live["time"]):%H:%M:%S}，{age_s:.0f} 秒前）<br>
+          ⏱️ 已連續運轉 {up_txt}<br>⚡ 電壓不足 / 降速紀錄：{thr_txt}
+          <div style="color:#64748B; font-size:12px; margin-top:4px;">Raspberry Pi 5 · 每 15 秒讀取逆變器與 4 組電池並上傳；CPU 80°C 以上會用 LINE 通知</div>
+        </div>""", unsafe_allow_html=True)
 
 with tab_bat:
     # 4 組 JK BMS 電池：樹莓派即時資料 (15 分鐘內) 優先，否則用人工旁聽的快照 (data/bms_snapshot.json)
