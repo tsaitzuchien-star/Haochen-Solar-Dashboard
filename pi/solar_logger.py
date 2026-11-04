@@ -105,10 +105,11 @@ def is_bms_bus(port, seconds=3):
     return jk.HEAD in buf or b"\x10\x16\x20\x00\x01" in buf
 
 
-def detect_ports(cfg):
-    """先用「旁聽」找出電池那條 (絕不對它送任何資料)，剩下的才用 Modbus 讀取指令確認是逆變器。"""
+def detect_ports(cfg, bms_known=None):
+    """先用「旁聽」找出電池那條 (絕不對它送任何資料)，剩下的才用 Modbus 讀取指令確認是逆變器。
+    bms_known：已經知道哪條是電池 (重新找逆變器時)，就不再碰它，避免跟旁聽搶資料、更不會對它送指令。"""
     ports = usb_ports()
-    bp = cfg.get("bms_port", "auto")
+    bp = bms_known or cfg.get("bms_port", "auto")
     if bp == "auto":
         bp = next((p for p in ports if is_bms_bus(p)), None)
     ip = cfg.get("inverter_port", "auto")
@@ -157,9 +158,14 @@ class BmsListener(threading.Thread):
         while True:
             try:
                 ser = serial.Serial(self.port, 115200, timeout=0.3)
-                buf = bytearray()
+                buf, opened = bytearray(), time.time()
                 while True:
                     buf += ser.read(4096)          # 只讀取，沒有任何 write
+                    # 超過 60 秒沒收到任何電池封包：關掉重開序列埠 (轉接器偶爾會卡住)
+                    if time.time() - max(self.last, opened) > 60:
+                        print("60 秒沒收到電池資料，重新開啟序列埠", flush=True)
+                        ser.close()
+                        break
                     got, buf = jk.frames(buf)
                     for addr, f in got:
                         if f[4] == 0x02:
@@ -375,7 +381,7 @@ def main():
         t0 = time.time()
         invd = None
         if inv_ser is None:
-            inv_ser, _ = detect_ports(cfg)
+            inv_ser, _ = detect_ports(cfg, bms_known=bms_port)
         for _try in range(3):                       # 讀不到先重試，再不行就關掉重新開序列埠
             if not inv_ser:
                 break
