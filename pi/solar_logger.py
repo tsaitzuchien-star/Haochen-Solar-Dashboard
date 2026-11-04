@@ -59,7 +59,7 @@ def setup():
         r.raise_for_status()
         cfg["gist_id"] = r.json()["id"]
         print(f"✅ 已建立私人 Gist：{cfg['gist_id']}")
-    cfg.setdefault("interval_s", 15)
+    cfg.setdefault("interval_s", 30)
     cfg.setdefault("inverter_port", "auto")
     cfg.setdefault("bms_port", "auto")
     with open(CONFIG, "w", encoding="utf-8") as f:
@@ -343,6 +343,7 @@ def snapshot(invd, listener):
 
 
 _upload_wait_until = 0.0
+_rate_left = "?"          # GitHub 這一小時還剩多少次 (每次上傳的回應都會附上)
 
 
 def upload(cfg, snap):
@@ -356,6 +357,8 @@ def upload(cfg, snap):
     except requests.RequestException as e:
         print(f"上傳失敗：網路錯誤 {e}", flush=True)
         return False
+    global _rate_left
+    _rate_left = r.headers.get("X-RateLimit-Remaining", _rate_left)
     if r.status_code == 200:
         return True
     msg = (r.text or "")[:160].replace("\n", " ")
@@ -446,9 +449,9 @@ def main():
         log_csv(snap)
         notify(cfg, alerts)
         print(f"{snap['time'][11:19]} 上傳{'✅' if ok else '❌'}  PV {invd['pv_w'] if invd else '-'} W  "
-              f"SOC {invd['soc'] if invd else '-'}%  電池 {len(snap['packs'])} 組  警示 {len(alerts)}", flush=True)
-        # 每 15 秒讀一次並上傳 (網站最上面的即時區塊每 15 秒更新)；舊設定檔的 60 秒也改用 15 秒
-        time.sleep(max(5, min(cfg.get("interval_s", 15), 15) - (time.time() - t0)))
+              f"SOC {invd['soc'] if invd else '-'}%  電池 {len(snap['packs'])} 組  警示 {len(alerts)}  GitHub 剩 {_rate_left}", flush=True)
+        # 每 30 秒讀一次並上傳 (GitHub 對頻繁修改同一個 Gist 有限制，15 秒曾被擋)
+        time.sleep(max(5, min(cfg.get("interval_s", 30), 30) - (time.time() - t0)))
 
 
 if __name__ == "__main__":

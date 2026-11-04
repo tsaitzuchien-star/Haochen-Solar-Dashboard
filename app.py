@@ -362,14 +362,14 @@ elif soc < 95:   # 沒太陽能、電池也沒放電：家裡的電只可能來�
 else:
     status = "💤 系統待機中"
 
-@st.cache_data(ttl=10, show_spinner=False)
+@st.cache_data(ttl=25, show_spinner=False)
 def load_live_fast(gist_id, token):
     return _fetch_live(gist_id, token)
 
 
-@st.fragment(run_every=15)
+@st.fragment(run_every=30)
 def live_strip():
-    """樹莓派即時區塊：只有這一塊每 15 秒自己更新 (整頁仍是每分鐘)，數字跟電池卡片同樣的修正方式。"""
+    """樹莓派即時區塊：只有這一塊每 30 秒自己更新 (整頁仍是每分鐘)，數字跟電池卡片同樣的修正方式。"""
     lv = load_live_fast(_live_gid, _live_tok) if _live_gid and _live_tok else None
     inv = (lv or {}).get("inverter")
     if not inv:
@@ -394,7 +394,7 @@ def live_strip():
                   f'<div style="color:#94A3B8; font-size:12px;">{a}</div>'
                   f'<div style="color:{c}; font-size:22px; font-weight:800;">{b}<span style="font-size:12px; color:#94A3B8; margin-left:3px;">{u}</span></div>'
                   f'<div style="color:#64748B; font-size:11px;">{d}</div></div>' for a, b, u, c, d in cells)
-        + f'</div><div style="color:#64748B; font-size:11px; margin-bottom:10px;">🔴 即時 · 樹莓派 {t:%H:%M:%S}（{age:.0f} 秒前）· 這一塊每 15 秒自動更新</div>',
+        + f'</div><div style="color:#64748B; font-size:11px; margin-bottom:10px;">🔴 即時 · 樹莓派 {t:%H:%M:%S}（{age:.0f} 秒前）· 這一塊每 30 秒自動更新</div>',
         unsafe_allow_html=True)
 
 
