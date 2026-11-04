@@ -928,6 +928,9 @@ with tab_pi:
 with tab_bat:
     # 4 組 JK BMS 電池：樹莓派即時資料 (15 分鐘內) 優先，否則用人工旁聽的快照 (data/bms_snapshot.json)
     snap = battery_page.load_snapshot()
+    if live and not live.get("packs") and live.get("inverter"):
+        st.markdown(f'<div style="color:#F59E0B; font-size:14px; font-weight:600; margin-bottom:6px;">⚠️ 樹莓派在線上，但目前讀不到電池 BMS（電池 RS485C 那條線），'
+                    f'以下是 {datetime.fromisoformat(snap["time"]):%m/%d %H:%M} 的人工快照，不是即時資料</div>', unsafe_allow_html=True)
     if live and live.get("packs"):
         age = (datetime.now(TW_TZ) - datetime.fromisoformat(live["time"])).total_seconds() / 60
         if age <= 15:
