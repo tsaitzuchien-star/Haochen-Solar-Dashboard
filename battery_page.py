@@ -41,7 +41,7 @@ def _battery_icon(soc, color, charging):
     """純 CSS 電池圖示 (st.html 會濾掉 SVG)。"""
     bolt = '<div class="bolt">⚡</div>' if charging else ""
     return (f'<div class="batt"><div class="cap"></div><div class="body">'
-            f'<div class="fill{" chg" if charging else ""}" style="height:{soc}%;background-color:{color}"></div>{bolt}</div></div>')
+            f'<div class="fill{" chg" if charging else ""}" style="height:{soc}%;--soc:{soc}%;background-color:{color}"></div>{bolt}</div></div>')
 
 
 def render(snap, live_soc=None):
@@ -175,11 +175,13 @@ def render(snap, live_soc=None):
                       animation:bpulse 1.6s ease-in-out infinite; }}
     @keyframes bpulse {{ 0%,100% {{ opacity:0.35; }} 50% {{ opacity:1; }} }}
     /* 充電中：亮光由下往上流動，頂端液面輕輕起伏 */
-    .bp .batt .fill.chg {{ position:relative; overflow:hidden; animation:bfill 2.4s ease-in-out infinite; }}
+    /* 充電中：綠色從底部長到目前電量，停一下再重來 (像手機充電) */
+    .bp .batt .fill.chg {{ position:relative; overflow:hidden; animation:bgrow 2.8s ease-out infinite; }}
+    @keyframes bgrow {{ 0% {{ height:4%; filter:brightness(1); }} 70% {{ height:var(--soc); filter:brightness(1.2); }}
+                        100% {{ height:var(--soc); filter:brightness(1); }} }}
     .bp .batt .fill.chg::after {{ content:""; position:absolute; left:0; right:0; height:60%; bottom:-60%;
         background:linear-gradient(to top, transparent, #ffffff55, transparent); animation:bflow 1.8s linear infinite; }}
     @keyframes bflow {{ 0% {{ bottom:-60%; }} 100% {{ bottom:110%; }} }}
-    @keyframes bfill {{ 0%,100% {{ filter:brightness(1); }} 50% {{ filter:brightness(1.25); }} }}
     .bp .pack-stats {{ flex:1; min-width:0; }}
     .bp .big {{ font-size:34px; font-weight:800; line-height:1; }}
     .bp .big small {{ font-size:16px; }}
