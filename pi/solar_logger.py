@@ -59,7 +59,7 @@ def setup():
         r.raise_for_status()
         cfg["gist_id"] = r.json()["id"]
         print(f"✅ 已建立私人 Gist：{cfg['gist_id']}")
-    cfg.setdefault("interval_s", 30)
+    cfg.setdefault("interval_s", 60)
     cfg.setdefault("inverter_port", "auto")
     cfg.setdefault("bms_port", "auto")
     with open(CONFIG, "w", encoding="utf-8") as f:
@@ -362,7 +362,8 @@ def upload(cfg, snap):
     if r.status_code == 200:
         return True
     msg = (r.text or "")[:160].replace("\n", " ")
-    print(f"上傳失敗：HTTP {r.status_code} {msg}", flush=True)
+    print(f"上傳失敗：HTTP {r.status_code} 類別={r.headers.get('X-RateLimit-Resource')} "
+          f"已用={r.headers.get('X-RateLimit-Used')} {msg}", flush=True)
     if r.status_code in (403, 429):
         retry = int(r.headers.get("Retry-After") or 0)
         reset = int(r.headers.get("X-RateLimit-Reset") or 0)
@@ -450,8 +451,8 @@ def main():
         notify(cfg, alerts)
         print(f"{snap['time'][11:19]} 上傳{'✅' if ok else '❌'}  PV {invd['pv_w'] if invd else '-'} W  "
               f"SOC {invd['soc'] if invd else '-'}%  電池 {len(snap['packs'])} 組  警示 {len(alerts)}  GitHub 剩 {_rate_left}", flush=True)
-        # 每 30 秒讀一次並上傳 (GitHub 對頻繁修改同一個 Gist 有限制，15 秒曾被擋)
-        time.sleep(max(5, min(cfg.get("interval_s", 30), 30) - (time.time() - t0)))
+        # 每 60 秒讀一次並上傳：GitHub 對頻繁修改同一個 Gist 有限制 (15 秒跑了約 3 小時就被擋，60 秒時一直正常)
+        time.sleep(max(5, 60 - (time.time() - t0)))
 
 
 if __name__ == "__main__":
