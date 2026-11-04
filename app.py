@@ -933,6 +933,10 @@ with tab_bat:
         if age <= 15:
             live["settings"] = live.get("settings") or (snap or {}).get("settings", {})
             snap = live
+            if age > 3:   # 首頁 3 分鐘就改用雲端，這裡也要講清楚是舊資料，避免兩邊看起來矛盾
+                st.markdown(f'<div style="color:#F59E0B; font-size:14px; font-weight:600; margin-bottom:6px;">⚠️ 樹莓派已經 {age:.0f} 分鐘沒有更新，'
+                            f'以下是 {datetime.fromisoformat(live["time"]):%H:%M} 的資料，可能跟首頁 (原廠雲端) 不一樣</div>',
+                            unsafe_allow_html=True)
         else:
             st.markdown(f'<div style="color:#F59E0B; font-size:13px; margin-bottom:6px;">⚠️ 樹莓派已經 {age:.0f} 分鐘沒有更新，'
                         '以下顯示上一次的人工快照</div>', unsafe_allow_html=True)
