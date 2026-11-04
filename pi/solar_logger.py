@@ -150,9 +150,21 @@ def read_inverter(ser):
 
 # ---------------- BMS 旁聽 (背景執行緒，只接收) ----------------
 class BmsListener(threading.Thread):
-    def __init__(self, port):
+    def __init__(self, port, avoid=lambda: None):
         super().__init__(daemon=True)
         self.port, self.packs, self.settings, self.last = port, {}, None, time.time()   # 開始旁聽的時間起算
+        self.avoid = avoid          # 回傳逆變器那個序列埠，重新找電池時跳過它
+
+    def refind(self):
+        """轉接器拔插或重新連線後名稱可能改變 (例如 ttyACM0 → ttyACM1)：只用旁聽重新找出電池那條。"""
+        inv = self.avoid()
+        for p in usb_ports():
+            if p != inv and is_bms_bus(p):
+                if p != self.port:
+                    print(f"電池改到 {p}", flush=True)
+                self.port = p
+                return True
+        return False
 
     def run(self):
         while True:
@@ -163,8 +175,9 @@ class BmsListener(threading.Thread):
                     buf += ser.read(4096)          # 只讀取，沒有任何 write
                     # 超過 60 秒沒收到任何電池封包：關掉重開序列埠 (轉接器偶爾會卡住)
                     if time.time() - max(self.last, opened) > 60:
-                        print("60 秒沒收到電池資料，重新開啟序列埠", flush=True)
+                        print("60 秒沒收到電池資料，重新尋找電池序列埠", flush=True)
                         ser.close()
+                        self.refind()
                         break
                     got, buf = jk.frames(buf)
                     for addr, f in got:
@@ -174,8 +187,9 @@ class BmsListener(threading.Thread):
                         elif f[4] == 0x01 and addr == 0:
                             self.settings = jk.decode_settings(f)
             except (serial.SerialException, OSError) as e:
-                print(f"BMS 序列埠錯誤：{e}，10 秒後重試", flush=True)
+                print(f"BMS 序列埠錯誤：{e}，10 秒後重新尋找", flush=True)
                 time.sleep(10)
+                self.refind()
 
 
 # ---------------- 警示 ----------------
@@ -328,13 +342,30 @@ def snapshot(invd, listener):
             "inverter": invd, "packs": packs, "settings": listener.settings or {}, "pi": pi_stats()}
 
 
+_upload_wait_until = 0.0
+
+
 def upload(cfg, snap):
+    """上傳到私人 Gist；失敗時印出原因。GitHub 限流 (403/429) 時暫停一段時間再試，避免越傳越被擋。"""
+    global _upload_wait_until
+    if time.time() < _upload_wait_until:
+        return False
     try:
         r = requests.patch(f"https://api.github.com/gists/{cfg['gist_id']}", timeout=20, headers=gh_headers(cfg),
                            json={"files": {GIST_FILE: {"content": json.dumps(snap, ensure_ascii=False)}}})
-        return r.status_code == 200
-    except requests.RequestException:
+    except requests.RequestException as e:
+        print(f"上傳失敗：網路錯誤 {e}", flush=True)
         return False
+    if r.status_code == 200:
+        return True
+    msg = (r.text or "")[:160].replace("\n", " ")
+    print(f"上傳失敗：HTTP {r.status_code} {msg}", flush=True)
+    if r.status_code in (403, 429):
+        retry = int(r.headers.get("Retry-After") or 0)
+        reset = int(r.headers.get("X-RateLimit-Reset") or 0)
+        _upload_wait_until = time.time() + max(retry, reset - time.time() if reset else 0, 120)
+        print(f"GitHub 限流，暫停上傳 {(_upload_wait_until - time.time()) / 60:.0f} 分鐘", flush=True)
+    return False
 
 
 def log_csv(snap):
@@ -371,7 +402,7 @@ def main():
     cfg = load_config() if not (a.once and not os.path.exists(CONFIG)) else {}
     inv_ser, bms_port = detect_ports(cfg)
     print(f"逆變器：{inv_ser.port if inv_ser else '找不到'}　電池：{bms_port or '找不到'}", flush=True)
-    listener = BmsListener(bms_port) if bms_port else None
+    listener = BmsListener(bms_port, avoid=lambda: inv_ser.port if inv_ser else None) if bms_port else None
     if listener:
         listener.start()
     if a.once:
