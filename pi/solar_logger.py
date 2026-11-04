@@ -177,7 +177,7 @@ COOLDOWN_H = {"socv": 6, "socv_red": 2, "lowcell": 2, "delta": 12, "temp": 3, "s
               "bms_lost": 6, "inv_lost": 6, "pi_hot": 3}
 
 
-def check_alerts(invd, packs, bms_age):
+def check_alerts(invd, packs, bms_age, inv_fail_s=0):
     out = []                                            # (key, 紅/橘, 訊息)
     if invd:
         sv = C.soc_voltage_check(invd["soc"], invd["vbat"], max(invd["dis_w"], 0) / 1000)
@@ -215,8 +215,8 @@ def check_alerts(invd, packs, bms_age):
     pt = pi_stats().get("cpu_temp")
     if pt and pt >= 80:
         out.append(("pi_hot", "orange", f"樹莓派 CPU 溫度 {pt:.0f}°C 偏高 (85°C 會降速)，請檢查散熱風扇與擺放位置的通風"))
-    if invd is None:
-        out.append(("inv_lost", "orange", "讀不到逆變器 (CN5) 的資料，請檢查網路線或轉接器"))
+    if invd is None and inv_fail_s >= 120:     # 偶爾一兩次讀不到不算，連續 2 分鐘以上才通知
+        out.append(("inv_lost", "orange", f"已經 {inv_fail_s / 60:.0f} 分鐘讀不到逆變器 (CN5) 的資料，請檢查網路線或轉接器"))
     return out
 
 
@@ -242,6 +242,17 @@ def notify(cfg, alerts):
         if send_line(cfg, text):
             state[key] = now
             print("已推播：" + msg.splitlines()[0], flush=True)
+    # 連線類的警示恢復時也通知一次
+    now_keys = {k for k, _, _ in alerts}
+    for key, msg in (("inv_lost", "✅ 逆變器 (CN5) 已經恢復連線，資料正常讀取中"),
+                     ("bms_lost", "✅ 電池 BMS 已經恢復連線，資料正常讀取中")):
+        if state.get(f"{key}_active") and key not in now_keys:
+            if send_line(cfg, f"{msg}\n（樹莓派即時偵測 {dt.datetime.now(TW):%H:%M}）"):
+                state[f"{key}_active"] = False
+                state.pop(key, None)       # 之後再斷線可以馬上通知
+                print("已推播：" + msg, flush=True)
+        elif key in now_keys and state.get(key, 0) > now - 60:
+            state[f"{key}_active"] = True
     with open(STATE, "w") as f:
         json.dump(state, f)
 
@@ -359,19 +370,37 @@ def main():
         listener.start()
     if a.once:
         time.sleep(15)                                  # 等 BMS 輪完一圈
+    inv_fail_since = None
     while True:
         t0 = time.time()
         invd = None
         if inv_ser is None:
             inv_ser, _ = detect_ports(cfg)
-        if inv_ser:
+        for _try in range(3):                       # 讀不到先重試，再不行就關掉重新開序列埠
+            if not inv_ser:
+                break
             try:
                 invd = read_inverter(inv_ser)
             except (serial.SerialException, OSError):
-                inv_ser = None
+                invd = None
+            if invd:
+                break
+            time.sleep(1)
+            if _try == 1:
+                try:
+                    inv_ser.close()
+                except Exception:
+                    pass
+                inv_ser = open_inverter(inv_ser.port)
+        if invd:
+            inv_fail_since = None
+        else:
+            inv_fail_since = inv_fail_since or time.time()
+            print("讀不到逆變器，重試中", flush=True)
         snap = snapshot(invd, listener) if listener else {"time": dt.datetime.now(TW).isoformat(timespec="seconds"),
                                                           "inverter": invd, "packs": [], "settings": {}}
-        alerts = check_alerts(invd, snap["packs"], time.time() - listener.last if listener else 0)
+        alerts = check_alerts(invd, snap["packs"], time.time() - listener.last if listener else 0,
+                              time.time() - inv_fail_since if inv_fail_since else 0)
         if a.once:
             print(json.dumps(snap, ensure_ascii=False, indent=1)[:3000])
             print("警示：", alerts or "無")
