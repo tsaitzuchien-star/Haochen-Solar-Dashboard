@@ -193,8 +193,11 @@ class BmsListener(threading.Thread):
 
 
 # ---------------- 警示 ----------------
-COOLDOWN_H = {"socv": 6, "socv_red": 2, "lowcell": 2, "delta": 12, "temp": 3, "socgap": 12, "alarm": 3,
+COOLDOWN_H = {"fakefull": 20, "socv": 6, "socv_red": 2, "lowcell": 2, "delta": 12, "temp": 3, "socgap": 12, "alarm": 3,
               "bms_lost": 6, "inv_lost": 6, "pi_hot": 3}
+
+
+_prev_soc = {}                                         # 每組上一次的 SOC，用來抓「剛到 100%」那一刻
 
 
 def check_alerts(invd, packs, bms_age, inv_fail_s=0):
@@ -226,6 +229,16 @@ def check_alerts(invd, packs, bms_age, inv_fail_s=0):
             lo = min(packs, key=lambda p: p["soc"])
             out.append(("socgap", "orange", f"4 組電池電量不一致：#{lo['addr']} 顯示 {lo['soc']}%，其他組最高 {max(socs)}%"
                                             "（電壓相同，實際電量應該一樣）。下次充滿到 3.45 V 會自動校正，期間逆變器顯示的平均電量會偏低"))
+        # SOC 剛變成 100% 的那一刻看最高單體：≥ 3.44 V 是電壓校正 (真的滿)；
+        # 明顯低於 3.44 V 就是計數先到 340 Ah 頂 (假滿)，逆變器會提早停充、校正也沒發生
+        for p in packs:
+            prev = _prev_soc.get(p["addr"])
+            _prev_soc[p["addr"]] = p["soc"]
+            if prev is not None and prev < 100 <= p["soc"] and max(p["cells"]) < 3.43:
+                out.append(("fakefull", "orange", f"電池 #{p['addr']} 顯示 100%，但最高單體只有 {max(p['cells']):.3f} V"
+                                                  "（真的充滿要 3.45 V），是 BMS 計數先到頂、不是真的滿。"
+                                                  "如果其他組也一樣、逆變器停止充電，請在 JK App 對任一組重新寫入容量 340 Ah"))
+                break
         alarm = [p for p in packs if p.get("alarm")]
         if alarm:
             out.append(("alarm", "red", "BMS 告警：" + "、".join(f"#{p['addr']} 代碼 {p['alarm']:#06x}" for p in alarm)
