@@ -209,7 +209,10 @@ def main():
     w.add_argument("name")
     w.add_argument("ah", type=int)
     w.add_argument("--yes", action="store_true", help="不再詢問確認 (給自動化用)")
-    asyncio.run(run(ap.parse_args()))
+    try:
+        asyncio.run(run(ap.parse_args()))
+    except RuntimeError as e:                 # 讀不到資料：印一行就好，不要整串錯誤訊息
+        sys.exit(f"❌ {e}")
 
 
 if __name__ == "__main__":
