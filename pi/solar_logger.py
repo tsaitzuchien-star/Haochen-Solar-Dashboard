@@ -479,7 +479,7 @@ class AutoCalib:
     def write(self, why, today):
         try:
             r = subprocess.run([sys.executable, JK_BLE, "set-capacity", self.pack, str(self.cap), "--yes"],
-                               capture_output=True, text=True, timeout=150)
+                               capture_output=True, text=True, timeout=300)
             out = r.stdout + r.stderr
         except subprocess.TimeoutExpired:
             out, r = "藍牙逾時", None

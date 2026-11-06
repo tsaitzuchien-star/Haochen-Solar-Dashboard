@@ -132,14 +132,35 @@ def show(info, d, s):
     print(f"標稱容量設定：{s['標稱容量'] / 1000:.0f} Ah   SOC-100% 電壓：{s['SOC-100% 電壓'] / 1000:.3f} V")
 
 
+async def connect_read(dev, tries=3):
+    """連線並讀取版本 / 電芯 / 設定；沒收到資料就斷線重連，最多 tries 次。回傳 (client, jk, info, cells, settings)。"""
+    last = None
+    for n in range(1, tries + 1):
+        client = BleakClient(dev, timeout=20)
+        try:
+            await client.connect()
+            jk = Jk(client)
+            await client.start_notify(CHAR, jk.on_data)
+            await asyncio.sleep(1)                   # 讓訂閱生效再送指令
+            info, d, s = await jk.read_all()
+            return client, jk, info, d, s
+        except Exception as e:                       # noqa: BLE001  藍牙偶爾不穩：斷線重來
+            last = e
+            print(f"第 {n} 次讀取失敗：{e}，重新連線 …", flush=True)
+            try:
+                await client.disconnect()
+            except Exception:                        # noqa: BLE001
+                pass
+            await asyncio.sleep(3)
+    raise RuntimeError(f"連續 {tries} 次都讀不到資料：{last}")
+
+
 async def run(args):
     if args.cmd == "scan":
         return await scan()
     dev = await find(args.name)
-    async with BleakClient(dev, timeout=20) as client:
-        jk = Jk(client)
-        await client.start_notify(CHAR, jk.on_data)
-        info, d, s = await jk.read_all()
+    client, jk, info, d, s = await connect_read(dev)
+    try:
         show(info, d, s)
         if args.cmd == "read":
             if args.all:
@@ -151,19 +172,26 @@ async def run(args):
         if not args.yes and input(f"\n確定要把 {args.name} 的標稱容量寫成 {ah} Ah？(輸入 yes)：").strip() != "yes":
             sys.exit("已取消，沒有寫入")
         await client.write_gatt_char(CHAR, command(REG_CAPACITY, ah * 1000, 4), response=False)
-        print(f"已送出：標稱容量 {ah} Ah，3 秒後讀回確認 …")
-        await asyncio.sleep(3)
-        _, d2, s2 = await jk.read_all()
-        changed = {k: (s[k], s2[k]) for k in s if s[k] != s2[k] and k != "標稱容量"}
-        if changed:
-            print("⚠️⚠️ 警告：以下設定也被改到了，請立刻用 JK App 改回原值：")
-            for k, (a, b) in changed.items():
-                print(f"   {k}：{a} → {b}")
-        if s2["標稱容量"] != ah * 1000:
-            print(f"❌ 讀回的容量是 {s2['標稱容量'] / 1000:.0f} Ah，寫入沒有生效")
-        elif not changed:
-            print(f"✅ 容量確認為 {ah} Ah，其他 33 項設定都沒變")
-        print(f"SOC：{d['soc']}% ({d['remain_ah']:.1f} Ah) → {d2['soc']}% ({d2['remain_ah']:.1f} Ah)")
+        print(f"已送出：標稱容量 {ah} Ah，重新連線讀回確認 …", flush=True)
+        await asyncio.sleep(2)
+    finally:
+        try:
+            await client.disconnect()
+        except Exception:                            # noqa: BLE001
+            pass
+    await asyncio.sleep(3)
+    client, jk, _, d2, s2 = await connect_read(dev)
+    await client.disconnect()
+    changed = {k: (s[k], s2[k]) for k in s if s[k] != s2[k] and k != "標稱容量"}
+    if changed:
+        print("⚠️⚠️ 警告：以下設定也被改到了，請立刻用 JK App 改回原值：")
+        for k, (a, b) in changed.items():
+            print(f"   {k}：{a} → {b}")
+    if s2["標稱容量"] != ah * 1000:
+        print(f"❌ 讀回的容量是 {s2['標稱容量'] / 1000:.0f} Ah，寫入沒有生效")
+    elif not changed:
+        print(f"✅ 容量確認為 {ah} Ah，其他 33 項設定都沒變")
+    print(f"SOC：{d['soc']}% ({d['remain_ah']:.1f} Ah) → {d2['soc']}% ({d2['remain_ah']:.1f} Ah)")
 
 
 def main():
