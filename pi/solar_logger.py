@@ -14,6 +14,7 @@ import csv
 import datetime as dt
 import json
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -407,6 +408,107 @@ def log_csv(snap):
         w.writerow(row)
 
 
+# ---------------- 假滿自動校正 (藍牙重新寫入容量) ----------------
+CALIB_STATE = os.path.join(HERE, "calib_state.json")
+JK_BLE = os.path.join(ROOT, "tools", "jk_ble.py")
+
+
+class AutoCalib:
+    """BMS 計數先到 340 Ah 頂、電壓還沒到 3.45 V 就顯示滿 → 逆變器提早停充。
+    條件連續 10 分鐘成立就用藍牙對一組從機重新寫入容量 340 Ah (跟手機 JK App 手動做的一樣)，
+    讓 SOC 重算、逆變器繼續充到 3.45 V，4 組一起真正校正。
+    安全：一天最多成功 1 次、嘗試 3 次；寫入工具會比對全部 34 項設定，有其他設定被改到或寫了沒效果就自動停用並通知。"""
+    MAX_CELL = 3.37      # 真的充滿後休息仍有 3.38 V 以上；假滿 (11/6) 只有 3.34 V
+    HOLD_S = 600
+    VERIFY_S = 900
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.pack = cfg.get("calib_pack", "003-03")       # 用從機 #3，不碰負責 CAN 通訊的主機 #0
+        self.cap = int(cfg.get("calib_ah", 340))
+        self.since, self.thread, self.pending = None, None, None
+        self.st = _read(CALIB_STATE, {}) or {}
+
+    def save(self):
+        with open(CALIB_STATE, "w") as f:
+            json.dump(self.st, f)
+
+    def line(self, text):
+        print(text.splitlines()[0], flush=True)
+        send_line(self.cfg, text + f"\n（樹莓派自動校正 {dt.datetime.now(TW):%H:%M}）")
+
+    def tick(self, invd, packs):
+        if not self.cfg.get("auto_calib", True) or self.st.get("disabled"):
+            return
+        if self.thread and self.thread.is_alive():
+            return
+        if self.pending and time.time() - self.pending["t"] >= self.VERIFY_S:
+            self.verify(packs)
+        now = dt.datetime.now(TW)
+        today = str(now.date())
+        if self.st.get("done") == today or (self.st.get("tries_date") == today and self.st.get("tries", 0) >= 3):
+            self.since = None
+            return
+        cells = [c for p in packs for c in p["cells"]]
+        cond = (invd is not None and len(packs) >= 4 and 9 <= now.hour < 14
+                and invd["soc"] >= 99 and max(cells) < self.MAX_CELL
+                and sum(p["curr"] for p in packs) < 3 and invd["pv_w"] >= 500)
+        if not cond:
+            self.since = None
+            return
+        self.since = self.since or time.time()
+        if time.time() - self.since < self.HOLD_S:
+            return
+        self.since = None
+        if self.st.get("tries_date") != today:
+            self.st.update(tries_date=today, tries=0)
+        self.st["tries"] += 1
+        self.save()
+        why = f"SOC {invd['soc']}%、最高單體只有 {max(cells):.3f} V、逆變器已停充 10 分鐘"
+        self.thread = threading.Thread(target=self.write, args=(why, today), daemon=True)
+        self.thread.start()
+
+    def write(self, why, today):
+        try:
+            r = subprocess.run([sys.executable, JK_BLE, "set-capacity", self.pack, str(self.cap), "--yes"],
+                               capture_output=True, text=True, timeout=150)
+            out = r.stdout + r.stderr
+        except subprocess.TimeoutExpired:
+            out, r = "藍牙逾時", None
+        soc_line = next((ln for ln in out.splitlines() if ln.startswith("SOC：")), "")
+        if "⚠️⚠️" in out:
+            self.st["disabled"] = True
+            self.save()
+            self.line("🔴 自動校正寫入後，BMS 有其他設定被改到，已停用自動校正！請打開 JK App 檢查 "
+                      f"{self.pack}，並告訴 Claude。\n" + out[-600:])
+        elif r is not None and r.returncode == 0 and "✅" in out:
+            self.st["done"] = today
+            self.save()
+            self.pending = {"t": time.time()}
+            self.line(f"🔧 偵測到假滿（{why}），已自動用藍牙對電池 {self.pack} 重新寫入容量 {self.cap} Ah。\n"
+                      f"{soc_line}\n15 分鐘後回報逆變器是否恢復充電。")
+        else:
+            print("自動校正這次沒成功：" + out.strip()[-300:], flush=True)
+            if self.st.get("tries", 0) >= 3:
+                self.line(f"🟠 偵測到假滿（{why}），但今天 3 次藍牙寫入都沒成功（可能手機 JK App 正連著電池）。"
+                          "可以用 JK App 手動對任一組重新寫入容量 340 Ah。\n最後訊息：" + out.strip()[-200:])
+
+    def verify(self, packs):
+        self.pending = None
+        me = next((p for p in packs if p["addr"] == int(self.pack[-1])), None)
+        chg = sum(p["curr"] for p in packs)
+        if chg >= 5:
+            self.line(f"✅ 逆變器已恢復充電（電池合計 +{chg:.0f} A），充到最高單體 3.45 V 時 4 組會自動校正到 100%。")
+        elif me and me["soc"] >= 99:
+            self.st["disabled"] = True
+            self.save()
+            self.line(f"🟠 重新寫入容量後，電池 {self.pack} 的 SOC 還是 {me['soc']}%，沒有重新計算，"
+                      "這個方法對你的 BMS 無效，已停用自動校正。請告訴 Claude 換別的做法。")
+        else:
+            self.line(f"ℹ️ SOC 已重新計算（{self.pack} 現在 {me['soc'] if me else '?'}%），但目前沒在充電"
+                      f"（合計 {chg:+.0f} A），可能是太陽能剛好不夠，有多的電時逆變器就會繼續充。")
+
+
 # ---------------- 主程式 ----------------
 def main():
     ap = argparse.ArgumentParser()
@@ -425,6 +527,7 @@ def main():
     if a.once:
         time.sleep(15)                                  # 等 BMS 輪完一圈
     inv_fail_since = None
+    calib = AutoCalib(cfg) if not a.once else None
     while True:
         t0 = time.time()
         invd = None
@@ -462,6 +565,10 @@ def main():
         ok = upload(cfg, snap)
         log_csv(snap)
         notify(cfg, alerts)
+        try:
+            calib.tick(invd, snap["packs"])
+        except Exception as e:                       # 自動校正出錯不能影響記錄與上傳
+            print(f"自動校正錯誤：{e}", flush=True)
         print(f"{snap['time'][11:19]} 上傳{'✅' if ok else '❌'}  PV {invd['pv_w'] if invd else '-'} W  "
               f"SOC {invd['soc'] if invd else '-'}%  電池 {len(snap['packs'])} 組  警示 {len(alerts)}  GitHub 剩 {_rate_left}", flush=True)
         # 每 60 秒讀一次並上傳：GitHub 對頻繁修改同一個 Gist 有限制 (15 秒跑了約 3 小時就被擋，60 秒時一直正常)
