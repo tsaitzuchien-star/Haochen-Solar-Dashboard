@@ -59,9 +59,12 @@ class Jk:
 
     def __init__(self, client):
         self.c, self.buf, self.frames = client, bytearray(), {}
+        self.n_bytes, self.n_bad, self.seen, self.first = 0, 0, [], b""    # 診斷用：收到多少、哪些類型、壞幾包
         self.event = asyncio.Event()
 
     def on_data(self, _, data):
+        self.n_bytes += len(data)
+        self.first = self.first or bytes(data[:24])
         self.buf += data
         while True:
             j = self.buf.find(HEAD)
@@ -73,10 +76,12 @@ class Jk:
                 return
             f = bytes(self.buf[j:j + FRAME])
             if sum(f[:-1]) & 0xFF == f[-1]:
+                self.seen.append(f[4])
                 self.frames[f[4]] = f
                 self.event.set()
                 del self.buf[:j + FRAME]
             else:
+                self.n_bad += 1
                 del self.buf[:j + 4]
 
     async def ask(self, cmd, want, timeout=10):
@@ -100,7 +105,8 @@ class Jk:
         info = await self.ask(command(CMD_DEVICE_INFO), [0x03], 6)
         ok = await self.ask(command(CMD_CELL_INFO), [0x01, 0x02], 12)
         if not ok:
-            raise RuntimeError("沒收到電芯 / 設定資料 (手機 App 是不是還連著？)")
+            raise RuntimeError(f"沒收到電芯 / 設定資料 (收到 {self.n_bytes} bytes、完整封包類型 {sorted(set(self.seen))}、"
+                               f"校驗錯 {self.n_bad} 包、開頭 {self.first.hex(' ')[:71] or '無'})")
         return (decode_info(self.frames[0x03]) if info else None,
                 decode_cells(self.frames[0x02]), decode_settings(self.frames[0x01]))
 
