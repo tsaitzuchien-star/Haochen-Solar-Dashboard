@@ -180,8 +180,12 @@ async def run(args):
         except Exception:                            # noqa: BLE001
             pass
     await asyncio.sleep(3)
-    client, jk, _, d2, s2 = await connect_read(dev)
-    await client.disconnect()
+    try:
+        client, jk, _, d2, s2 = await connect_read(dev, tries=2)
+        await client.disconnect()
+    except Exception as e:                           # noqa: BLE001  JK 改完設定後藍牙常常好幾分鐘不回資料
+        print(f"寫入已送出，但藍牙讀回失敗 ({e})；請改看 RS485 旁聽或 JK App 確認")
+        sys.exit(3)
     changed = {k: (s[k], s2[k]) for k in s if s[k] != s2[k] and k != "標稱容量"}
     if changed:
         print("⚠️⚠️ 警告：以下設定也被改到了，請立刻用 JK App 改回原值：")

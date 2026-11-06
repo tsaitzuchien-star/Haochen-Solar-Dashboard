@@ -154,6 +154,7 @@ class BmsListener(threading.Thread):
     def __init__(self, port, avoid=lambda: None):
         super().__init__(daemon=True)
         self.port, self.packs, self.settings, self.last = port, {}, None, time.time()   # 開始旁聽的時間起算
+        self.pack_settings = {}     # 每組電池最新一次的設定封包 (自動校正寫入後用來比對)
         self.avoid = avoid          # 回傳逆變器那個序列埠，重新找電池時跳過它
 
     def refind(self):
@@ -185,8 +186,11 @@ class BmsListener(threading.Thread):
                         if f[4] == 0x02:
                             self.packs[addr] = {"addr": addr, **jk.decode_cells(f), "t": time.time()}
                             self.last = time.time()
-                        elif f[4] == 0x01 and addr == 0:
-                            self.settings = jk.decode_settings(f)
+                        elif f[4] == 0x01:
+                            st = jk.decode_settings(f)
+                            self.pack_settings[addr] = st
+                            if addr == 0:
+                                self.settings = st
             except (serial.SerialException, OSError) as e:
                 print(f"BMS 序列埠錯誤：{e}，10 秒後重新尋找", flush=True)
                 time.sleep(10)
@@ -421,13 +425,15 @@ class AutoCalib:
     安全：一天最多成功 1 次、嘗試 3 次；寫入工具會比對全部 34 項設定，有其他設定被改到或寫了沒效果就自動停用並通知。"""
     MAX_CELL = 3.37      # 真的充滿後休息仍有 3.38 V 以上；假滿 (11/6) 只有 3.34 V
     HOLD_S = 600
-    VERIFY_S = 900
+    VERIFY_S = 300
 
-    def __init__(self, cfg):
-        self.cfg = cfg
+    def __init__(self, cfg, listener=None):
+        self.cfg, self.listener = cfg, listener
         self.pack = cfg.get("calib_pack", "003-03")       # 用從機 #3，不碰負責 CAN 通訊的主機 #0
         self.cap = int(cfg.get("calib_ah", 340))
         self.since, self.thread, self.pending = None, None, None
+        self.addr = int(self.pack[-1])
+        self.before = None                                # 寫入前 (RS485 看到的) #3 SOC 與設定
         self.st = _read(CALIB_STATE, {}) or {}
 
     def save(self):
@@ -451,6 +457,7 @@ class AutoCalib:
             os.remove(CALIB_TEST)
             cells = [c for p in packs for c in p["cells"]]
             why = (f"測試：SOC {invd['soc'] if invd else '?'}%、最高單體 {max(cells):.3f} V" if cells else "測試")
+            self.remember(packs)
             self.thread = threading.Thread(target=self.write, args=(why, None), daemon=True)
             self.thread.start()
             return
@@ -473,33 +480,35 @@ class AutoCalib:
         self.st["tries"] += 1
         self.save()
         why = f"SOC {invd['soc']}%、最高單體只有 {max(cells):.3f} V、逆變器已停充 10 分鐘"
+        self.remember(packs)
         self.thread = threading.Thread(target=self.write, args=(why, today), daemon=True)
         self.thread.start()
+
+    def remember(self, packs):
+        me = next((p for p in packs if p["addr"] == self.addr), None)
+        sets = (self.listener.pack_settings.get(self.addr) if self.listener else None)
+        self.before = {"soc": me["soc"] if me else None, "settings": dict(sets) if sets else None}
 
     def write(self, why, today):
         try:
             r = subprocess.run([sys.executable, JK_BLE, "set-capacity", self.pack, str(self.cap), "--yes"],
                                capture_output=True, text=True, timeout=300)
             out = r.stdout + r.stderr
-        except subprocess.TimeoutExpired:
-            out, r = "藍牙逾時", None
-        soc_line = next((ln for ln in out.splitlines() if ln.startswith("SOC：")), "")
-        try:
-            before = int(soc_line.split("SOC：")[1].split("%")[0])
-        except (IndexError, ValueError):
-            before = None
+        except subprocess.TimeoutExpired as e:
+            out = (e.stdout or "") if isinstance(e.stdout, str) else ""
+            out += "\n藍牙逾時"
         if "⚠️⚠️" in out:
             self.st["disabled"] = True
             self.save()
             self.line("🔴 自動校正寫入後，BMS 有其他設定被改到，已停用自動校正！請打開 JK App 檢查 "
                       f"{self.pack}，並告訴 Claude。\n" + out[-600:])
-        elif r is not None and r.returncode == 0 and "✅" in out:
+        elif "已送出" in out:                           # 寫入有送出 (藍牙讀回不一定成功，改用 RS485 確認)
             if today:                                  # 測試不算今天的次數
                 self.st["done"] = today
                 self.save()
-            self.pending = {"t": time.time(), "before": before}
+            self.pending = {"t": time.time(), "before": self.before}
             self.line(f"🔧 偵測到假滿（{why}），已自動用藍牙對電池 {self.pack} 重新寫入容量 {self.cap} Ah。\n"
-                      f"{soc_line}\n15 分鐘後回報逆變器是否恢復充電。")
+                      f"5 分鐘後用 RS485 確認 SOC 是否重算、設定是否正常，並回報充電狀況。")
         else:
             print("自動校正這次沒成功：" + out.strip()[-300:], flush=True)
             if today is None:
@@ -509,21 +518,35 @@ class AutoCalib:
                           "可以用 JK App 手動對任一組重新寫入容量 340 Ah。\n最後訊息：" + out.strip()[-200:])
 
     def verify(self, packs):
-        before = self.pending.get("before")
+        before = self.pending.get("before") or {}
         self.pending = None
-        me = next((p for p in packs if p["addr"] == int(self.pack[-1])), None)
+        me = next((p for p in packs if p["addr"] == self.addr), None)
+        # 設定比對 (RS485 旁聽)：除了容量，其他 33 項都不該變
+        now_set = self.listener.pack_settings.get(self.addr) if self.listener else None
+        old_set = before.get("settings")
+        if old_set and now_set:
+            changed = [f"{k} {old_set[k]}→{now_set[k]}" for k in old_set
+                       if k != "標稱容量" and now_set.get(k) != old_set[k]]
+            if changed:
+                self.st["disabled"] = True
+                self.save()
+                self.line(f"🔴 電池 {self.pack} 寫入後有其他設定改變：{'、'.join(changed)}。"
+                          "已停用自動校正，請打開 JK App 改回原值並告訴 Claude。")
+                return
+        set_note = "其他設定都沒變" if (old_set and now_set) else "設定比對資料不足"
         chg = sum(p["curr"] for p in packs)
-        if chg >= 5:
-            self.line(f"✅ 逆變器已恢復充電（電池合計 +{chg:.0f} A），充到最高單體 3.45 V 時 4 組會自動校正到 100%。")
-        elif me and before is not None and me["soc"] >= before - 1:
+        charging = f"電池合計 {chg:+.0f} A，" + ("逆變器已恢復充電，充到最高單體 3.45 V 時 4 組會自動校正到 100%。"
+                                                if chg >= 5 else "目前沒在充電（太陽能有多的電時就會繼續充）。")
+        b, n = before.get("soc"), (me["soc"] if me else None)
+        if b is not None and n is not None and n <= b - 3:
+            self.line(f"✅ 自動校正有效：電池 {self.pack} SOC {b}% → {n}%（依電壓重新計算），{set_note}。\n{charging}")
+        elif b is not None and n is not None:
             self.st["disabled"] = True
             self.save()
-            self.line(f"🟠 重新寫入容量後，電池 {self.pack} 的 SOC 還是 {me['soc']}%，沒有重新計算，"
-                      "這個方法對你的 BMS 無效，已停用自動校正。請告訴 Claude 換別的做法。")
+            self.line(f"🟠 重新寫入容量後，電池 {self.pack} 的 SOC 還是 {n}%（寫入前 {b}%），沒有重新計算，"
+                      "已停用自動校正。請告訴 Claude 換別的做法。")
         else:
-            self.line(f"ℹ️ SOC 已重新計算（{self.pack} 現在 {me['soc'] if me else '?'}%），但目前沒在充電"
-                      f"（合計 {chg:+.0f} A），可能是太陽能剛好不夠，有多的電時逆變器就會繼續充。")
-
+            self.line(f"ℹ️ 已寫入，但 RS485 沒收到 {self.pack} 的資料，無法確認 SOC 是否重算。{charging}")
 
 # ---------------- 主程式 ----------------
 def main():
@@ -543,7 +566,7 @@ def main():
     if a.once:
         time.sleep(15)                                  # 等 BMS 輪完一圈
     inv_fail_since = None
-    calib = AutoCalib(cfg) if not a.once else None
+    calib = AutoCalib(cfg, listener) if not a.once else None
     while True:
         t0 = time.time()
         invd = None
