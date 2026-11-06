@@ -1,0 +1,10 @@
+{
+ "time": "2026-11-06T22:00+08:00",
+ "source": "樹莓派藍牙讀取 (tools/jk_ble.py read)",
+ "packs": [
+  {"addr": 0, "model": "JK_PB2A16S20P", "hw": "15A", "fw": "15.34", "made": "2024-12-23", "boots": 24, "serial_tail": "92891", "ble": "98:DA:20"},
+  {"addr": 1, "model": "JK_PB2A16S20P", "hw": "15A", "fw": "15.32", "made": "2024-07-06", "boots": 47, "serial_tail": "90900", "ble": "C8:47:80"},
+  {"addr": 2, "model": "JK_PB2A16S20P", "hw": "15A", "fw": "15.32", "made": "2024-07-06", "boots": 41, "serial_tail": "91159", "ble": "C8:47:80"},
+  {"addr": 3, "model": "JK_PB2A16S20P", "hw": "15A", "fw": "15.32", "made": "2024-07-06", "boots": 42, "serial_tail": "90836", "ble": "C8:47:80"}
+ ]
+}

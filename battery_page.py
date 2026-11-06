@@ -23,6 +23,52 @@ def load_snapshot(path=None):
         return None
 
 
+def load_info(path=None):
+    """4 組 BMS 的型號 / 韌體 / 生產日期 (藍牙讀取，不常變動，存在 data/bms_info.json)。"""
+    path = path or os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "bms_info.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def _info_card(info):
+    if not info or not info.get("packs"):
+        return ""
+    ps = sorted(info["packs"], key=lambda p: p["addr"])
+    rows = [("型號", "model"), ("硬體版本", "hw"), ("韌體版本", "fw"), ("生產日期", "made"),
+            ("開機次數", "boots"), ("序號末 5 碼", "serial_tail"), ("藍牙模組", "ble")]
+    head = "".join(f'<th>#{p["addr"]}{" 主機" if p["addr"] == 0 else ""}</th>' for p in ps)
+    body, same = "", []
+    for label, k in rows:
+        vals = [str(p.get(k, "—")) for p in ps]
+        if k in ("model", "hw") and len(set(vals)) == 1:    # 4 組相同的收成一行摘要，表格才不會太寬
+            same.append(f"{label} {html.escape(vals[0])}")
+            continue
+        if k == "made":
+            vals = [v.replace("-", "/")[2:] for v in vals]    # 24/12/23
+        common = max(set(vals), key=vals.count)
+        diff = k in ("fw", "made", "ble") and len(set(vals)) > 1   # 只標出值得注意的差異
+        tds = "".join(f'<td class="{"odd" if diff and v != common else ""}">{html.escape(v)}</td>' for v in vals)
+        body += f"<tr><td class='lab'>{label}</td>{tds}</tr>"
+    fws = {p["fw"] for p in ps}
+    made = {p["made"] for p in ps}
+    if len(fws) == 1 and len(made) == 1:
+        note = "4 組同一批出廠、韌體相同。"
+    else:
+        odd = [p for p in ps if p["made"] != max(made, key=[q["made"] for q in ps].count)]
+        note = ("、".join(f"#{p['addr']}" for p in odd) + f" 是另一批（{odd[0]['made'][:7].replace('-', '/')} 生產、韌體 {odd[0]['fw']}），"
+                "其餘同批。小版本差異不影響並聯通訊，重要設定 4 組一致，不需要為了統一而更新韌體。") if odd else ""
+    t = datetime.fromisoformat(info["time"])
+    return f'''<div class="card">
+      <h3>設備資訊 <span class="muted">{t:%m/%d} 藍牙讀取</span></h3>
+      <div class="muted" style="margin-bottom:6px">{" · ".join(same)}{"（4 組相同）" if same else ""}</div>
+      <div class="itab"><table><tr><th></th>{head}</tr>{body}</table></div>
+      <div class="muted" style="margin-top:8px">{note}</div>
+    </div>'''
+
+
 def _soc_color(soc):
     return "#EF4444" if soc < 25 else "#F59E0B" if soc < 45 else "#34D399"
 
@@ -44,7 +90,7 @@ def _battery_icon(soc, color, charging):
             f'<div class="fill{" chg" if charging else ""}" style="height:{soc}%;--soc:{soc}%;background-color:{color}"></div>{bolt}</div></div>')
 
 
-def render(snap, live_soc=None):
+def render(snap, live_soc=None, info=None):
     """回傳完整的 HTML 字串 (給 st.components.v1.html 用)。"""
     if not snap or not snap.get("packs"):
         return "<div style='color:#94A3B8;font-family:sans-serif;padding:20px'>還沒有電池 BMS 資料</div>"
@@ -130,6 +176,7 @@ def render(snap, live_soc=None):
     ]
     settings_html = "".join(f'<div class="srow"><span>{a}</span><b>{b}</b></div>' for a, b in settings_rows)
     runtime = "、".join(f"#{p['addr']} {p['runtime_h'] / 24:.0f} 天" for p in packs)
+    info_html = _info_card(info if info is not None else load_info())
     note_live = (f"<span class='muted'>（逆變器目前顯示 {live_soc}%）</span>" if live_soc is not None else "")
 
     # 直接用 st.html 插進頁面 (不用 iframe，高度自動)；所有樣式都限定在 .bp 底下，不影響網站其他部分
@@ -203,6 +250,12 @@ def render(snap, live_soc=None):
     .bp .two {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; }}
     .bp .bar {{ height:10px; border-radius:5px; background:#0F172A; overflow:hidden; margin:6px 0 2px; }}
     .bp .bar i {{ display:block; height:100%; }}
+    .bp .itab {{ overflow-x:auto; }}
+    .bp .itab table {{ width:100%; border-collapse:collapse; font-size:13px; min-width:300px; }}
+    .bp .itab th {{ color:var(--mut); font-weight:600; text-align:center; padding:6px 4px; border-bottom:1px solid var(--line); }}
+    .bp .itab td {{ text-align:center; padding:5px 4px; border-bottom:1px solid #33415566; font-variant-numeric:tabular-nums; }}
+    .bp .itab td.lab {{ color:var(--mut); text-align:left; white-space:nowrap; }}
+    .bp .itab td.odd {{ color:#FCD34D; font-weight:700; }}
     @media (max-width:640px) {{
       .bp .hero {{ grid-template-columns:1fr; }}
       .bp .ring {{ max-width:200px; }}
@@ -216,6 +269,8 @@ def render(snap, live_soc=None):
       .bp .pack-stats .big {{ font-size:28px; }}
       .bp .pack-stats .sub {{ margin-bottom:18px; }}
       .bp .row {{ font-size:12px; }}
+      .bp .itab table {{ font-size:11px; min-width:0; }}
+      .bp .itab td, .bp .itab th {{ padding:4px 2px; }}
     }}
     </style><div class="bp"><div class="wrap">
 
@@ -263,6 +318,8 @@ def render(snap, live_soc=None):
         <div class="muted" style="margin-top:6px">運轉時間：{runtime}</div>
       </div>
     </div>
+
+    {info_html}
 
     <div class="muted" style="text-align:center">資料時間 {t:%Y/%m/%d %H:%M} · {html.escape(snap.get("source", ""))} · {"每分鐘自動更新" if "樹莓派" in snap.get("source", "") else "樹莓派上線後改成即時更新"}</div>
     </div></div>'''
