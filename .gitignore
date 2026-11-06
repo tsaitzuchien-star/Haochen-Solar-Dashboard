@@ -8,3 +8,4 @@ __pycache__/
 pi/config.json
 pi/alert_state.json
 .venv/
+pi/calib_state.json

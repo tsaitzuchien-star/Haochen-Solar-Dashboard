@@ -137,7 +137,7 @@ def main():
         if (soc >= 99 and 0 < vbat < 53.6 and dis < 0.1 and f("pcharge1") < 500 and 9 <= now.hour < 15
                 and due("calib", COOLDOWN_H["calib"])):
             msgs.append(("calib", f"🔧 電池顯示 {soc}%、逆變器停止充電，但電壓只有 {vbat:.1f} V（每顆 {vbat / 16:.2f} V，充滿應有 3.40 V 以上），"
-                                  "BMS 電量可能偏高，可以校正讓太陽能繼續充。"))
+                                  "BMS 電量可能偏高（假滿）。樹莓派會在條件持續 10 分鐘後自動用藍牙校正，並另外通知結果。"))
 
     # 預報 (早上、晚上才需要)
     # GitHub 的排程常常延遲好幾小時，時段放寬：當天第一次在時段內執行就發
