@@ -411,6 +411,7 @@ def log_csv(snap):
 # ---------------- 假滿自動校正 (藍牙重新寫入容量) ----------------
 CALIB_STATE = os.path.join(HERE, "calib_state.json")
 JK_BLE = os.path.join(ROOT, "tools", "jk_ble.py")
+CALIB_TEST = os.path.join(HERE, "calib_test")         # touch 這個檔案 → 下一輪立刻照真實流程跑一次 (不看條件、不算今天的次數)
 
 
 class AutoCalib:
@@ -446,6 +447,13 @@ class AutoCalib:
             self.verify(packs)
         now = dt.datetime.now(TW)
         today = str(now.date())
+        if os.path.exists(CALIB_TEST):
+            os.remove(CALIB_TEST)
+            cells = [c for p in packs for c in p["cells"]]
+            why = (f"測試：SOC {invd['soc'] if invd else '?'}%、最高單體 {max(cells):.3f} V" if cells else "測試")
+            self.thread = threading.Thread(target=self.write, args=(why, None), daemon=True)
+            self.thread.start()
+            return
         if self.st.get("done") == today or (self.st.get("tries_date") == today and self.st.get("tries", 0) >= 3):
             self.since = None
             return
@@ -476,30 +484,38 @@ class AutoCalib:
         except subprocess.TimeoutExpired:
             out, r = "藍牙逾時", None
         soc_line = next((ln for ln in out.splitlines() if ln.startswith("SOC：")), "")
+        try:
+            before = int(soc_line.split("SOC：")[1].split("%")[0])
+        except (IndexError, ValueError):
+            before = None
         if "⚠️⚠️" in out:
             self.st["disabled"] = True
             self.save()
             self.line("🔴 自動校正寫入後，BMS 有其他設定被改到，已停用自動校正！請打開 JK App 檢查 "
                       f"{self.pack}，並告訴 Claude。\n" + out[-600:])
         elif r is not None and r.returncode == 0 and "✅" in out:
-            self.st["done"] = today
-            self.save()
-            self.pending = {"t": time.time()}
+            if today:                                  # 測試不算今天的次數
+                self.st["done"] = today
+                self.save()
+            self.pending = {"t": time.time(), "before": before}
             self.line(f"🔧 偵測到假滿（{why}），已自動用藍牙對電池 {self.pack} 重新寫入容量 {self.cap} Ah。\n"
                       f"{soc_line}\n15 分鐘後回報逆變器是否恢復充電。")
         else:
             print("自動校正這次沒成功：" + out.strip()[-300:], flush=True)
-            if self.st.get("tries", 0) >= 3:
+            if today is None:
+                self.line("🟠 測試：藍牙寫入沒有成功（可能手機 JK App 正連著電池）。\n最後訊息：" + out.strip()[-200:])
+            elif self.st.get("tries", 0) >= 3:
                 self.line(f"🟠 偵測到假滿（{why}），但今天 3 次藍牙寫入都沒成功（可能手機 JK App 正連著電池）。"
                           "可以用 JK App 手動對任一組重新寫入容量 340 Ah。\n最後訊息：" + out.strip()[-200:])
 
     def verify(self, packs):
+        before = self.pending.get("before")
         self.pending = None
         me = next((p for p in packs if p["addr"] == int(self.pack[-1])), None)
         chg = sum(p["curr"] for p in packs)
         if chg >= 5:
             self.line(f"✅ 逆變器已恢復充電（電池合計 +{chg:.0f} A），充到最高單體 3.45 V 時 4 組會自動校正到 100%。")
-        elif me and me["soc"] >= 99:
+        elif me and before is not None and me["soc"] >= before - 1:
             self.st["disabled"] = True
             self.save()
             self.line(f"🟠 重新寫入容量後，電池 {self.pack} 的 SOC 還是 {me['soc']}%，沒有重新計算，"
