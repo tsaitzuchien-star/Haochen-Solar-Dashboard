@@ -502,7 +502,9 @@ class AutoCalib:
                       f"{soc_line}\n15 分鐘後回報逆變器是否恢復充電。")
         else:
             print("自動校正這次沒成功：" + out.strip()[-300:], flush=True)
-            if self.st.get("tries", 0) >= 3:
+            if today is None:
+                self.line("🟠 測試：藍牙寫入沒有成功（可能手機 JK App 正連著電池）。\n最後訊息：" + out.strip()[-200:])
+            elif self.st.get("tries", 0) >= 3:
                 self.line(f"🟠 偵測到假滿（{why}），但今天 3 次藍牙寫入都沒成功（可能手機 JK App 正連著電池）。"
                           "可以用 JK App 手動對任一組重新寫入容量 340 Ah。\n最後訊息：" + out.strip()[-200:])
 
