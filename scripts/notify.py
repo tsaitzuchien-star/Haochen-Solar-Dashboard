@@ -73,10 +73,17 @@ def yesterday_review(now):
     if row.empty:
         return ""
     r = row.iloc[0]
-    txt = f"\n📊 昨天發電 {r['pv']:.1f} 度"
+    # 電池滿了、家裡用不完被限發的部分也算進「可發電量」，才能跟預測比 (預測的是板子發得出來的量)
+    lost = float(r["lost"]) if pd.notna(r.get("lost")) and str(r.get("lost")).strip() != "" else 0.0
+    pot = r["pv"] + lost
     p = fc[fc["date"] == y]
-    if len(p) and r["pv"] > 0:
-        txt += f"（預測 {p.iloc[0]['pv']:.1f}，誤差 {abs(p.iloc[0]['pv'] / r['pv'] - 1) * 100:.0f}%）"
+    err = (f"，預測 {p.iloc[0]['pv']:.1f}，誤差 {abs(p.iloc[0]['pv'] / pot - 1) * 100:.0f}%"
+           if len(p) and pot > 0 else "")
+    if lost >= 0.5:
+        txt = (f"\n📊 昨天可發電 {pot:.1f} 度{err}\n"
+               f"（實際用到 {r['pv']:.1f} 度，電池滿了、家裡用不完被限發 {lost:.1f} 度）")
+    else:
+        txt = f"\n📊 昨天發電 {r['pv']:.1f} 度" + (f"（{err[1:]}）" if err else "")
     # 省下的錢：本月至今的累進電費省下金額 ÷ 本月太陽能供應的度數 = 每度省多少，再乘上昨天太陽能供應的度數
     m = daily[(daily["source"] != "plant") & (daily["date"].dt.to_period("M") == y.to_period("M")) & (daily["date"] <= y)]
     own = m["load"].sum() - m["buy"].sum()
