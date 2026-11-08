@@ -973,6 +973,18 @@ with tab_pi:
           ⏱️ 已連續運轉 {up_txt}<br>⚡ 電壓不足 / 降速紀錄：{thr_txt}
           <div style="color:#64748B; font-size:12px; margin-top:4px;">Raspberry Pi 5 · 每分鐘讀取逆變器、4 組電池與儲能室溫濕度並上傳；CPU 80°C 以上會用 LINE 通知</div>
         </div>""", unsafe_allow_html=True)
+        # 診斷資訊 (只有家人連結看得到)：程式版本、自動更新、最近的紀錄，出門在外截圖給 Claude 就能除錯，不用 SSH
+        if home_authed():
+            import html as _h
+            hm = (live or {}).get("home") or {}
+            logs = pi.get("log") or []
+            st.markdown(f"""<div class="card" style="color:#CBD5E1; font-size:13px; line-height:1.7; margin-top:10px;">
+              <b>🩺 診斷資訊</b>（只有家人連結看得到）<br>
+              程式版本 <code>{_h.escape(str(pi.get("commit") or "—"))}</code>　自動更新 {_h.escape(str(pi.get("auto_update") or "還沒啟用"))}<br>
+              小米雲端 {_h.escape(str(hm.get("login") or "—"))}　家電 {len(hm.get("devices") or [])} 台
+              <div style="font-family:monospace; font-size:12px; color:#94A3B8; background:#0F172A; border-radius:8px;
+                   padding:8px 10px; margin-top:6px; white-space:pre-wrap; max-height:340px; overflow:auto;">{
+                _h.escape(chr(10).join(logs[-25:])) or "（還沒有紀錄）"}</div></div>""", unsafe_allow_html=True)
 
 with tab_bat:
     # 4 組 JK BMS 電池：樹莓派即時資料 (15 分鐘內) 優先，否則用人工旁聽的快照 (data/bms_snapshot.json)

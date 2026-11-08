@@ -353,11 +353,52 @@ def pi_stats():
     return out
 
 
+# ---------------- 診斷紀錄：把 print 的重要訊息留最近 40 行，跟著上傳 (網站「樹莓派」分頁、家人連結才看得到) ----------------
+LOG_TAIL = []
+AUTO_UPDATE_LOG = os.path.join(HERE, "auto_update.log")
+
+
+class _Tee:
+    def __init__(self, out):
+        self.out, self.buf = out, ""
+
+    def write(self, s):
+        self.out.write(s)
+        self.buf += s
+        while "\n" in self.buf:
+            line, self.buf = self.buf.split("\n", 1)
+            # 每分鐘一行的例行「上傳✅」不記，只留其他訊息 (錯誤、自動控制、登入…)
+            if line.strip() and not (len(line) > 9 and line[2] == ":" and " 上傳✅" in line[:16]):
+                LOG_TAIL.append(f"{dt.datetime.now(TW):%m/%d %H:%M} {line.strip()[:200]}")
+                del LOG_TAIL[:-40]
+        return len(s)
+
+    def flush(self):
+        self.out.flush()
+
+
+def _version():
+    try:
+        return subprocess.run(["git", "-C", ROOT, "log", "-1", "--format=%h %cd %s", "--date=format:%m/%d %H:%M"],
+                              capture_output=True, text=True, timeout=5).stdout.strip()[:80]
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+VERSION = None
+
+
 def snapshot(invd, listener):
     packs = [{k: v for k, v in p.items() if k != "t"} for p in sorted(listener.packs.values(), key=lambda p: p["addr"])
              if time.time() - p["t"] < 600]
     return {"time": dt.datetime.now(TW).isoformat(timespec="seconds"), "source": "樹莓派即時讀取",
-            "inverter": invd, "packs": packs, "settings": listener.settings or {}, "pi": pi_stats()}
+            "inverter": invd, "packs": packs, "settings": listener.settings or {}, "pi": pi_diag(pi_stats())}
+
+
+def pi_diag(stats):
+    """樹莓派狀態再加上程式版本、自動更新紀錄、最近的重要訊息。"""
+    au = (_read(AUTO_UPDATE_LOG, "") or "").strip().splitlines()
+    return stats | {"commit": VERSION, "auto_update": au[-1][:120] if au else None, "log": list(LOG_TAIL)}
 
 
 _upload_wait_until = 0.0
@@ -1015,6 +1056,11 @@ def main():
     a = ap.parse_args()
     if a.setup:
         return setup()
+    global VERSION
+    VERSION = _version()
+    if not a.once:
+        sys.stdout = _Tee(sys.stdout)
+        print(f"樹莓派程式啟動，版本 {VERSION}", flush=True)
     # 測試讀一次 (--once) 不需要金鑰，方便先檢查接線
     cfg = load_config() if not (a.once and not os.path.exists(CONFIG)) else {}
     inv_ser, bms_port = detect_ports(cfg)
@@ -1063,7 +1109,8 @@ def main():
             inv_fail_since = inv_fail_since or time.time()
             print("讀不到逆變器，重試中", flush=True)
         snap = snapshot(invd, listener) if listener else {"time": dt.datetime.now(TW).isoformat(timespec="seconds"),
-                                                          "inverter": invd, "packs": [], "settings": {}}
+                                                          "inverter": invd, "packs": [], "settings": {},
+                                                          "pi": pi_diag(pi_stats())}
         alerts = check_alerts(invd, snap["packs"], time.time() - listener.last if listener else 0,
                               time.time() - inv_fail_since if inv_fail_since else 0)
         if a.once:
