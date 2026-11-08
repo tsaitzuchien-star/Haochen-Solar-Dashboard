@@ -72,7 +72,9 @@ def render(live):
     # ---- 冷氣 ----
     if ac:
         on = bool(ac.get("on"))
-        who = "自動開啟" if ac.get("auto_on") else "手動開啟（不會被自動關掉）" if on else "等室溫到門檻會自動開"
+        offm = ac.get("off_manual", True)
+        who = ("自動開啟" if ac.get("auto_on") else ("手動開啟（涼了也會自動關）" if offm else "手動開啟（不會被自動關掉）")
+               if on else "等室溫到門檻會自動開")
         since = ac.get("since")
         since_txt = f" · {datetime.fromtimestamp(since, TW):%m/%d %H:%M} 起" if since and on and ac.get("auto_on") else ""
         fan = {0: "自動", 1: "低", 2: "中", 3: "高"}.get(ac.get("fan"), ac.get("fan"))
@@ -88,16 +90,17 @@ def render(live):
         elif (room is not None and room >= hi) or (cell is not None and cell >= on_cell):
             why = (f"儲能室 {room}°C" if room is not None and room >= hi else f"電池 {cell}°C") + \
                   ("，已超過門檻，冷氣運轉中降溫。" if on else "，已超過門檻，樹莓派會在 1 分鐘內開冷氣。")
-        elif on and ac.get("auto_on"):
-            why = (f"儲能室 {room}°C，降到 {lo:g}°C 以下並維持 10 分鐘後會自動關機。" if room is not None
-                   else "冷氣是自動開的，但目前收不到儲能室溫度，要等溫濕度計恢復才會判斷關機。")
+        elif on and (ac.get("auto_on") or offm):
+            why = (f"儲能室 {room}°C，" + ("已在 " if room <= lo else "降到 ") + f"{lo:g}°C 以下" +
+                   ("，維持 10 分鐘就會自動關機。" if room <= lo else "並維持 10 分鐘後會自動關機。") if room is not None
+                   else "目前收不到儲能室溫度，要等溫濕度計恢復才會判斷關機。")
         elif on:
             why = ("冷氣是手動開的，自動控制不會關它；" +
                    (f"儲能室 {room}°C。" if room is not None else "而且目前收不到儲能室溫濕度計的資料。"))
         else:
             why = f"儲能室 {room}°C，在 {hi:g}°C 以下，不需要開冷氣。" if room is not None else "目前不需要開冷氣。"
         rules = (f'<div class="rules"><span>❄️ 室溫 ≥ {hi:g}°C 或電池 ≥ {on_cell:g}°C → 開（Cool {ac.get("target", 25):g}°C）</span>'
-                 f'<span>✅ 自動開的冷氣，室溫 ≤ {lo:g}°C 持續 10 分鐘 → 關</span>'
+                 f'<span>✅ {"不管誰開的冷氣" if offm else "自動開的冷氣"}，室溫 ≤ {lo:g}°C 持續 10 分鐘 → 關</span>'
                  f'<span>📱 每次開關都用 LINE 通知</span></div>')
         ac_html = (f'<div class="card"><h3>❄️ 太陽能機房冷氣 <span class="muted">Panasonic · 小米冷氣伴侶</span></h3>'
                    f'{state}<div class="ai">🤖 {why}</div>{rules}</div>')
