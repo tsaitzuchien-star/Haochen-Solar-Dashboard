@@ -105,16 +105,18 @@ def render(live):
     hw = c.get("heater")
     if hw:
         on = bool(hw.get("on"))
-        mode = {"surplus": "電池滿了、自動用多的太陽能加熱", "fallback": "陰天保底加熱（到 16:30）"}.get(hw.get("mode"))
+        mode = {"surplus": "電池滿了、自動用多的太陽能加熱", "fallback": "陰天保底加熱 1 小時（到 16:00）"}.get(hw.get("mode"))
+        heating = hw.get("heating")
         who = mode if hw.get("auto_on") and mode else "手動或排程開啟（不會被自動關掉）" if on else "等電池充滿會自動開"
         mins = hw.get("minutes_today", 0)
         hw_html = (f'<div class="card" style="margin-top:12px"><h3>🔥 儲熱電熱水器 <span class="muted">4 kW · eWeLink 開關</span></h3>'
                    f'<div class="acstate {"on" if on else "off"}"><div class="fanicon heat{" glow" if on else ""}">♨</div>'
-                   f'<div><div class="acbig">{"加熱中" if on else "關閉"}</div>'
-                   f'<div class="ts">{who}<br>今天已加熱 {mins:.0f} 分鐘（約 {mins / 60 * 4:.1f} 度電）</div></div></div>'
+                   f'<div><div class="acbig">{("加熱中" if heating else "保溫中") if on else "關閉"}</div>'
+                   f'<div class="ts">{who}{"（水已經熱了，溫控自動斷電）" if on and heating is False else ""}'
+                   f'<br>今天已加熱 {mins:.0f} 分鐘（約 {mins / 60 * 4:.1f} 度電 · 約 60 分鐘可從冷水加熱滿）</div></div></div>'
                    f'<div class="rules"><span>🔥 9:00–15:00 電池 ≥ 98% 且有太陽 → 開（把會被限發的電存成熱水）</span>'
                    f'<span>✅ 電池放電 > 1.5 kW 持續 5 分鐘或電池 < 90% → 關</span>'
-                   f'<span>🌧️ 15:00 時今天加熱不到 60 分鐘 → 保底開到 16:30</span></div></div>')
+                   f'<span>🌧️ 15:00 時今天加熱不到 50 分鐘 → 保底加熱 1 小時到 16:00</span></div></div>')
     else:
         hw_html = ""
 

@@ -503,15 +503,17 @@ _hw_fresh = _hw and _hw.get("on") is not None and \
 if _hw_fresh:
     _m, _hm = _hw.get("minutes_today", 0), now_tw.hour + now_tw.minute / 60
     if _hw["on"]:
-        _txt = {"surplus": "🔥 加熱中：電池滿了，自動用多的太陽能加熱", "fallback": "🔥 陰天保底加熱中，16:30 自動關"}.get(
-            _hw.get("mode") if _hw.get("auto_on") else None, "🔥 加熱中（手動或排程開啟）")
+        _txt = {"surplus": "🔥 開啟：電池滿了，自動用多的太陽能加熱", "fallback": "🔥 陰天保底加熱中，16:00 自動關"}.get(
+            _hw.get("mode") if _hw.get("auto_on") else None, "🔥 開啟（手動或排程）")
+        if _hw.get("heating") is False:
+            _txt += "，水已經熱了（保溫中）"
         _c = "#F97316"
     elif _hm < 15 and _hm >= 9:
         _txt, _c = "⚪ 待命：電池到 98% 且有太陽時會自動開", "#64748B"
     elif 15 <= _hm < 16.5:
-        _txt, _c = ("✅ 今天已經加熱夠了" if _m >= 60 else "⚪ 待命"), "#34D399" if _m >= 60 else "#64748B"
+        _txt, _c = ("✅ 今天已經加熱夠了" if _m >= 50 else "⚪ 待命"), "#34D399" if _m >= 50 else "#64748B"
     else:
-        _txt, _c = "⚪ 關閉：明天 9:00 起有多的太陽能就自動加熱（陰天 15:00 保底）", "#64748B"
+        _txt, _c = "⚪ 關閉：明天 9:00 起有多的太陽能就自動加熱（陰天 15:00 保底 1 小時）", "#64748B"
     st.markdown(f'<div style="border:1px solid {_c}55; background:{_c}14; border-radius:10px; padding:8px 14px; margin:0 0 10px; '
                 f'font-size:14px; color:#E2E8F0;">♨️ <b>熱水器</b> {_txt} · 今天已加熱 {_m:.0f} 分鐘'
                 f'<span style="color:#64748B; font-size:12px;">（樹莓派自動控制）</span></div>', unsafe_allow_html=True)

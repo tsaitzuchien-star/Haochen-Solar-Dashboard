@@ -743,15 +743,17 @@ HEATER_STATE = os.path.join(HERE, "heater_state.json")
 class HeaterAuto:
     """熱水器 (eWeLink 開關) 自動控制：用掉電池滿了之後會被限發浪費的太陽能。
     開：9:00–15:00、逆變器 SOC ≥ 98%、有太陽 (組串電壓 ≥ 300 V)、熱水器關著、距離上次自動關機 ≥ 30 分鐘。
-    關 (只關自動開的)：電池放電 > 1.5 kW 持續 5 分鐘，或 SOC < 90%，或過了 16:30。
-    保底：15:00–16:30 之間，如果今天熱水器加熱還不到 60 分鐘 (不論誰開的)，強制開到 16:30，確保晚上有熱水。"""
+    關 (只關自動開的)：電池放電 > 1.5 kW 持續 5 分鐘，或 SOC < 90%，或過了保底結束時間。
+    「真的在加熱」= 開關開著而且家裡用電 ≥ 3.2 kW (4 kW 熱水器 + 家用)；水熱了溫控會自己斷電，用電就掉下來 (保溫中)。
+    這台熱水器約 1 小時就能從冷水加熱完畢。
+    保底：15:00 時今天「真的加熱」不到 50 分鐘 (不論誰開的)，強制開 1 小時到 16:00，確保晚上有熱水。"""
     ON_SOC, OFF_SOC, OFF_DIS_KW = 98, 90, 1.5
-    MIN_MINUTES = 60
+    MIN_MINUTES, HEAT_LOAD_KW, FALLBACK_END = 50, 3.2, 16.0
 
     def __init__(self, cfg):
         self.cfg = cfg
         self.enabled = bool(cfg.get("heater_auto", True)) and os.path.exists(os.path.join(ROOT, "tools", "heater_config.json"))
-        self.on, self.status_t, self.dis_since, self.last_tick = None, 0, None, time.time()
+        self.on, self.status_t, self.dis_since, self.last_tick, self.heating = None, 0, None, time.time(), False
         try:
             with open(HEATER_STATE) as f:
                 self.st = json.load(f)
@@ -790,7 +792,7 @@ class HeaterAuto:
             return False
 
     def summary(self):
-        return {"on": self.on, "auto_on": bool(self.st.get("auto_on")), "mode": self.st.get("mode"),
+        return {"on": self.on, "heating": self.heating, "auto_on": bool(self.st.get("auto_on")), "mode": self.st.get("mode"),
                 "minutes_today": round(self.st.get("minutes", 0)), "enabled": self.enabled}
 
     def tick(self, invd):
@@ -804,7 +806,9 @@ class HeaterAuto:
         on = self.read()
         if on is None:
             return
-        if on:                                        # 今天加熱了多久 (不論誰開的)
+        load_kw = (invd.get("load_w") or 0) / 1000 if invd else 0
+        self.heating = bool(on and load_kw >= self.HEAT_LOAD_KW)
+        if self.heating:                              # 今天真的加熱了多久 (不論誰開的；保溫斷電時不算)
             self.st["minutes"] = self.st.get("minutes", 0) + min(now - self.last_tick, 120) / 60
         self.last_tick = now
         hm = now_dt.hour + now_dt.minute / 60
@@ -812,11 +816,11 @@ class HeaterAuto:
         dis_kw = max(invd.get("dis_w", 0), 0) / 1000 if invd else 0
         sun = invd and max(invd["pv1"]["v"], invd["pv3"]["v"]) >= 300
         # 保底：15:00–16:30 加熱不到 60 分鐘就強制開
-        if 15 <= hm < 16.5 and not on and self.st["minutes"] < self.MIN_MINUTES and not self.st.get("fallback_done"):
+        if 15 <= hm < self.FALLBACK_END and not on and self.st["minutes"] < self.MIN_MINUTES and not self.st.get("fallback_done"):
             self.st["fallback_done"] = True           # 一天只保底一次 (中途被手動關掉就不再開)
             if self.switch(True):
                 self.st.update(auto_on=True, mode="fallback", changed=now)
-                self.line(f"🔥 今天熱水器只加熱了 {self.st['minutes']:.0f} 分鐘（陰天電池沒充滿），保底開到 16:30，確保晚上有熱水。")
+                self.line(f"🔥 今天熱水器只加熱了 {self.st['minutes']:.0f} 分鐘（陰天電池沒充滿），保底加熱 1 小時到 16:00，確保晚上有熱水。")
             self.save()
             return
         if not on:
@@ -835,7 +839,9 @@ class HeaterAuto:
         # 自動開的：該關了嗎
         self.dis_since = (self.dis_since or now) if dis_kw > self.OFF_DIS_KW else None
         why = None
-        if hm >= 16.5:
+        if hm >= self.FALLBACK_END and self.st.get("mode") == "fallback":
+            why = "保底加熱 1 小時完成"
+        elif hm >= 16.5:
             why = "已經 16:30"
         elif self.st.get("mode") == "surplus" and soc is not None and soc < self.OFF_SOC:
             why = f"電池降到 {soc}%"
