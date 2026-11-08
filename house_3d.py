@@ -423,7 +423,9 @@ function reg(id, f, anchor, picks, extra = {}) {
   const el = document.createElement('div');
   const cls = kind === 'ac' ? 'ac' : kind === 'heater' ? 'heat' : '';
   el.className = `tag ${cls} ${s.st === 'on' ? 'on' : ['off', 'locked'].includes(s.st) ? '' : 'gray'}`;
-  el.textContent = s.st === 'on' ? `${s.n}${s.t ? ' · ' + s.t : ''}` : `${s.n} · ${ST_TXT[s.st] || s.st}`;
+  el.dataset.full = s.st === 'on' ? `${s.n}${s.t ? ' · ' + s.t : ''}` : `${s.n} · ${ST_TXT[s.st] || s.st}`;
+  el.dataset.short = s.n;
+  el.textContent = el.dataset.full;
   const tag = new CSS2DObject(el); tag.position.copy(anchor); floors[f].g.add(tag);
   const d = { id, f, s, kind, tag, el, on: s.st === 'on', tick: null, ...extra };
   for (const p of picks) p.traverse(o => { o.userData.dev = id; });
@@ -717,6 +719,7 @@ function updateTags() {
   for (const d of Object.values(devs)) {
     // 全部：只標開著的 (手機太擠就不標，看下方清單)；單一樓層：只標這一層，關著的也標
     d.tag.visible = focus ? (focus === d.f && d.s.st !== 'locked') : (d.on && !NARROW);
+    d.el.textContent = focus ? d.el.dataset.full : d.el.dataset.short;
   }
   for (const fl of Object.values(floors)) {
     fl.roomLabels.forEach(l => { l.visible = focus === fl.f; });
@@ -735,7 +738,7 @@ function select(id) {
   if (s.st === 'missing') extra = '<div class="m">米家裡沒有找到名稱符合的裝置（名稱可能不一樣，在樹莓派執行 tools/mi_cloud.py list 查看）</div>';
   if (s.sw && s.sw.length > 1) extra += `<div class="m">各路開關：${s.sw.map((v, i) => `${i + 1} ${v ? '開' : '關'}`).join('、')}</div>`;
   ib.innerHTML = `<b>${esc(s.n)}</b><div class="m">${d.f}F${s.r ? ' · ' + esc(s.r) : ''}</div>` +
-    `<div>${ST_TXT[s.st] || esc(s.st)}${s.t ? ' · ' + esc(s.t) : ''}</div>${extra}`;
+    `<div>${ST_TXT[s.st] || esc(s.st)}${s.t ? ' · ' + esc(s.t) : ''}</div>${s.g ? `<div class="m">${esc(s.g)}</div>` : ''}${extra}`;
   info.style.display = 'block';
   d.tag.visible = true;
 }

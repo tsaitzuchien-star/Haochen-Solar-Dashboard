@@ -393,8 +393,9 @@ def main():
         label = {s[0]: s[2] for s in home_map.SLOTS}
         where = {}
         for sid, d in got.items():                   # 多鍵開關的每一路是複製出來的，用名稱 + 房間找回原本那台
-            key = (d.get("t", "").split("」")[0].lstrip("「") if "」第" in d.get("t", "") else d.get("n"), d.get("r"))
-            where.setdefault(key, []).append(label[sid] + (f"（第 {d['t'].split('第 ')[1]}）" if "」第" in d.get("t", "") else ""))
+            g = d.get("g") or ""
+            key = (g.split("「")[1].split("」")[0] if "」第" in g else d.get("n"), d.get("r"))
+            where.setdefault(key, []).append(label[sid] + (f"（第 {g.split('第 ')[1]}）" if "」第" in g else ""))
         print(f"伺服器 {mc.s['server']}：{len(recs)} 台\n")
         for d in sorted(recs, key=lambda d: (d["r"] or "", d["n"] or "")):
             to = where.get((d["n"], d["r"]))
