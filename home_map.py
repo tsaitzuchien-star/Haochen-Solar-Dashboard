@@ -91,6 +91,7 @@ def is_ac(d):
 HIDE = ["網關", "溫濕度", "WRITING"]                  # 不列在「其他裝置」(網關、藍牙溫濕度計另外顯示)
 # 這些型號完全不顯示：網關、溫濕度計 (另外顯示)、無線按鈕 (lumi.remote，本身沒有開關狀態)、手寫板、已拆掉的開窗器
 HIDE_MODELS = ["gateway", "sensor_ht", ".remote.", "jiqid.", "wopener"]
+HIDE_NAMES = ["埔里"]                                  # 不在這棟房子的裝置 (爸媽家的掃地機)
 
 
 def _hit(text, rules, ex=()):
@@ -99,7 +100,8 @@ def _hit(text, rules, ex=()):
 
 def match(devices):
     """回傳 ({slot_id: device}, [沒對到的裝置])；每台裝置只對一個位置，依 SLOTS 順序先比名稱、再比名稱 + 房間。"""
-    left = [d for d in devices or [] if not any(m in str(d.get("m") or "").lower() for m in HIDE_MODELS)]
+    left = [d for d in devices or [] if not any(m in str(d.get("m") or "").lower() for m in HIDE_MODELS)
+            and not any(n in (d.get("n") or "") for n in HIDE_NAMES)]
     got = {}
     for rules, ex, ids in GANGS:
         for d in left:

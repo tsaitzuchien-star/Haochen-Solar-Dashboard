@@ -31,7 +31,7 @@ ACCOUNT = "https://account.xiaomi.com"
 # 3D 圖會用到的服務 (依優先順序決定裝置類型) 與屬性；其他 (電量、指示燈、童鎖…) 不讀
 SERVICES = ["air-conditioner", "ir-aircondition-control", "water-heater", "heater", "light", "curtain",
             "window-opener", "motor-controller", "garage-door", "door", "dishwasher", "washer", "speaker",
-            "play-control", "television", "vacuum", "fan", "air-purifier", "switch", "outlet", "plug"]
+            "play-control", "television", "fan", "air-purifier", "switch", "outlet", "plug"]
 PROPS = ["on", "brightness", "mode", "target-temperature", "status", "current-position", "target-position",
          "playing-state", "left-time", "fault"]
 IDLE = {"idle", "off", "standby", "sleep", "stop", "stopped", "close", "closed", "pause", "paused", "complete",
