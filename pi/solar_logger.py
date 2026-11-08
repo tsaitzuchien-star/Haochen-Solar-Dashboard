@@ -614,17 +614,17 @@ AC_STATE = os.path.join(HERE, "ac_state.json")
 
 class AcAuto:
     """儲能室太熱就開冷氣、降溫後關掉。
-    開：室溫 ≥ ac_on_room (預設 30°C)，或電芯 ≥ ac_on_cell (預設 35°C)。開之前先切 Cool、設定 ac_target (預設 27°C)。
-    關：只關「自動開的」那一次 (你自己用米家開的不會被關掉)；室溫 ≤ ac_off_room (預設 28°C) 持續 10 分鐘、
+    開：室溫 ≥ ac_on_room (預設 29°C)，或電芯 ≥ ac_on_cell (預設 35°C)。開之前先切 Cool、設定 ac_target (預設 25°C，要低於關機溫度才降得下來)。
+    關：只關「自動開的」那一次 (你自己用米家開的不會被關掉)；室溫 ≤ ac_off_room (預設 26.5°C) 持續 10 分鐘、
         電芯 < 32°C、而且距離自動開已經 20 分鐘以上。
     開了 20 分鐘室溫沒有下降 → 再送一次開 + LINE 提醒 (紅外線是單向的，可能沒被冷氣收到)。"""
 
     def __init__(self, cfg, thermo):
         self.cfg, self.thermo = cfg, thermo
-        self.on_room = float(cfg.get("ac_on_room", 30))
-        self.off_room = float(cfg.get("ac_off_room", 28))
+        self.on_room = float(cfg.get("ac_on_room", 29))
+        self.off_room = float(cfg.get("ac_off_room", 26.5))
         self.on_cell = float(cfg.get("ac_on_cell", 35))
-        self.target = float(cfg.get("ac_target", 27))
+        self.target = float(cfg.get("ac_target", 25))
         self.enabled = bool(cfg.get("ac_auto", True) and cfg.get("ac", {}).get("token"))
         self.ac, self.status, self.status_t, self.cool_since = None, {}, 0, None
         try:
