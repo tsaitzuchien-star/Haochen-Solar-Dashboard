@@ -435,6 +435,7 @@ const dimmed = s => !s || !['on', 'off'].includes(s.st);
 
 function light(id, f, x, z, roomName, { r = 1.3, y = CEIL - 0.03 } = {}) {
   const g = floors[f].g, s = D.slots[id];
+  if (s && s.st === 'hide') return null;
   const on = s && s.st === 'on';
   const fix = cyl(g, 0.2, 0.22, 0.05, std(dimmed(s) ? '#64748B' : '#F1F5F9', { emissive: '#FFD58A', emissiveIntensity: on ? 2.4 : 0 }), x, y, z, 24);
   if (on) {

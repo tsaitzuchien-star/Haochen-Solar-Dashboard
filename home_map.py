@@ -21,8 +21,8 @@ SLOTS = [
     ("f2_bed_indirect", 2, "主臥間接照明", "light", [["間接"], ["2樓", "2F", "房間", "臥"]], ["客廳"]),
     ("f1_indirect", 1, "客廳間接照明", "light", [["間接"]], ["2樓", "2F", "3樓", "3F"]),
     ("f1_kitchen", 1, "廚房燈", "light", [["廚房"], ["燈"]], []),
-    ("f1_wc_back", 1, "1 樓廁所燈 (後面)", "light", [["後"], ["廁所", "浴室"]], []),
     ("f1_laundry", 1, "洗衣間燈", "light", [["洗衣"], ["燈"]], []),
+    ("f1_wc_back", 1, "後面廁所燈", "light", None, []),                 # 只在 ALT 比對 (見下面)
     ("f2_wc", 2, "主臥廁所燈", "light", [["2樓", "2F", "主臥"], ["廁所", "浴室"]], []),
     ("f1_wc", 1, "1 樓廁所燈", "light", [["廁所", "浴室"]], ["2樓", "3樓", "2F", "3F", "後"]),
     ("f1_lamp_chen", 1, "宸宸檯燈", "lamp", [["宸宸"]], []),
@@ -40,6 +40,12 @@ SLOTS = [
     ("f2_speaker", 2, "主臥小愛同學", "speaker", [["小愛", "音箱"]], ["客廳", "1樓", "1F"]),
     ("f3_bed_ac", 3, "3 樓房間冷氣", "ac", [["3樓", "3F"], ["房間", "臥"], AC_KW], []),
     ("f3_av_ac", 3, "3 樓視聽室冷氣", "ac", [["視聽", "影音"], AC_KW], []),
+]
+# 第二輪才比的規則 (依順序)：1 樓只有洗衣間旁那一間廁所。
+# 米家裡沒有「洗衣間燈」時，「後面廁所燈」其實就是洗衣間那盞 → 放到洗衣間；有「洗衣間燈」時才當成廁所的第二盞燈。
+ALT = [
+    ("f1_laundry", [["後面", "後"], ["廁所", "浴室"]], ["2樓", "3樓", "2F", "3F"]),
+    ("f1_wc_back", [["後面", "後"], ["廁所", "浴室"]], ["2樓", "3樓", "2F", "3F"]),
 ]
 # 不在米家 (資料從樹莓派的冷氣 / 熱水器自動控制來)，或還沒聯網的
 EXTRA = [
@@ -70,7 +76,7 @@ def match(devices):
     dup = {n for n in names if names.count(n) > 1}       # 同名的 (例如兩個「間接照明」) 只能靠房間分辨
     for use_room in (False, True):
         for sid, _f, _l, _k, rules, ex in SLOTS:
-            if sid in got:
+            if sid in got or rules is None:
                 continue
             for d in left:
                 if not use_room and norm(d.get("n")) in dup:
@@ -80,6 +86,14 @@ def match(devices):
                     got[sid] = d
                     left.remove(d)
                     break
+    for sid, rules, ex in ALT:
+        if sid in got:
+            continue
+        for d in left:
+            if _hit(norm(d.get("n")) + "|" + norm(d.get("r")), rules, ex):
+                got[sid] = d
+                left.remove(d)
+                break
     left = [d for d in left if not _hit(norm(d.get("n")) + "|" + norm(d.get("r")), SOLAR_AC_KW)]
     return got, left
 
@@ -100,7 +114,7 @@ def build(live, authed):
         for sid, _f, label, kind, _r, _e in SLOTS:
             d = got.get(sid)
             if not d:
-                slots[sid] = {"st": "missing", "n": label}
+                slots[sid] = {"st": "hide" if _r is None else "missing", "n": label}   # 只在第二輪比的沒對到就不畫
                 continue
             st = "offline" if d.get("o") is False else "on" if d.get("on") else "off" if d.get("on") is False else "unknown"
             slots[sid] = {"st": st, "n": d.get("n") or label, "r": d.get("r"), "t": d.get("t") or "",
@@ -110,7 +124,7 @@ def build(live, authed):
                   for d in left]
     else:
         for sid, _f, label, _k, _r, _e in SLOTS:
-            slots[sid] = {"st": "locked", "n": label}
+            slots[sid] = {"st": "hide" if _r is None else "locked", "n": label}
     ac = clim.get("ac")
     slots["f4_solar_ac"] = ({"st": "on" if ac.get("on") else "off", "n": "太陽能機房冷氣",
                              "t": _ac_txt(ac.get("mode_name"), ac.get("temp")) + (" · 自動控制" if ac.get("auto_on") else "")}
