@@ -101,7 +101,7 @@ async def scan(seconds=25):
     print(f"共 {len(seen)} 個小米藍牙裝置" if seen else "沒聽到任何小米藍牙廣播")
 
 
-async def read(keys, seconds=60):
+async def read(keys, seconds=300):
     got = {}
 
     def cb(dev, adv):
@@ -118,7 +118,8 @@ async def read(keys, seconds=60):
 
     async with BleakScanner(cb):
         end = time.time() + seconds
-        while time.time() < end and not all("temp" in got.get(m, {}) and "hum" in got.get(m, {}) for m in keys):
+        print(f"聆聽中 (溫度計約每分鐘發一筆，最多等 {seconds // 60} 分鐘) …", flush=True)
+        while time.time() < end and not all("temp" in got.get(m, {}) for m in keys):
             await asyncio.sleep(1)
     for mac in keys:
         v = got.get(mac)
