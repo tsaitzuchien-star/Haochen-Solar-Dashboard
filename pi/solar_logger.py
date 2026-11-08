@@ -604,7 +604,14 @@ class MiThermo(threading.Thread):
             while True:
                 try:
                     async with BleakScanner(cb):
-                        await asyncio.sleep(1800)
+                        # 每 30 分鐘重開一次掃描；超過 10 分鐘一筆都沒收到 (藍牙卡住) 就提早重開
+                        t0 = time.time()
+                        while time.time() - t0 < 1800:
+                            await asyncio.sleep(60)
+                            last = max([d.get("t", 0) for d in self.data.values()] or [0])
+                            if time.time() - max(last, t0) > 600:
+                                print("溫度計 10 分鐘沒有訊號，重新開始藍牙掃描", flush=True)
+                                break
                 except Exception as e:             # noqa: BLE001  藍牙偶爾被佔用：等一下重來
                     print(f"溫度計旁聽錯誤：{e}", flush=True)
                     await asyncio.sleep(30)
@@ -618,8 +625,8 @@ AC_STATE = os.path.join(HERE, "ac_state.json")
 class AcAuto:
     """儲能室太熱就開冷氣、降溫後關掉。
     開：室溫 ≥ ac_on_room (預設 29°C)，或電芯 ≥ ac_on_cell (預設 35°C)。開之前先切 Cool、設定 ac_target (預設 25°C，要低於關機溫度才降得下來)。
-    關：只關「自動開的」那一次 (你自己用米家開的不會被關掉)；室溫 ≤ ac_off_room (預設 26.5°C) 持續 10 分鐘、
-        電芯 < 32°C、而且距離自動開已經 20 分鐘以上。
+    關：不管是自動開還是手動 (米家 / 遙控器) 開的，室溫 ≤ ac_off_room (預設 26.5°C) 持續 10 分鐘、電芯 < 32°C 就關；
+        自動開的另外要開滿 20 分鐘。config.json 設 "ac_off_manual": false 可改回「只關自動開的」。
     開了 20 分鐘室溫沒有下降 → 再送一次開 + LINE 提醒 (紅外線是單向的，可能沒被冷氣收到)。"""
 
     def __init__(self, cfg, thermo):
@@ -629,6 +636,7 @@ class AcAuto:
         self.on_cell = float(cfg.get("ac_on_cell", 35))
         self.target = float(cfg.get("ac_target", 25))
         self.enabled = bool(cfg.get("ac_auto", True) and cfg.get("ac", {}).get("token"))
+        self.off_manual = bool(cfg.get("ac_off_manual", True))
         self.ac, self.status, self.status_t, self.cool_since = None, {}, 0, None
         try:
             with open(AC_STATE) as f:
@@ -679,7 +687,7 @@ class AcAuto:
                        "mode_name": self.mode_name(self.status.get("mode")), "fan": self.status.get("fan"),
                        "since": self.st.get("changed"), "on_room": self.on_room, "off_room": self.off_room,
                        "target": self.target, "on_cell": self.on_cell,
-                       "auto_on": bool(self.st.get("auto_on")), "enabled": self.enabled} if self.status else None}
+                       "auto_on": bool(self.st.get("auto_on")), "enabled": self.enabled, "off_manual": self.off_manual} if self.status else None}
 
     def tick(self, packs):
         if not self.enabled:
@@ -711,10 +719,12 @@ class AcAuto:
                 self.st["changed"] = now
                 self.save()
             return
-        if is_on and self.st.get("auto_on"):
-            on_for = now - self.st.get("changed", now)
+        if is_on and (self.st.get("auto_on") or self.off_manual):
+            # 自動開的要開滿 20 分鐘才關；手動開的只看室溫有沒有降到門檻以下並維持 10 分鐘
+            on_for = now - self.st.get("changed", now) if self.st.get("auto_on") else 1e9
             # 開了 20 分鐘室溫沒降：可能紅外線沒被收到，再送一次並提醒一次
-            if (room is not None and self.st.get("on_room") is not None and on_for >= 1200 and not self.st.get("rechecked")
+            if (self.st.get("auto_on") and room is not None and self.st.get("on_room") is not None and on_for >= 1200
+                    and not self.st.get("rechecked")
                     and room >= self.st["on_room"] - 0.3):
                 try:
                     self.dev().set(on=True)
@@ -727,12 +737,13 @@ class AcAuto:
             self.cool_since = (self.cool_since or now) if cool else None
             if cool and now - self.cool_since >= 600 and on_for >= 1200:
                 try:
+                    was_auto = bool(self.st.get("auto_on"))
                     self.dev().set(on=False)
                     self.st = {"auto_on": False, "changed": now}
                     self.save()
                     self.read_status(force=True)
                     self.cool_since = None
-                    self.line(f"✅ {why}，已降溫，自動關冷氣。")
+                    self.line(f"✅ {why}，已降溫，自動關冷氣{'' if was_auto else '（這次是手動開的）'}。")
                 except Exception as e:             # noqa: BLE001
                     print(f"自動關冷氣失敗：{e}", flush=True)
         elif not is_on and self.st.get("auto_on"):
