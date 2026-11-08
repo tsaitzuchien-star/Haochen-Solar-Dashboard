@@ -400,8 +400,8 @@ def main():
             to = where.get((d["n"], d["r"]))
             sw = f"  |  {len(d['sw'])} 路開關" if d.get("sw") else ""
             print(f"{'🟢' if d['o'] else '⚫'} {d['n']}  |  房間 {d['r'] or '—'}  |  {d['m']}{sw}  →  "
-                  f"{('3D：' + '、'.join(to)) if to else '（沒有對應位置，會列在「其他裝置」）'}")
-        miss = [label[s[0]] for s in home_map.SLOTS if s[0] not in got]
+                  f"{('3D：' + '、'.join(to)) if to else '（列在網站「其他裝置」）' if any(d is x for x in _left) else '（不顯示：網關、溫濕度計或機房冷氣另外顯示）'}")
+        miss = [label[s[0]] for s in home_map.SLOTS if s[0] not in got and s[4] is not None]
         if miss:
             print("\n3D 圖上還沒對到裝置的位置：" + "、".join(miss))
     elif cmd == "status":
