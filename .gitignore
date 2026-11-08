@@ -14,3 +14,7 @@ pi/ac_state.json
 pi/ac_spec.json
 tools/heater_config.json
 pi/heater_state.json
+pi/mi_cloud.json
+pi/miot_specs.json
+pi/home_key.json
+pi/home_state.json

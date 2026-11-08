@@ -854,6 +854,127 @@ class HeaterAuto:
         self.save()
 
 
+HOME_KEY = os.path.join(HERE, "home_key.json")
+HOME_STATE = os.path.join(HERE, "home_state.json")
+
+
+class HomeWatch(threading.Thread):
+    """「澔宸 AI 智慧小窩」3D 圖的資料：背景每 60 秒用小米雲端讀全部米家裝置，每 5 分鐘讀 eWeLink 裝置。
+    結果跟著每分鐘的上傳一起送到 Gist (snap["home"])，不會增加上傳次數。只讀，不控制。
+    - 小米需要登入時：自動用 LINE 傳 QR code 連結 (米家 App 掃一下就好；12 小時內最多傳一次)。
+    - 網站家人專用連結：第一次執行時產生隨機鑰匙 (pi/home_key.json，不上傳)，用 LINE 傳連結；
+      Gist 只放鑰匙的 SHA-256，網站比對後才顯示燈、鐵捲門等「看得出有沒有人在家」的裝置。"""
+
+    def __init__(self, cfg):
+        super().__init__(daemon=True)
+        self.cfg = cfg
+        self.devices, self.ew, self.t, self.ew_t = None, [], 0, 0
+        self.login = "starting"
+        self.key_sha = self._key()
+        try:
+            with open(HOME_STATE) as f:
+                self.st = json.load(f)
+        except (OSError, ValueError):
+            self.st = {}
+
+    def _save(self):
+        with open(HOME_STATE, "w") as f:
+            json.dump(self.st, f)
+
+    def _key(self):
+        import hashlib
+        import secrets
+        try:
+            with open(HOME_KEY) as f:
+                k = json.load(f)
+        except (OSError, ValueError):
+            k = {}
+        if not k.get("key"):
+            k = {"key": secrets.token_urlsafe(24), "sent": False}
+        if not k.get("sent"):
+            url = self.cfg.get("site_url", "https://haochen-solar-dashboard.streamlit.app/")
+            if send_line(self.cfg, "🏠 澔宸 AI 智慧小窩 家人專用連結（打開就能看到家裡全部燈與家電的 3D 即時狀態，"
+                                   f"請加入書籤，不要分享給外人）：\n{url}?k={k['key']}"):
+                k["sent"] = True
+        fd = os.open(HOME_KEY, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            json.dump(k, f)
+        return hashlib.sha256(k["key"].encode()).hexdigest()
+
+    def _login(self, mc):
+        if mc.refresh():
+            self.login = "ok"
+            return True
+        self.login = "need"
+        if time.time() - self.st.get("qr_sent", 0) < 12 * 3600:
+            return False
+        q = mc.qr_start()
+        msg = ("🔑 樹莓派需要登入小米帳號，才能在網站 3D 小窩顯示家裡燈與冷氣的狀態（只讀取、不會控制）。\n"
+               f"用電腦打開這個網址會出現 QR code，用米家 App 右上角「+」→「掃一掃」掃描：\n{q['qr']}")
+        if q.get("url"):
+            msg += f"\n\n只有手機的話，直接用手機瀏覽器打開：\n{q['url']}"
+        msg += f"\n\n{q['timeout'] // 60} 分鐘內有效；沒掃到的話 12 小時後會再傳一次。"
+        send_line(self.cfg, msg)
+        self.st["qr_sent"] = time.time()
+        self._save()
+        if mc.qr_wait(q):
+            self.login = "ok"
+            send_line(self.cfg, "✅ 小米帳號登入成功，網站 3D 小窩開始顯示家電狀態（之後會自動續期）。")
+            return True
+        return False
+
+    def _ewelink(self):
+        try:
+            import heater_control as h
+            hc = h.load()
+            things = h.cloud(hc, "GET", "/v2/device/thing", params={"num": 100}).get("thingList", [])
+        except (Exception, SystemExit) as e:          # noqa: BLE001
+            print(f"讀不到 eWeLink 裝置清單：{e}", flush=True)
+            return
+        out = []
+        for t in things:
+            d = t.get("itemData") or {}
+            if not d.get("deviceid") or d.get("deviceid") == hc.get("deviceid"):   # 熱水器另外顯示
+                continue
+            p = d.get("params") or {}
+            sws = [s.get("switch") == "on" for s in p.get("switches") or []]
+            on = (p.get("switch") == "on") if "switch" in p else (any(sws) if sws else None)
+            out.append({"n": d.get("name"), "r": None, "m": "eWeLink", "o": bool(d.get("online")), "k": "switch",
+                        "on": on, "t": "", "src": "ew"} | ({"sw": sws} if len(sws) > 1 else {}))
+        self.ew = out
+
+    def run(self):
+        import mi_cloud
+        mc = mi_cloud.MiCloud()
+        while True:
+            t0 = time.time()
+            try:
+                if not mc.logged_in() and not self._login(mc):
+                    pass
+                else:
+                    self.devices, self.t, self.login = mc.read_states(), time.time(), "ok"
+            except mi_cloud.AuthError as e:
+                print(f"小米雲端：{e}", flush=True)
+                mc.s.pop("service_token", None)
+                try:
+                    self._login(mc)
+                except Exception as e2:               # noqa: BLE001
+                    print(f"小米登入失敗：{e2}", flush=True)
+            except Exception as e:                    # noqa: BLE001  網路偶爾失敗：下一輪再試
+                print(f"讀取米家裝置失敗：{e}", flush=True)
+            time.sleep(max(10, 60 - (time.time() - t0)))
+
+    def ewelink_tick(self):
+        """在主迴圈呼叫 (跟熱水器控制同一個執行緒，避免兩邊同時換 eWeLink 登入憑證)。"""
+        if os.path.exists(os.path.join(ROOT, "tools", "heater_config.json")) and time.time() - self.ew_t > 300:
+            self.ew_t = time.time()
+            self._ewelink()
+
+    def summary(self):
+        return {"key_sha": self.key_sha, "login": self.login, "t": round(self.t) if self.t else None,
+                "devices": (self.devices or []) + self.ew}
+
+
 # ---------------- 主程式 ----------------
 def main():
     ap = argparse.ArgumentParser()
@@ -878,6 +999,9 @@ def main():
         thermo.start()
     acauto = AcAuto(cfg, thermo) if not a.once else None
     heater = HeaterAuto(cfg) if not a.once else None
+    home = HomeWatch(cfg) if not a.once and cfg.get("home_watch", True) else None
+    if home:
+        home.start()
     while True:
         t0 = time.time()
         invd = None
@@ -924,6 +1048,12 @@ def main():
                 snap.setdefault("climate", {})["heater"] = heater.summary()
             except Exception as e:                   # 熱水器控制出錯不能影響記錄與上傳
                 print(f"熱水器自動控制錯誤：{e}", flush=True)
+        if home:
+            try:
+                home.ewelink_tick()
+            except Exception as e:                   # noqa: BLE001
+                print(f"eWeLink 裝置讀取錯誤：{e}", flush=True)
+            snap["home"] = home.summary()
         ok = upload(cfg, snap)
         log_csv(snap)
         notify(cfg, alerts)

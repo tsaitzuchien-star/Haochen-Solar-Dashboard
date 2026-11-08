@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import importlib
 import io
 import json
@@ -16,6 +18,8 @@ from streamlit_autorefresh import st_autorefresh
 import power_flow
 import pv_forecast
 import battery_page
+import home_map
+import house_3d
 import smart_home
 import solar_core
 
@@ -26,6 +30,8 @@ importlib.reload(pv_forecast)
 importlib.reload(solar_core)
 importlib.reload(battery_page)
 importlib.reload(smart_home)
+importlib.reload(home_map)
+importlib.reload(house_3d)
 power_flow_html = power_flow.power_flow_html
 from solar_core import (CAPACITY_KWP, TW_TZ, analyze_curve, grid_buy_kw, grid_rate_kw, rows_to_curve,  # noqa: E402
                         soc_jumps, solar_charge_kw, solar_surplus, sun_shape)
@@ -902,7 +908,25 @@ with st.expander("📥 下載逐 5 分鐘明細（CSV）"):
 st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
 tab_dev, tab_bat, tab_home, tab_pi, tab_trend = st.tabs(["🌡️ 溫度與設備", "🔋 儲能", "🏠 智慧家庭", "🍓 樹莓派", "📊 趨勢"])
 
+def home_authed():
+    """家人專用連結 (?k=…)：樹莓派產生隨機鑰匙並用 LINE 傳連結，Gist 只放 SHA-256；比對通過才顯示燈、鐵捲門等。
+    通過後記在這次瀏覽 (session)，之後網址沒有 k 也維持登入。"""
+    if st.session_state.get("home_ok"):
+        return True
+    k = st.query_params.get("k")
+    want = ((live or {}).get("home") or {}).get("key_sha")
+    if k and want and hmac.compare_digest(hashlib.sha256(k.encode()).hexdigest(), want):
+        st.session_state["home_ok"] = True
+        return True
+    return False
+
+
 with tab_home:
+    _authed = home_authed()
+    components.html(house_3d.render(live, _authed), height=624)
+    _oth = house_3d.others_html(live, _authed)
+    if _oth:
+        st.html(_oth)
     st.html(smart_home.render(live))
 
 with tab_pi:

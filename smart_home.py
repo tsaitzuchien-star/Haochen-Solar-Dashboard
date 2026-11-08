@@ -1,6 +1,7 @@
 """🏠 澔宸智慧 AI 家庭：儲能室環境、戶外溫度、電池溫度與機房冷氣 (樹莓派每分鐘上傳的 climate 欄位)。
 
-只顯示環境與冷氣，不含門、燈、鐵捲門等「看得出家裡有沒有人」的裝置 (網站是公開的)；也不能在網頁上操作。
+這裡只顯示環境與冷氣；燈、鐵捲門等「看得出家裡有沒有人」的裝置在上方 3D 小窩 (house_3d.py)，
+只有用家人專用連結開啟時才會顯示。網頁上不能操作任何裝置。
 資料格式 (live["climate"])：
   {"indoor": {temp, hum, batt, age_s} | None, "outdoor": {...} | None, "cell_max": °C | None,
    "ac": {on, mode, mode_name, temp, fan, auto_on, enabled, since, on_room, off_room, target, on_cell} | None}
@@ -163,7 +164,7 @@ def render(live):
     .sh .warn {{ background:#78350F; color:#FDE68A; border-radius:10px; padding:8px 12px; margin-bottom:10px; font-size:13px; }}
     </style><div class="sh">
     <div class="hero"><b>🏠 澔宸智慧 AI 家庭</b>
-      <span class="muted">樹莓派每分鐘讀取米家溫濕度計（藍牙）、冷氣伴侶（區網）與熱水器開關（eWeLink），自動開關機房冷氣與熱水器 · 只顯示環境資訊，不能在網頁上操作</span></div>
+      <span class="muted">樹莓派每分鐘讀取米家溫濕度計（藍牙）、冷氣伴侶（區網）與熱水器開關（eWeLink），自動開關機房冷氣與熱水器 · 網頁上只能查看，不能操作</span></div>
     {warn}
     <div class="tiles">{"".join(tiles)}</div>
     {ac_html}
