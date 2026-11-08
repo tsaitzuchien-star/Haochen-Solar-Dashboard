@@ -564,6 +564,167 @@ class AutoCalib:
         else:
             self.line(f"ℹ️ 已寫入，但 RS485 沒收到 {self.pack} 的資料，無法確認 SOC 是否重算。{charging}")
 
+# ---------------- 米家溫濕度計 (藍牙旁聽) 與 機房冷氣自動控制 ----------------
+class MiThermo(threading.Thread):
+    """背景一直聽米家溫濕度計的藍牙廣播 (約每分鐘一筆，加密)，保留每顆最新的溫度 / 濕度 / 電量。只接收，不連線。"""
+
+    def __init__(self, keys):
+        super().__init__(daemon=True)
+        self.keys = {k.upper(): v for k, v in keys.items()}
+        self.data = {}
+
+    def latest(self, mac, max_age=900):
+        d = self.data.get((mac or "").upper())
+        return d if d and time.time() - d.get("t", 0) < max_age else None
+
+    def run(self):
+        import asyncio
+        import mi_ble
+        from bleak import BleakScanner
+
+        def cb(dev, adv):
+            mac = dev.address.upper()
+            raw = adv.service_data.get(mi_ble.MI_UUID)
+            if not raw or mac not in self.keys:
+                return
+            try:
+                vals = mi_ble.decode_objects(mi_ble.decrypt(raw, mac, self.keys[mac]))
+            except Exception:                      # noqa: BLE001  沒有內容的訊號、或封包不完整
+                return
+            if vals:
+                d = self.data.setdefault(mac, {})
+                d.update(vals)
+                if "temp" in vals:
+                    d["t"] = time.time()
+
+        async def loop():
+            while True:
+                try:
+                    async with BleakScanner(cb):
+                        await asyncio.sleep(1800)
+                except Exception as e:             # noqa: BLE001  藍牙偶爾被佔用：等一下重來
+                    print(f"溫度計旁聽錯誤：{e}", flush=True)
+                    await asyncio.sleep(30)
+
+        asyncio.run(loop())
+
+
+AC_STATE = os.path.join(HERE, "ac_state.json")
+
+
+class AcAuto:
+    """儲能室太熱就開冷氣、降溫後關掉。
+    開：室溫 ≥ ac_on_room (預設 30°C)，或電芯 ≥ ac_on_cell (預設 35°C)。開之前先切 Cool、設定 ac_target (預設 27°C)。
+    關：只關「自動開的」那一次 (你自己用米家開的不會被關掉)；室溫 ≤ ac_off_room (預設 28°C) 持續 10 分鐘、
+        電芯 < 32°C、而且距離自動開已經 20 分鐘以上。
+    開了 20 分鐘室溫沒有下降 → 再送一次開 + LINE 提醒 (紅外線是單向的，可能沒被冷氣收到)。"""
+
+    def __init__(self, cfg, thermo):
+        self.cfg, self.thermo = cfg, thermo
+        self.on_room = float(cfg.get("ac_on_room", 30))
+        self.off_room = float(cfg.get("ac_off_room", 28))
+        self.on_cell = float(cfg.get("ac_on_cell", 35))
+        self.target = float(cfg.get("ac_target", 27))
+        self.enabled = bool(cfg.get("ac_auto", True) and cfg.get("ac", {}).get("token"))
+        self.ac, self.status, self.status_t, self.cool_since = None, {}, 0, None
+        try:
+            with open(AC_STATE) as f:
+                self.st = json.load(f)
+        except (OSError, ValueError):
+            self.st = {}
+
+    def save(self):
+        with open(AC_STATE, "w") as f:
+            json.dump(self.st, f)
+
+    def dev(self):
+        if self.ac is None:
+            import mi_ac
+            self.ac = mi_ac.Ac(self.cfg)
+        return self.ac
+
+    def read_status(self, force=False):
+        if force or time.time() - self.status_t > 300:
+            try:
+                self.status = self.dev().get()
+                self.status_t = time.time()
+            except Exception as e:                 # noqa: BLE001
+                print(f"讀不到冷氣伴侶：{e}", flush=True)
+        return self.status
+
+    def line(self, text):
+        print(text.splitlines()[0], flush=True)
+        send_line(self.cfg, text + f"\n（樹莓派冷氣自動控制 {dt.datetime.now(TW):%H:%M}）")
+
+    def climate(self, packs):
+        """給網站用的摘要 (一併上傳)。"""
+        ind = self.thermo.latest(self.cfg.get("mi_indoor")) if self.thermo else None
+        out = self.thermo.latest(self.cfg.get("mi_outdoor")) if self.thermo else None
+        cells = [max(p["t1"], p["t2"]) for p in packs] if packs else []
+        pick = lambda d: {k: d.get(k) for k in ("temp", "hum", "batt")} | {"age_s": round(time.time() - d["t"])} if d else None
+        return {"indoor": pick(ind), "outdoor": pick(out), "cell_max": max(cells) if cells else None,
+                "ac": {"on": self.status.get("on"), "mode": self.status.get("mode"), "temp": self.status.get("temp"),
+                       "auto_on": bool(self.st.get("auto_on")), "enabled": self.enabled} if self.status else None}
+
+    def tick(self, packs):
+        if not self.enabled:
+            return
+        ind = self.thermo.latest(self.cfg.get("mi_indoor")) if self.thermo else None
+        room = ind.get("temp") if ind else None
+        cell = max(max(p["t1"], p["t2"]) for p in packs) if packs else None
+        if room is None and cell is None:
+            return
+        st = self.read_status()
+        if not st:
+            return
+        is_on = bool(st.get("on"))
+        hot = (room is not None and room >= self.on_room) or (cell is not None and cell >= self.on_cell)
+        now = time.time()
+        why = f"儲能室 {room if room is not None else '?'}°C、電芯最高 {cell if cell is not None else '?'}°C"
+        if hot and not is_on and now - self.st.get("changed", 0) >= 600:
+            try:
+                ac = self.dev()
+                mv = ac.mode_value("cool")
+                ac.set(**({"mode": mv} if mv is not None else {}), temp=self.target)
+                ac.set(on=True)
+                self.st.update(auto_on=True, changed=now, on_room=room)
+                self.save()
+                self.read_status(force=True)
+                self.line(f"❄️ {why}，已自動開冷氣（Cool {self.target:.0f}°C）。")
+            except Exception as e:                 # noqa: BLE001
+                self.line(f"🟠 {why}，想自動開冷氣但冷氣伴侶沒有回應：{e}")
+                self.st["changed"] = now
+                self.save()
+            return
+        if is_on and self.st.get("auto_on"):
+            on_for = now - self.st.get("changed", now)
+            # 開了 20 分鐘室溫沒降：可能紅外線沒被收到，再送一次並提醒一次
+            if (room is not None and self.st.get("on_room") is not None and on_for >= 1200 and not self.st.get("rechecked")
+                    and room >= self.st["on_room"] - 0.3):
+                try:
+                    self.dev().set(on=True)
+                except Exception:                  # noqa: BLE001
+                    pass
+                self.st["rechecked"] = True
+                self.save()
+                self.line(f"🟠 冷氣自動開了 20 分鐘，儲能室還是 {room}°C，已再送一次開機指令，請確認冷氣有沒有在運轉。")
+            cool = room is not None and room <= self.off_room and (cell is None or cell < self.on_cell - 3)
+            self.cool_since = (self.cool_since or now) if cool else None
+            if cool and now - self.cool_since >= 600 and on_for >= 1200:
+                try:
+                    self.dev().set(on=False)
+                    self.st = {"auto_on": False, "changed": now}
+                    self.save()
+                    self.read_status(force=True)
+                    self.cool_since = None
+                    self.line(f"✅ {why}，已降溫，自動關冷氣。")
+                except Exception as e:             # noqa: BLE001
+                    print(f"自動關冷氣失敗：{e}", flush=True)
+        elif not is_on and self.st.get("auto_on"):
+            self.st = {"auto_on": False, "changed": now}     # 有人自己關掉了：不再當成自動開的
+            self.save()
+
+
 # ---------------- 主程式 ----------------
 def main():
     ap = argparse.ArgumentParser()
@@ -583,6 +744,10 @@ def main():
         time.sleep(15)                                  # 等 BMS 輪完一圈
     inv_fail_since = None
     calib = AutoCalib(cfg, listener) if not a.once else None
+    thermo = MiThermo(cfg["mi_keys"]) if cfg.get("mi_keys") and not a.once else None
+    if thermo:
+        thermo.start()
+    acauto = AcAuto(cfg, thermo) if not a.once else None
     while True:
         t0 = time.time()
         invd = None
@@ -617,6 +782,12 @@ def main():
             print(json.dumps(snap, ensure_ascii=False, indent=1)[:3000])
             print("警示：", alerts or "無")
             return
+        if acauto:
+            try:
+                acauto.tick(snap["packs"])
+                snap["climate"] = acauto.climate(snap["packs"])
+            except Exception as e:                   # 冷氣控制出錯不能影響記錄與上傳
+                print(f"冷氣自動控制錯誤：{e}", flush=True)
         ok = upload(cfg, snap)
         log_csv(snap)
         notify(cfg, alerts)
