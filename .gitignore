@@ -12,3 +12,5 @@ pi/calib_state.json
 pi/calib_test
 pi/ac_state.json
 pi/ac_spec.json
+tools/heater_config.json
+pi/heater_state.json

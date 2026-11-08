@@ -101,6 +101,23 @@ def render(live):
     else:
         ac_html = '<div class="card"><h3>❄️ 太陽能機房冷氣</h3><div class="ts">讀不到冷氣伴侶</div></div>'
 
+    # ---- 熱水器 ----
+    hw = c.get("heater")
+    if hw:
+        on = bool(hw.get("on"))
+        mode = {"surplus": "電池滿了、自動用多的太陽能加熱", "fallback": "陰天保底加熱（到 16:30）"}.get(hw.get("mode"))
+        who = mode if hw.get("auto_on") and mode else "手動或排程開啟（不會被自動關掉）" if on else "等電池充滿會自動開"
+        mins = hw.get("minutes_today", 0)
+        hw_html = (f'<div class="card" style="margin-top:12px"><h3>🔥 儲熱電熱水器 <span class="muted">4 kW · eWeLink 開關</span></h3>'
+                   f'<div class="acstate {"on" if on else "off"}"><div class="fanicon heat{" glow" if on else ""}">♨</div>'
+                   f'<div><div class="acbig">{"加熱中" if on else "關閉"}</div>'
+                   f'<div class="ts">{who}<br>今天已加熱 {mins:.0f} 分鐘（約 {mins / 60 * 4:.1f} 度電）</div></div></div>'
+                   f'<div class="rules"><span>🔥 9:00–15:00 電池 ≥ 98% 且有太陽 → 開（把會被限發的電存成熱水）</span>'
+                   f'<span>✅ 電池放電 > 1.5 kW 持續 5 分鐘或電池 < 90% → 關</span>'
+                   f'<span>🌧️ 15:00 時今天加熱不到 60 分鐘 → 保底開到 16:30</span></div></div>')
+    else:
+        hw_html = ""
+
     warn = (f'<div class="warn">⚠️ 樹莓派 {_age_txt((datetime.now(TW) - t_live).total_seconds())}之後就沒有新資料，以下是最後一次的數值</div>'
             if stale else "")
     return f'''<style>
@@ -129,6 +146,10 @@ def render(live):
     .sh .fanicon {{ width:56px; height:56px; flex:none; border-radius:50%; display:flex; align-items:center; justify-content:center;
                    font-size:34px; background:#0F172A; color:#475569; }}
     .sh .acstate.on .fanicon {{ color:#38BDF8; box-shadow:0 0 18px #38BDF855; }}
+    .sh .acstate.on .heat {{ color:#F97316; box-shadow:0 0 18px #F9731666; }}
+    .sh .glow {{ animation:shglow 1.8s ease-in-out infinite; }}
+    @keyframes shglow {{ 50% {{ box-shadow:0 0 28px #F97316AA; }} }}
+    .sh .acstate.on .heat + div .acbig {{ color:#FB923C; }}
     .sh .spin {{ animation:shspin 2.4s linear infinite; }}
     @keyframes shspin {{ to {{ transform:rotate(360deg); }} }}
     .sh .acbig {{ font-size:24px; font-weight:800; }}
@@ -140,9 +161,10 @@ def render(live):
     .sh .warn {{ background:#78350F; color:#FDE68A; border-radius:10px; padding:8px 12px; margin-bottom:10px; font-size:13px; }}
     </style><div class="sh">
     <div class="hero"><b>🏠 澔宸智慧 AI 家庭</b>
-      <span class="muted">樹莓派每分鐘讀取米家溫濕度計（藍牙）與冷氣伴侶（區網），依溫度自動開關機房冷氣 · 只顯示環境資訊，不能在網頁上操作</span></div>
+      <span class="muted">樹莓派每分鐘讀取米家溫濕度計（藍牙）、冷氣伴侶（區網）與熱水器開關（eWeLink），自動開關機房冷氣與熱水器 · 只顯示環境資訊，不能在網頁上操作</span></div>
     {warn}
     <div class="tiles">{"".join(tiles)}</div>
     {ac_html}
+    {hw_html}
     <div class="ts" style="text-align:center;margin-top:10px">資料時間 {t_live:%Y/%m/%d %H:%M:%S}</div>
     </div>'''
