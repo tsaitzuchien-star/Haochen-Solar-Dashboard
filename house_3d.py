@@ -599,6 +599,8 @@ curtainZ('f1_curtain', 1, -2.6, 0.3, ZF);
 lamp('f1_lamp_chen', 1, -1.9, 2.75, -1); lamp('f1_lamp_hao', 1, -0.5, 2.75, -1);
 light('f1_stair', 1, -1.6, -4.3, '樓梯', { r: 0.8 });
 light('f1_kitchen', 1, 0.3, -7.6, '廚房 · 餐廳', { r: 1.8 });
+light('f1_dining2', 1, -1.4, -6.8, '廚房 · 餐廳', { r: 1.2 });
+light('f1_dining3', 1, 1.5, -8.5, '廚房 · 餐廳', { r: 1.2 });
 dish('f1_dish', 1, 0.4, -9.05);
 speaker('f1_speaker', 1, -2.7, 0.35, 0.53);
 light('f1_laundry', 1, 1.0, -10.2, '洗衣間', { r: 1.1 });
@@ -613,6 +615,7 @@ nightLight('f2_night', 2, -2.75, 2.75, '主臥室');
 speaker('f2_speaker', 2, -2.9, 1.0, 0.98);
 light('f2_wc', 2, -1.8, -1.8, '主臥廁所', { r: 0.8 });
 light('f2_hall', 2, 1.3, -4.3, '樓梯口', { r: 1.0 });
+light('f2_hall2', 2, -1.6, -4.3, '樓梯口', { r: 0.9 });
 ac('f2_study_ac', 2, 1.6, ZB + 0.14, 0);
 lamp('f2_lamp', 2, 1.3, -10.75);
 // 3F

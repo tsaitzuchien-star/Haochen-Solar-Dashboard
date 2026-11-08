@@ -20,7 +20,9 @@ SLOTS = [
     ("f1_ceiling", 1, "客廳吸頂燈", "light", [["吸頂"]], ["2樓", "3樓", "2F", "3F"]),
     ("f2_bed_indirect", 2, "主臥間接照明", "light", [["間接"], ["2樓", "2F", "房間", "臥"]], ["客廳"]),
     ("f1_indirect", 1, "客廳間接照明", "light", [["間接"]], ["2樓", "2F", "3樓", "3F"]),
-    ("f1_kitchen", 1, "廚房燈", "light", [["廚房"], ["燈"]], []),
+    ("f1_kitchen", 1, "餐廳燈", "light", [["廚房", "餐廳"], ["燈"]], []),
+    ("f1_dining2", 1, "餐廳燈 (第 2 路)", "light", None, []),
+    ("f1_dining3", 1, "餐廳燈 (第 3 路)", "light", None, []),
     ("f1_laundry", 1, "洗衣間燈", "light", [["洗衣"], ["燈"]], []),
     ("f1_wc_back", 1, "後面廁所燈", "light", None, []),                 # 只在 ALT 比對 (見下面)
     ("f2_wc", 2, "主臥廁所燈", "light", [["2樓", "2F", "主臥"], ["廁所", "浴室"]], []),
@@ -35,12 +37,23 @@ SLOTS = [
     ("f2_night", 2, "主臥小夜燈", "light", [["夜燈"]], []),
     ("f2_main", 2, "主臥主照明", "light", [["主照明", "主燈"]], []),
     ("f2_hall", 2, "2 樓走道照明", "light", [["走道", "走廊"]], []),
+    ("f2_hall2", 2, "2 樓走道照明 (第 2 路)", "light", None, []),
     ("f2_lamp", 2, "2 樓書房檯燈", "lamp", [["檯燈", "台燈"]], ["宸", "澔"]),
     ("f1_speaker", 1, "客廳小愛同學", "speaker", [["小愛", "音箱"], ["客廳", "1樓", "1F"]], []),
     ("f2_speaker", 2, "主臥小愛同學", "speaker", [["小愛", "音箱"]], ["客廳", "1樓", "1F"]),
     ("f3_bed_ac", 3, "3 樓房間冷氣", "ac", [["3樓", "3F"], ["房間", "臥"], AC_KW], []),
     ("f3_av_ac", 3, "3 樓視聽室冷氣", "ac", [["視聽", "影音"], AC_KW], []),
 ]
+# 多鍵牆壁開關：米家裡一個開關 (例如 3 鍵的「客廳」) 有好幾路，每一路是一盞燈 → 依序對到這些位置 (第 1 路 = 最左邊)。
+# (名稱關鍵字, 排除, [第 1 路, 第 2 路, ...])；只套用在讀得到 2 路以上開關的裝置。
+GANGS = [
+    ([["2樓房間照明", "房間照明"]], [], ["f2_night", "f2_main", "f2_bed_indirect"]),
+    ([["走道照明", "走廊"]], ["3樓", "3F"], ["f2_hall", "f2_hall2"]),
+    ([["餐廳", "廚房"]], AC_KW + ["洗碗", "廚餘"], ["f1_kitchen", "f1_dining2", "f1_dining3"]),
+    ([["客廳"]], AC_KW + ["小愛", "音箱", "窗簾", "檯燈"], ["f1_flood", "f1_ceiling", "f1_indirect"]),
+]
+LABEL = {}                                           # slot id → 顯示名稱 (下面填)
+
 # 第二輪才比的規則 (依順序)：1 樓只有洗衣間旁那一間廁所。
 # 米家裡沒有「洗衣間燈」時，「後面廁所燈」其實就是洗衣間那盞 → 放到洗衣間；有「洗衣間燈」時才當成廁所的第二盞燈。
 ALT = [
@@ -53,6 +66,7 @@ EXTRA = [
     ("f2_heater", 2, "儲熱電熱水器", "heater"),
     ("f4_gym_ac", 4, "健身室冷氣", "ac"),
 ]
+LABEL.update({s[0]: s[2] for s in SLOTS})
 PUBLIC = {"f4_solar_ac", "f2_heater"}
 NO_NET = {"f4_gym_ac": "還沒聯網"}
 SOLAR_AC_KW = [["儲能", "機房", "太陽能"], AC_KW]   # 4 樓機房冷氣伴侶在米家裡的名稱 (不重複列在其他裝置)
@@ -72,6 +86,17 @@ def match(devices):
     """回傳 ({slot_id: device}, [沒對到的裝置])；每台裝置只對一個位置，依 SLOTS 順序先比名稱、再比名稱 + 房間。"""
     left = list(devices or [])
     got = {}
+    for rules, ex, ids in GANGS:
+        for d in left:
+            sw = d.get("sw") or []
+            if len(sw) > 1 and _hit(norm(d.get("n")), rules, ex):
+                for i, sid in enumerate(ids[:len(sw)]):
+                    if sid not in got:
+                        got[sid] = d | {"on": sw[i] if d.get("o") is not False else None, "sw": None,
+                                        "n": LABEL.get(sid, sid).split(" (")[0],
+                                        "t": f"「{d.get('n')}」第 {i + 1} 路"}
+                left.remove(d)
+                break
     names = [norm(d.get("n")) for d in left]
     dup = {n for n in names if names.count(n) > 1}       # 同名的 (例如兩個「間接照明」) 只能靠房間分辨
     for use_room in (False, True):
