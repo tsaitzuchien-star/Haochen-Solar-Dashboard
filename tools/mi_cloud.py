@@ -349,7 +349,7 @@ def summarize(d, room, kind, v):
         name = k.split(".")[-1]
         if name == "brightness" and isinstance(x, (int, float)) and on:
             txt.append(f"亮度 {x:g}%")
-        elif name == "mode" and isinstance(x, str) and on:
+        elif name == "mode" and isinstance(x, str) and on and not k.startswith(("switch", "outlet", "plug")):   # 開關的 mode 是接線模式
             txt.append(x)
         elif name == "target-temperature" and isinstance(x, (int, float)) and on:
             txt.append(f"設定 {x:g}°C")
@@ -400,7 +400,7 @@ def main():
             to = where.get((d["n"], d["r"]))
             sw = f"  |  {len(d['sw'])} 路開關" if d.get("sw") else ""
             print(f"{'🟢' if d['o'] else '⚫'} {d['n']}  |  房間 {d['r'] or '—'}  |  {d['m']}{sw}  →  "
-                  f"{('3D：' + '、'.join(to)) if to else '（列在網站「其他裝置」）' if any(d is x for x in _left) else '（不顯示：網關、溫濕度計或機房冷氣另外顯示）'}")
+                  f"{('3D：' + '、'.join(to)) if to else '（列在網站「其他裝置」）' if any(d is x for x in _left) else '（不顯示：網關、感應器、無線按鈕，或機房冷氣另外顯示）'}")
         miss = [label[s[0]] for s in home_map.SLOTS if s[0] not in got and s[4] is not None]
         if miss:
             print("\n3D 圖上還沒對到裝置的位置：" + "、".join(miss))
