@@ -73,3 +73,27 @@ journalctl -u solar-logger -f                  # 即時看執行狀況（Ctrl+C 
 ```
 cd ~/Haochen-Solar-Dashboard && git pull && sudo systemctl restart solar-logger
 ```
+
+## 澔宸 AI 智慧小窩（3D 房子顯示家電狀態）
+
+樹莓派每 60 秒用**小米雲端**讀全部米家裝置（燈、冷氣、窗簾、鐵捲門…），每 5 分鐘讀 eWeLink 裝置，
+跟著原本每分鐘的上傳一起送到網站（不會增加 Gist 上傳次數）。**只讀取，不會控制任何裝置。**
+
+全部自動，不用輸入密碼：
+1. 更新程式並重新啟動服務後，樹莓派會用 LINE 傳兩則訊息給你：
+   - **家人專用連結**：打開就能看到 3D 小窩裡全部燈與家電的狀態，請加入書籤，不要分享給外人。
+     沒有這個連結的訪客只看得到機房冷氣、熱水器與太陽能。
+   - **小米登入 QR code**：用電腦打開連結，再用米家 App 右上角「+」→「掃一掃」掃描（只要做一次）。
+2. 之後小米登入會自動續期；萬一失效，樹莓派會再用 LINE 傳 QR code（12 小時最多一次）。
+
+檢查與除錯（SSH 進樹莓派）：
+```bash
+cd ~/Haochen-Solar-Dashboard
+.venv/bin/python tools/mi_cloud.py list     # 全部裝置、房間、對應到 3D 圖的哪個位置
+.venv/bin/python tools/mi_cloud.py status   # 讀一次所有裝置的開關狀態
+.venv/bin/python tools/mi_cloud.py login    # 想手動登入小米時用
+```
+- 3D 圖上某個位置對錯或顯示「米家裡找不到」：多半是米家裡的名稱不同，把 `list` 的結果給 Claude，改 `home_map.py` 的規則就好。
+- 想換家人連結（例如不小心傳給別人）：刪掉 `pi/home_key.json` 再 `sudo systemctl restart solar-logger`，會用 LINE 傳新的連結，舊連結失效。
+- 想關掉這個功能：在 `pi/config.json` 加 `"home_watch": false`。
+- 金鑰檔 `pi/mi_cloud.json`、`pi/home_key.json` 只存在樹莓派上（權限 600），不會上傳到 GitHub。

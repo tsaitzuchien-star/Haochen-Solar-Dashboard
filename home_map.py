@@ -1,0 +1,141 @@
+"""澔宸 AI 智慧小窩：把樹莓派上傳的米家 / eWeLink 裝置對應到 3D 房子裡的位置 (網站與 tools/mi_cloud.py 共用)。
+
+裝置用「米家 App 裡的名稱 + 房間名稱」比對關鍵字；名稱改了或對錯位置，只要改下面的 SLOTS 規則。
+  rules：每一組裡任一個關鍵字出現就算符合，所有組都要符合。
+  ex   ：出現這些字就不算 (避免「2 樓廁所燈」被當成 1 樓廁所)。
+  pub  ：沒登入的訪客也看得到 (只放本來就公開的機房冷氣、熱水器)。
+裝置資料格式 (live["home"]["devices"])：
+  {"n": 名稱, "r": 房間, "m": 型號, "o": 在線, "k": 類型, "on": True/False/None, "t": 狀態文字, "pos": 開啟 %, "sw": [各路開關]}
+"""
+from datetime import datetime, timedelta, timezone
+
+TW = timezone(timedelta(hours=8))
+AC_KW = ["冷氣", "空調"]
+
+# (id, 樓層, 顯示名稱, 類型, rules, ex)
+SLOTS = [
+    ("garage_door", 1, "車庫鐵捲門", "garage", [["鐵捲", "捲門", "車庫門"]], []),
+    ("f1_living_ac", 1, "客廳冷氣", "ac", [["客廳"], AC_KW], []),
+    ("f1_flood", 1, "客廳投光燈", "light", [["投光"]], []),
+    ("f1_ceiling", 1, "客廳吸頂燈", "light", [["吸頂"]], ["2樓", "3樓", "2F", "3F"]),
+    ("f2_bed_indirect", 2, "主臥間接照明", "light", [["間接"], ["2樓", "2F", "房間", "臥"]], ["客廳"]),
+    ("f1_indirect", 1, "客廳間接照明", "light", [["間接"]], ["2樓", "2F", "3樓", "3F"]),
+    ("f1_kitchen", 1, "廚房燈", "light", [["廚房"], ["燈"]], []),
+    ("f1_wc_back", 1, "後面廁所燈", "light", [["後"], ["廁所", "浴室"]], []),
+    ("f1_laundry", 1, "洗衣間燈", "light", [["洗衣"], ["燈"]], []),
+    ("f2_wc", 2, "主臥廁所燈", "light", [["2樓", "2F", "主臥"], ["廁所", "浴室"]], []),
+    ("f1_wc", 1, "1 樓廁所燈", "light", [["廁所", "浴室"]], ["2樓", "3樓", "2F", "3F", "後"]),
+    ("f1_lamp_chen", 1, "宸宸檯燈", "lamp", [["宸宸"]], []),
+    ("f1_lamp_hao", 1, "澔澔檯燈", "lamp", [["澔澔"]], []),
+    ("f1_stair", 1, "1 樓樓梯燈", "light", [["樓梯"]], ["2樓", "3樓", "2F", "3F"]),
+    ("f1_curtain", 1, "客廳窗簾", "curtain", [["窗簾"]], []),
+    ("f1_dish", 1, "洗碗廚餘機", "dish", [["洗碗", "廚餘"]], []),
+    ("f2_bed_ac", 2, "主臥冷氣", "ac", [["2樓", "2F", "主臥"], ["房間", "臥"], AC_KW], []),
+    ("f2_study_ac", 2, "2 樓書房冷氣", "ac", [["書房"], AC_KW], []),
+    ("f2_night", 2, "主臥小夜燈", "light", [["夜燈"]], []),
+    ("f2_main", 2, "主臥主照明", "light", [["主照明", "主燈"]], []),
+    ("f2_hall", 2, "2 樓走道照明", "light", [["走道", "走廊"]], []),
+    ("f2_lamp", 2, "2 樓檯燈", "lamp", [["檯燈", "台燈"]], ["宸", "澔"]),
+    ("f2_speaker", 2, "小愛同學", "speaker", [["小愛", "音箱"]], []),
+    ("f3_bed_ac", 3, "3 樓房間冷氣", "ac", [["3樓", "3F"], ["房間", "臥"], AC_KW], []),
+    ("f3_av_ac", 3, "3 樓視聽室冷氣", "ac", [["視聽", "影音"], AC_KW], []),
+]
+# 不在米家 (資料從樹莓派的冷氣 / 熱水器自動控制來)，或還沒聯網的
+EXTRA = [
+    ("f4_solar_ac", 4, "太陽能機房冷氣", "ac"),
+    ("f2_heater", 2, "儲熱電熱水器", "heater"),
+    ("f4_gym_ac", 4, "健身室冷氣", "ac"),
+]
+PUBLIC = {"f4_solar_ac", "f2_heater"}
+NO_NET = {"f4_gym_ac": "還沒聯網"}
+SOLAR_AC_KW = [["儲能", "機房", "太陽能"], AC_KW]   # 4 樓機房冷氣伴侶在米家裡的名稱 (不重複列在其他裝置)
+
+_CN = str.maketrans({"一": "1", "二": "2", "三": "3", "四": "4"})
+
+
+def norm(s):
+    return (s or "").translate(_CN).replace(" ", "").upper()
+
+
+def _hit(text, rules, ex=()):
+    return all(any(norm(k) in text for k in grp) for grp in rules) and not any(norm(k) in text for k in ex)
+
+
+def match(devices):
+    """回傳 ({slot_id: device}, [沒對到的裝置])；每台裝置只對一個位置，依 SLOTS 順序先比名稱、再比名稱 + 房間。"""
+    left = list(devices or [])
+    got = {}
+    names = [norm(d.get("n")) for d in left]
+    dup = {n for n in names if names.count(n) > 1}       # 同名的 (例如兩個「間接照明」) 只能靠房間分辨
+    for use_room in (False, True):
+        for sid, _f, _l, _k, rules, ex in SLOTS:
+            if sid in got:
+                continue
+            for d in left:
+                if not use_room and norm(d.get("n")) in dup:
+                    continue
+                text = norm(d.get("n")) + ("|" + norm(d.get("r")) if use_room else "")
+                if _hit(text, rules, ex):
+                    got[sid] = d
+                    left.remove(d)
+                    break
+    left = [d for d in left if not _hit(norm(d.get("n")) + "|" + norm(d.get("r")), SOLAR_AC_KW)]
+    return got, left
+
+
+def _ac_txt(mode, temp):
+    m = {"cool": "冷氣", "heat": "暖氣", "dry": "除濕", "fan": "送風", "auto": "自動"}.get(str(mode or "").lower(), mode or "")
+    return " · ".join(x for x in (m, f"設定 {temp:g}°C" if isinstance(temp, (int, float)) else "") if x)
+
+
+def build(live, authed):
+    """給 3D 房子用的狀態 (網站伺服器端產生；沒登入時不含任何非公開裝置的資料)。"""
+    live = live or {}
+    home = live.get("home") or {}
+    clim = live.get("climate") or {}
+    slots, others = {}, []
+    if authed:
+        got, left = match(home.get("devices"))
+        for sid, _f, label, kind, _r, _e in SLOTS:
+            d = got.get(sid)
+            if not d:
+                slots[sid] = {"st": "missing", "n": label}
+                continue
+            st = "offline" if d.get("o") is False else "on" if d.get("on") else "off" if d.get("on") is False else "unknown"
+            slots[sid] = {"st": st, "n": d.get("n") or label, "r": d.get("r"), "t": d.get("t") or "",
+                          "pos": d.get("pos"), "sw": d.get("sw")}
+        others = [{"n": d.get("n"), "r": d.get("r"), "st": "offline" if d.get("o") is False else
+                   "on" if d.get("on") else "off" if d.get("on") is False else "unknown", "t": d.get("t") or ""}
+                  for d in left]
+    else:
+        for sid, _f, label, _k, _r, _e in SLOTS:
+            slots[sid] = {"st": "locked", "n": label}
+    ac = clim.get("ac")
+    slots["f4_solar_ac"] = ({"st": "on" if ac.get("on") else "off", "n": "太陽能機房冷氣",
+                             "t": _ac_txt(ac.get("mode_name"), ac.get("temp")) + (" · 自動控制" if ac.get("auto_on") else "")}
+                            if ac else {"st": "missing", "n": "太陽能機房冷氣"})
+    hw = clim.get("heater")
+    slots["f2_heater"] = ({"st": "on" if hw.get("on") else "off", "n": "儲熱電熱水器",
+                           "t": ("加熱中" if hw.get("heating") else "保溫中") if hw.get("on") else
+                           f"今天加熱 {hw.get('minutes_today', 0):.0f} 分鐘"}
+                          if hw else {"st": "missing", "n": "儲熱電熱水器"})
+    for sid, why in NO_NET.items():
+        slots[sid] = {"st": "nonet", "n": next(e[2] for e in EXTRA if e[0] == sid), "t": why}
+    inv = live.get("inverter") or {}
+    ind, out = clim.get("indoor") or {}, clim.get("outdoor") or {}
+    age = None
+    if home.get("t"):
+        age = round(datetime.now(TW).timestamp() - home["t"])
+    return {
+        "authed": bool(authed),
+        "time": live.get("time"),
+        "slots": slots,
+        "others": others,
+        "login": home.get("login") if authed else None,
+        "age": age if authed else None,
+        "energy": {"pv": inv.get("pv_w"), "soc": inv.get("soc"), "load": inv.get("load_w"),
+                   "packs": [p.get("soc") for p in live.get("packs") or []]},
+        "temps": {"room": ind.get("temp"), "out": out.get("temp"), "out_h": out.get("hum")},
+        "floors": {sid: f for sid, f, *_ in SLOTS} | {e[0]: e[1] for e in EXTRA},
+        "kinds": {sid: k for sid, _f, _l, k, *_ in SLOTS} | {e[0]: e[3] for e in EXTRA},
+    }
