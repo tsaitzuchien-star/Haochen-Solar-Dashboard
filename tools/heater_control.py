@@ -116,8 +116,12 @@ def oauth_login(appid, secret):
     params = {"clientId": appid, "redirectUrl": REDIRECT, "grantType": "authorization_code",
               "state": nonce(), "nonce": nonce(), "seq": seq, "authorization": sign(f"{appid}_{seq}", secret)}
     url = "https://c2ccdn.coolkit.cc/oauth/index.html?" + urllib.parse.urlencode(params)
-    print("正在打開 eWeLink 登入頁…（沒有自動打開的話，請複製這個網址到瀏覽器）\n" + url)
-    webbrowser.open(url)
+    if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):   # 樹莓派沒有螢幕：不要開文字瀏覽器
+        print("請複製下面整串網址，貼到筆電或手機的瀏覽器打開並登入 eWeLink "
+              "(筆電要用 ssh -L 8000:127.0.0.1:8000 連線，登入完才回得來)：\n\n" + url + "\n")
+    else:
+        print("正在打開 eWeLink 登入頁…（沒有自動打開的話，請複製這個網址到瀏覽器）\n" + url)
+        webbrowser.open(url)
     for _ in range(600):
         if "code" in got:
             break
@@ -139,8 +143,15 @@ def oauth_login(appid, secret):
 
 
 def setup():
-    appid = input("APPID：").strip()
-    secret = input("APP SECRET：").strip()
+    import getpass
+    appid = ""
+    while len(appid) < 16:
+        appid = input("APPID：").strip()
+    secret = ""
+    while len(secret) < 16:            # 貼上時常多帶一個換行 → 收到空白，SECRET 錯了 eWeLink 登入頁會一直登不進去
+        secret = getpass.getpass("APP SECRET（輸入時不會顯示，貼上後按 Enter）：").strip()
+        if len(secret) < 16:
+            print("沒有收到完整的 APP SECRET，請再貼一次")
     cfg = oauth_login(appid, secret)
     things = cloud(cfg, "GET", "/v2/device/thing", params={"num": 100}).get("thingList", [])
     devs = [t["itemData"] for t in things if t.get("itemType") in (1, 2)]

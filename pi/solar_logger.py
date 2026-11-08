@@ -652,6 +652,15 @@ class AcAuto:
                 print(f"讀不到冷氣伴侶：{e}", flush=True)
         return self.status
 
+    def mode_name(self, v):
+        try:
+            for m in (self.dev().p["mode"] or {}).get("values") or []:
+                if m["value"] == v:
+                    return m["description"]
+        except Exception:                          # noqa: BLE001
+            pass
+        return None
+
     def line(self, text):
         print(text.splitlines()[0], flush=True)
         send_line(self.cfg, text + f"\n（樹莓派冷氣自動控制 {dt.datetime.now(TW):%H:%M}）")
@@ -664,6 +673,9 @@ class AcAuto:
         pick = lambda d: {k: d.get(k) for k in ("temp", "hum", "batt")} | {"age_s": round(time.time() - d["t"])} if d else None
         return {"indoor": pick(ind), "outdoor": pick(out), "cell_max": max(cells) if cells else None,
                 "ac": {"on": self.status.get("on"), "mode": self.status.get("mode"), "temp": self.status.get("temp"),
+                       "mode_name": self.mode_name(self.status.get("mode")), "fan": self.status.get("fan"),
+                       "since": self.st.get("changed"), "on_room": self.on_room, "off_room": self.off_room,
+                       "target": self.target, "on_cell": self.on_cell,
                        "auto_on": bool(self.st.get("auto_on")), "enabled": self.enabled} if self.status else None}
 
     def tick(self, packs):
@@ -725,6 +737,123 @@ class AcAuto:
             self.save()
 
 
+HEATER_STATE = os.path.join(HERE, "heater_state.json")
+
+
+class HeaterAuto:
+    """熱水器 (eWeLink 開關) 自動控制：用掉電池滿了之後會被限發浪費的太陽能。
+    開：9:00–15:00、逆變器 SOC ≥ 98%、有太陽 (組串電壓 ≥ 300 V)、熱水器關著、距離上次自動關機 ≥ 30 分鐘。
+    關 (只關自動開的)：電池放電 > 1.5 kW 持續 5 分鐘，或 SOC < 90%，或過了保底結束時間。
+    「真的在加熱」= 開關開著而且家裡用電 ≥ 3.2 kW (4 kW 熱水器 + 家用)；水熱了溫控會自己斷電，用電就掉下來 (保溫中)。
+    這台熱水器約 1 小時就能從冷水加熱完畢。
+    保底：15:00 時今天「真的加熱」不到 50 分鐘 (不論誰開的)，強制開 1 小時到 16:00，確保晚上有熱水。"""
+    ON_SOC, OFF_SOC, OFF_DIS_KW = 98, 90, 1.5
+    MIN_MINUTES, HEAT_LOAD_KW, FALLBACK_END = 50, 3.2, 16.0
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.enabled = bool(cfg.get("heater_auto", True)) and os.path.exists(os.path.join(ROOT, "tools", "heater_config.json"))
+        self.on, self.status_t, self.dis_since, self.last_tick, self.heating = None, 0, None, time.time(), False
+        try:
+            with open(HEATER_STATE) as f:
+                self.st = json.load(f)
+        except (OSError, ValueError):
+            self.st = {}
+
+    def save(self):
+        with open(HEATER_STATE, "w") as f:
+            json.dump(self.st, f)
+
+    def line(self, text):
+        print(text.splitlines()[0], flush=True)
+        send_line(self.cfg, text + f"\n（樹莓派熱水器自動控制 {dt.datetime.now(TW):%H:%M}）")
+
+    def _h(self):
+        import heater_control
+        return heater_control
+
+    def read(self, force=False):
+        if force or time.time() - self.status_t > 300:
+            try:
+                h = self._h()
+                self.on = h.current_cloud(h.load()).startswith("開")
+                self.status_t = time.time()
+            except (Exception, SystemExit) as e:  # noqa: BLE001  雲端偶爾失敗 / 登入過期 (sys.exit)
+                print(f"讀不到熱水器狀態：{e}", flush=True)
+        return self.on
+
+    def switch(self, on):
+        try:
+            self._h().set_switch(on)
+            self.on, self.status_t = on, time.time()
+            return True
+        except (Exception, SystemExit) as e:      # noqa: BLE001
+            self.line(f"🟠 想{'開' if on else '關'}熱水器但 eWeLink 沒有回應：{e}")
+            return False
+
+    def summary(self):
+        return {"on": self.on, "heating": self.heating, "auto_on": bool(self.st.get("auto_on")), "mode": self.st.get("mode"),
+                "minutes_today": round(self.st.get("minutes", 0)), "enabled": self.enabled}
+
+    def tick(self, invd):
+        if not self.enabled:
+            return
+        now_dt = dt.datetime.now(TW)
+        today, now = str(now_dt.date()), time.time()
+        if self.st.get("date") != today:
+            self.st = {"date": today, "minutes": 0, "auto_on": False}
+            self.save()
+        on = self.read()
+        if on is None:
+            return
+        load_kw = (invd.get("load_w") or 0) / 1000 if invd else 0
+        self.heating = bool(on and load_kw >= self.HEAT_LOAD_KW)
+        if self.heating:                              # 今天真的加熱了多久 (不論誰開的；保溫斷電時不算)
+            self.st["minutes"] = self.st.get("minutes", 0) + min(now - self.last_tick, 120) / 60
+        self.last_tick = now
+        hm = now_dt.hour + now_dt.minute / 60
+        soc = invd["soc"] if invd else None
+        dis_kw = max(invd.get("dis_w", 0), 0) / 1000 if invd else 0
+        sun = invd and max(invd["pv1"]["v"], invd["pv3"]["v"]) >= 300
+        # 保底：15:00–16:30 加熱不到 60 分鐘就強制開
+        if 15 <= hm < self.FALLBACK_END and not on and self.st["minutes"] < self.MIN_MINUTES and not self.st.get("fallback_done"):
+            self.st["fallback_done"] = True           # 一天只保底一次 (中途被手動關掉就不再開)
+            if self.switch(True):
+                self.st.update(auto_on=True, mode="fallback", changed=now)
+                self.line(f"🔥 今天熱水器只加熱了 {self.st['minutes']:.0f} 分鐘（陰天電池沒充滿），保底加熱 1 小時到 16:00，確保晚上有熱水。")
+            self.save()
+            return
+        if not on:
+            if self.st.get("auto_on"):                # 有人自己關掉了
+                self.st.update(auto_on=False, mode=None)
+            if (9 <= hm < 15 and soc is not None and soc >= self.ON_SOC and sun
+                    and now - self.st.get("changed", 0) >= 1800):
+                if self.switch(True):
+                    self.st.update(auto_on=True, mode="surplus", changed=now)
+                    self.line(f"🔥 電池 {soc}% 快滿了、太陽能用不完，已自動開熱水器，把多的電存成熱水。")
+            self.save()
+            return
+        if not self.st.get("auto_on"):                # 手動 / 排程開的：不管它
+            self.save()
+            return
+        # 自動開的：該關了嗎
+        self.dis_since = (self.dis_since or now) if dis_kw > self.OFF_DIS_KW else None
+        why = None
+        if hm >= self.FALLBACK_END and self.st.get("mode") == "fallback":
+            why = "保底加熱 1 小時完成"
+        elif hm >= 16.5:
+            why = "已經 16:30"
+        elif self.st.get("mode") == "surplus" and soc is not None and soc < self.OFF_SOC:
+            why = f"電池降到 {soc}%"
+        elif self.st.get("mode") == "surplus" and self.dis_since and now - self.dis_since >= 300:
+            why = f"太陽能不夠、電池放電 {dis_kw:.1f} kW 已經 5 分鐘"
+        if why and self.switch(False):
+            self.line(f"✅ {why}，已自動關熱水器（今天共加熱 {self.st['minutes']:.0f} 分鐘）。")
+            self.st.update(auto_on=False, mode=None, changed=now)
+            self.dis_since = None
+        self.save()
+
+
 # ---------------- 主程式 ----------------
 def main():
     ap = argparse.ArgumentParser()
@@ -748,6 +877,7 @@ def main():
     if thermo:
         thermo.start()
     acauto = AcAuto(cfg, thermo) if not a.once else None
+    heater = HeaterAuto(cfg) if not a.once else None
     while True:
         t0 = time.time()
         invd = None
@@ -788,6 +918,12 @@ def main():
                 snap["climate"] = acauto.climate(snap["packs"])
             except Exception as e:                   # 冷氣控制出錯不能影響記錄與上傳
                 print(f"冷氣自動控制錯誤：{e}", flush=True)
+        if heater and heater.enabled:
+            try:
+                heater.tick(invd)
+                snap.setdefault("climate", {})["heater"] = heater.summary()
+            except Exception as e:                   # 熱水器控制出錯不能影響記錄與上傳
+                print(f"熱水器自動控制錯誤：{e}", flush=True)
         ok = upload(cfg, snap)
         log_csv(snap)
         notify(cfg, alerts)
