@@ -435,7 +435,11 @@ class AutoCalib:
         self.since, self.thread, self.pending = None, None, None
         self.addr = int(self.pack[-1])
         self.before = None                                # 寫入前 (RS485 看到的) #3 SOC 與設定
-        self.st = _read(CALIB_STATE, {}) or {}
+        try:                                              # 紀錄檔是 JSON (_read 只讀成文字，不能用)
+            with open(CALIB_STATE) as f:
+                self.st = json.load(f)
+        except (OSError, ValueError):
+            self.st = {}
 
     def save(self):
         with open(CALIB_STATE, "w") as f:
