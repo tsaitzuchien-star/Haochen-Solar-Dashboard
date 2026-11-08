@@ -161,9 +161,10 @@ const coneMat = () => new THREE.MeshBasicMaterial({ color: '#FFD58A', transparen
   blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
 
 // ---------- 尺寸 (正面 = +z = 馬路；面對房子時右手邊 = +x) ----------
-// 房子本體 z ZB ~ ZF；前面 1 樓是車棚 (到 ZC)；樓梯間在左邊中段 (x SX0 ~ SX1、z SZ0 ~ SZ1)，折返梯
+// 房子本體 z ZB ~ ZF；前面 1 樓是車棚 (到 ZC)；樓梯間在左邊中段 (x SX0 ~ SX1、z SZ0 ~ SZ1)，左右向的折返梯：
+// 從走道 (x = SX1) 面向左外牆上樓，第一段靠後牆、平台在左外牆，第二段靠前面 (樓下是客廳旁的鋼琴) 爬回 SX1
 const ZF = 3.0, ZB = -11.0, ZC = 8.4, BAL = 4.2;
-const SX0 = -2.8, SX1 = -0.4, SZ0 = -6.0, SZ1 = -2.6;
+const SX0 = -2.9, SX1 = 0.2, SZ0 = -6.0, SZ1 = -2.6;
 
 // ---------- 地面 ----------
 const ground = new THREE.Mesh(new THREE.CircleGeometry(32, 64), std(NIGHT ? '#1B2B24' : '#3F6B4E', { roughness: 1 }));
@@ -234,14 +235,14 @@ function room(f, name, x0, x1, z0, z1, color, { lift = 0, showLabel = true } = {
   if (showLabel) fl.roomLabels.push(label(fl.g, 'room', name, (x0 + x1) / 2, 0.15, (z0 + z1) / 2));
   return m;
 }
-function stairs(g) {                               // 折返梯：第一段靠外牆 (左側) 往前爬到前端平台，第二段 (靠走道) 往後爬到上一層
-  const n = 8, rise = FH / 2 / n, run = (SZ1 - SZ0 - 1.0) / n, xm = (SX0 + SX1) / 2;
+function stairs(g) {                               // 左右向折返梯 (見上面 SX0 / SX1 的說明)
+  const n = 8, rise = FH / 2 / n, L = 1.0, run = (SX1 - SX0 - L) / n, zm = (SZ0 + SZ1) / 2;
   for (let i = 0; i < n; i++) {
-    bx(g, xm - SX0 - 0.05, rise, run, M.woodL, (SX0 + xm) / 2, (i + 0.5) * rise, SZ0 + (i + 0.5) * run);
-    bx(g, SX1 - xm - 0.05, rise, run, M.woodL, (xm + SX1) / 2, FH / 2 + (i + 0.5) * rise, SZ1 - 1.0 - (i + 0.5) * run);
+    bx(g, run, rise, zm - SZ0 - 0.05, M.woodL, SX1 - (i + 0.5) * run, (i + 0.5) * rise, (SZ0 + zm) / 2);            // 第一段：靠後，往左爬
+    bx(g, run, rise, SZ1 - zm - 0.05, M.woodL, SX0 + L + (i + 0.5) * run, FH / 2 + (i + 0.5) * rise, (zm + SZ1) / 2); // 第二段：靠前，往右爬
   }
-  bx(g, SX1 - SX0, 0.12, 1.0, M.woodL, xm, FH / 2 - 0.06, SZ1 - 0.5);            // 中間平台 (前端)
-  bx(g, 0.04, 0.9, SZ1 - SZ0 - 1.0, M.wood, xm, FH / 2 + 0.45, (SZ0 + SZ1 - 1.0) / 2);   // 中間扶手
+  bx(g, L, 0.12, SZ1 - SZ0, M.woodL, SX0 + L / 2, FH / 2 - 0.06, zm);                            // 平台 (靠左外牆)
+  bx(g, SX1 - SX0 - L, 0.9, 0.04, M.wood, (SX0 + L + SX1) / 2, FH / 2 + 0.45, zm);                // 兩段中間的扶手
 }
 function sides(g, zf, zb = ZB) {
   wall(g, -HW, zb, -HW, zf); wall(g, HW, zb, HW, zf); wall(g, -HW, zb, HW, zb);
@@ -265,7 +266,6 @@ function bed(g, x0, x1, z0, z1, head = '-x') {
   // 正面：左邊大窗 (鐵窗)、右邊大門
   wall(g, -3, ZF, -2.6, ZF); wall(g, -2.6, ZF, 0.3, ZF, M.glass); wall(g, 0.3, ZF, 1.3, ZF); wall(g, 2.3, ZF, 3, ZF);
   bx(g, 1.0, 2.1, 0.06, std('#374151'), 1.8, 1.05, ZF);                              // 大門
-  wall(g, SX1, SZ0, SX1, SZ1);                                                        // 樓梯與走道之間的牆
   wall(g, -3, SZ0, SX1, SZ0); wall(g, SX1, SZ0, 0.6, SZ0); wall(g, 2.6, SZ0, 3, SZ0); // 廚房入口在右邊
   wall(g, -3, -9.4, 1.6, -9.4); wall(g, 2.6, -9.4, 3, -9.4);                          // 洗衣間門在右後
   wall(g, -1.4, ZB, -1.4, -10.5); wall(g, -1.4, -9.8, -1.4, -9.4);
@@ -294,7 +294,7 @@ function bed(g, x0, x1, z0, z1, head = '-x') {
   rbx(g, 0.6, 0.35, 0.9, M.white, 1.2, 0.2, -0.9);
   bx(g, 0.06, 0.9, 1.7, M.black, -2.9, 1.3, -0.9); bx(g, 0.45, 0.45, 2.2, M.wood, -2.72, 0.22, -0.9);
   bx(g, 0.45, 2.2, 1.4, M.woodL, 0.85, 1.1, 2.15);
-  bx(g, 1.3, 1.1, 0.6, std('#4C0519'), -1.6, 0.55, -5.2);                             // 樓梯下鋼琴
+  bx(g, 1.3, 1.1, 0.6, std('#4C0519'), -1.0, 0.55, SZ1 - 0.4);                          // 樓梯下鋼琴 (第二段下面，面向客廳)
   // 廚房：左牆冰箱烤箱高櫃、中間長餐桌、後面 L 型流理台、右牆家電檯
   bx(g, 0.65, 2.3, 2.6, M.white, -2.65, 1.15, -7.6); bx(g, 0.66, 1.85, 0.8, std('#CBD5E1', { metalness: 0.5 }), -2.64, 0.93, -6.8);
   bx(g, 1.0, 0.06, 2.0, M.white, -0.6, 0.75, -7.6);
@@ -319,7 +319,6 @@ function bed(g, x0, x1, z0, z1, head = '-x') {
   balusters(g, -3, 3, BAL); wall(g, -3, ZF, -3, BAL, grilleMat); wall(g, 3, ZF, 3, BAL, grilleMat);
   wall(g, -3, -1.0, -0.6, -1.0); wall(g, -0.6, SZ1, -0.6, -2.2); wall(g, -0.6, -1.4, -0.6, -1.0);
   wall(g, -3, SZ1, SX1, SZ1); wall(g, SX1, SZ1, 0.6, SZ1); wall(g, 1.6, SZ1, 3, SZ1);
-  rail(g, SX1, SZ0, SX1, SZ1);
   wall(g, -3, SZ0, 0.6, SZ0); wall(g, 1.6, SZ0, 3, SZ0);
   wall(g, -1.2, ZB, 1.2, ZB, M.glass);
   stairs(g);
@@ -345,7 +344,6 @@ function bed(g, x0, x1, z0, z1, head = '-x') {
   wall(g, -3, -0.4, 1.6, -0.4); wall(g, 2.6, -0.4, 3, -0.4);                         // 房間門在走道盡頭右邊
   wall(g, 1.0, SZ1, 1.0, -2.0); wall(g, 1.0, -1.2, 1.0, -0.4);                       // 浴室門開向走道
   wall(g, -3, SZ1, SX1, SZ1, M.wall); bx(g, 0.8, 0.5, 0.1, M.glass, -1.6, 2.0, SZ1);   // 浴室對樓梯間的霧面小窗
-  rail(g, SX1, SZ0, SX1, SZ1);
   wall(g, -3, SZ0, 1.6, SZ0); wall(g, 2.6, SZ0, 3, SZ0);                             // 視聽室門在右邊
   wall(g, -1.2, ZB, 1.2, ZB, M.glass);
   stairs(g);
@@ -370,7 +368,6 @@ const Z4 = 0.6;                                    // 4 樓室內的最前面 (�
   wall(g, -3, Z4, -1.3, Z4); wall(g, -1.3, Z4, 1.3, Z4, grilleMat); wall(g, 1.3, Z4, 3, Z4);   // 鐵窗落地拉門
   bx(g, 2.6, 2.3, 0.03, M.glass, 0, 1.15, Z4 - 0.05);
   wall(g, -3, SZ1, SX1, SZ1); wall(g, 1.6, SZ1, 3, SZ1);                                      // 機房後面開口接走道
-  rail(g, SX1, SZ0, SX1, SZ1);
   wall(g, -3, SZ0, 1.6, SZ0); wall(g, 2.6, SZ0, 3, SZ0);
   wall(g, -1.0, ZB, 1.0, ZB, M.glass);
   const para = std('#FDE68A', { roughness: 0.9 });                                           // 露台黃色矮牆
