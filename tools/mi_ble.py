@@ -127,9 +127,41 @@ async def read(keys, seconds=60):
     return got
 
 
+async def debug(keys, seconds=180):
+    """把設定裡兩顆溫度計收到的每一筆廣播都印出來 (原始內容、是否加密、解密後的物件)，找出讀不到的原因。"""
+    t0 = time.time()
+
+    def cb(dev, adv):
+        mac = dev.address.upper()
+        d = adv.service_data.get(MI_UUID)
+        if mac not in keys:
+            return
+        if not d:
+            print(f"{time.time() - t0:5.0f}s {mac} 有廣播但沒有 FE95 資料：{ {k[4:8]: v.hex() for k, v in adv.service_data.items()} }", flush=True)
+            return
+        enc, pid, cnt, i, fc = parse_header(d)
+        line = f"{time.time() - t0:5.0f}s {mac} fc=0x{fc:04X} 產品 0x{pid:04X} 序號 {cnt} {'加密' if enc else '未加密'} 長度 {len(d)}"
+        try:
+            plain = decrypt(d, mac, keys[mac]) if enc else d[i:]
+            objs = []
+            j = 0
+            while j + 3 <= len(plain):
+                oid, ln = struct.unpack_from("<HB", plain, j)
+                objs.append(f"0x{oid:04X}={plain[j + 3:j + 3 + ln].hex()}")
+                j += 3 + ln
+            line += f"  物件 {objs or '無'}  解出 {decode_objects(plain)}"
+        except Exception as e:                     # noqa: BLE001
+            line += f"  解密失敗 {type(e).__name__}  原始 {d.hex()}"
+        print(line, flush=True)
+
+    async with BleakScanner(cb):
+        print(f"聆聽 {seconds} 秒，每收到一筆就印一行 …", flush=True)
+        await asyncio.sleep(seconds)
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["scan", "read"])
+    ap.add_argument("cmd", choices=["scan", "read", "debug"])
     a = ap.parse_args()
     if a.cmd == "scan":
         return asyncio.run(scan())
@@ -140,7 +172,7 @@ def main():
         keys = {}
     if not keys:
         sys.exit("pi/config.json 還沒有 mi_keys (溫度計的藍牙金鑰)")
-    asyncio.run(read(keys))
+    asyncio.run(debug(keys) if a.cmd == "debug" else read(keys))
 
 
 if __name__ == "__main__":
