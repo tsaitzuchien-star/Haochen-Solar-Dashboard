@@ -604,7 +604,14 @@ class MiThermo(threading.Thread):
             while True:
                 try:
                     async with BleakScanner(cb):
-                        await asyncio.sleep(1800)
+                        # 每 30 分鐘重開一次掃描；超過 10 分鐘一筆都沒收到 (藍牙卡住) 就提早重開
+                        t0 = time.time()
+                        while time.time() - t0 < 1800:
+                            await asyncio.sleep(60)
+                            last = max([d.get("t", 0) for d in self.data.values()] or [0])
+                            if time.time() - max(last, t0) > 600:
+                                print("溫度計 10 分鐘沒有訊號，重新開始藍牙掃描", flush=True)
+                                break
                 except Exception as e:             # noqa: BLE001  藍牙偶爾被佔用：等一下重來
                     print(f"溫度計旁聽錯誤：{e}", flush=True)
                     await asyncio.sleep(30)
