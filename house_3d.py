@@ -6,7 +6,7 @@
      → 廚房餐廳 → 洗衣間 (左邊廁所)
   2F 前陽台 (左邊盡頭熱水器) → 主臥 (床頭靠左牆、後段衣櫃、左後廁所) → 樓梯口 → 書房
   3F 前陽台 → 3 樓房間 (床靠左牆、後段衣櫃) → 走道 (左邊浴室) → 樓梯口 → 視聽室 (右牆電視音響)
-  4F 露台 → 太陽能機房 → 走道 → 健身室；屋頂太陽能板 (等照片再修)
+  4F 露台 (黃色矮牆) → 太陽能機房 (右牆逆變器、電池架、冷氣；左牆備用板) → 走道 → 健身室；屋頂太陽能板
 """
 import html
 import json
@@ -81,7 +81,7 @@ const wrap = document.getElementById('wrap');
 const HW = 3, FH = 3.0, SLAB = 0.2, CEIL = FH - 0.14, GAP = 1.7;
 const hour = D.time ? parseInt(D.time.slice(11, 13), 10) : new Date().getHours();
 const NIGHT = hour < 6 || hour >= 18;
-const FLOOR_NAME = { 1: '車庫 · 客廳 · 廚房 · 洗衣間', 2: '陽台 · 主臥 · 書房', 3: '房間 · 浴室 · 視聽室', 4: '露台 · 機房 · 健身室' };
+const FLOOR_NAME = { 1: '車庫 · 客廳 · 廚房 · 洗衣間', 2: '陽台 · 主臥 · 書房', 3: '陽台 · 房間 · 浴室 · 視聽室', 4: '露台 · 太陽能機房 · 健身室' };
 
 let renderer;
 try {
@@ -360,21 +360,34 @@ function bed(g, x0, x1, z0, z1, head = '-x') {
   bx(g, 0.4, 0.75, 1.6, M.white, -2.75, 0.38, -7.6); bx(g, 0.45, 0.8, 1.2, M.black, -2.7, 0.4, -9.5);
   sprite(g, GLOW_B, 1.6, 2.85, 1.4, -8.4, NIGHT ? 0.3 : 0.12);
 }
-// ===== 4F：前面露台 → 太陽能機房 → 樓梯口 → 後面健身室 (等照片再修) =====
+// ===== 4F：露台 (黃色矮牆) → 太陽能機房 (右牆逆變器、電池架、冷氣) → 走道 → 健身室 =====
 const Z4 = 0.6;                                    // 4 樓室內的最前面 (再往前是露台)
 {
   const f = 4, g = floors[f].g;
-  slab(g, true); sides(g, Z4);
-  room(f, '露台', -3, 3, Z4, ZF, '#78716C'); room(f, '太陽能機房', -3, 3, SZ1, Z4, '#3F4C5A');
-  room(f, '走道', SX1, 3, SZ0, SZ1, '#57534E', { showLabel: false }); room(f, '健身室', -3, 3, ZB, SZ0, '#4C5D73');
-  wall(g, -3, Z4, 0.4, Z4, M.glass); wall(g, 1.4, Z4, 3, Z4, M.glass);
-  wall(g, -3, SZ1, SX1, SZ1); wall(g, SX1, SZ1, 0.6, SZ1); wall(g, 1.6, SZ1, 3, SZ1);
+  slab(g, true, BAL); sides(g, Z4);
+  room(f, '露台', -3, 3, Z4, BAL, '#E7E5E4'); room(f, '太陽能機房', -3, 3, SZ1, Z4, '#E5E7EB');
+  room(f, '走道', SX1, 3, SZ0, SZ1, '#E5E7EB', { showLabel: false }); room(f, '健身室', -3, 3, ZB, SZ0, '#E5E7EB');
+  wall(g, -3, Z4, -1.3, Z4); wall(g, -1.3, Z4, 1.3, Z4, grilleMat); wall(g, 1.3, Z4, 3, Z4);   // 鐵窗落地拉門
+  bx(g, 2.6, 2.3, 0.03, M.glass, 0, 1.15, Z4 - 0.05);
+  wall(g, -3, SZ1, SX1, SZ1); wall(g, 1.6, SZ1, 3, SZ1);                                      // 機房後面開口接走道
   rail(g, SX1, SZ0, SX1, SZ1);
-  wall(g, -3, SZ0, 0.6, SZ0); wall(g, 1.6, SZ0, 3, SZ0);
-  rail(g, -3, ZF, 3, ZF); rail(g, -3, Z4, -3, ZF); rail(g, 3, Z4, 3, ZF);
-  rbx(g, 0.8, 0.9, 1.9, M.dark, 1.8, 0.45, -8.8); bx(g, 0.7, 0.05, 1.2, M.black, 1.8, 0.95, -9.0);
-  bx(g, 1.2, 0.8, 0.4, M.metal, -2.0, 0.4, ZB + 0.3);
-  for (const [x, z] of [[-2.4, 2.5], [2.4, 2.5]]) { cyl(g, 0.25, 0.2, 0.4, M.pot, x, 0.2, z); cyl(g, 0.3, 0.06, 0.8, M.plant, x, 0.8, z, 7); }
+  wall(g, -3, SZ0, 1.6, SZ0); wall(g, 2.6, SZ0, 3, SZ0);
+  wall(g, -1.0, ZB, 1.0, ZB, M.glass);
+  const para = std('#FDE68A', { roughness: 0.9 });                                           // 露台黃色矮牆
+  bx(g, 2 * HW, 1.0, 0.18, para, 0, 0.5, BAL); for (const x of [-HW, HW]) bx(g, 0.18, 1.0, BAL - Z4, para, x, 0.5, (Z4 + BAL) / 2);
+  bx(g, 2 * HW + 0.3, 0.08, 1.0, std('#E5E7EB', { metalness: 0.5 }), 0, CEIL, Z4 + 0.45);       // 拉門上方屋簷
+  bx(g, 0.75, 0.55, 0.3, M.white, -2.1, 2.1, Z4 + 0.2);                                       // 冷氣室外機
+  bx(g, 0.5, 0.8, 0.4, std('#D1D5DB', { metalness: 0.7 }), -2.7, 0.4, Z4 + 0.5);              // 洗手台
+  // 機房：左牆靠著備用太陽能板與梯子、後段置物架
+  for (let i = 0; i < 5; i++) { const p = bx(g, 0.04, 1.7, 1.05, std('#CBD5E1', { metalness: 0.4 }), 2.75 - i * 0.06, 0.85, -0.9);
+    p.rotation.z = 0.12; }
+  for (const y of [0.1, 0.7, 1.3, 1.8]) bx(g, 0.45, 0.04, 1.2, M.metal, -2.75, y, -2.0);   // 置物架
+  bx(g, 0.35, 0.4, 0.5, std('#60A5FA'), -2.75, 1.5, -2.2);
+  // 健身室：後牆窗簾、跑步機、紙箱、工作桌、小冰箱
+  bx(g, 1.7, 1.6, 0.05, std('#9CA3AF'), 0, 1.5, ZB + 0.12);
+  bx(g, 0.75, 1.5, 0.5, M.dark, -1.6, 0.75, -10.5);
+  for (const [x, y] of [[-0.6, 0.3], [-0.6, 0.85], [-0.1, 0.3]]) bx(g, 0.55, 0.55, 0.5, std('#B45309'), x, y, -10.6);
+  bx(g, 0.7, 0.75, 1.4, M.woodL, -2.6, 0.38, -6.9); bx(g, 0.65, 1.2, 0.6, std('#9CA3AF', { metalness: 0.4 }), 2.6, 0.6, -6.5);
 }
 // ===== 屋頂：人字屋頂 + 太陽能板 (前後兩坡各 12 片) =====
 const panelMats = [];
@@ -605,31 +618,34 @@ lamp('f2_lamp', 2, 1.3, -10.75);
 ac('f3_bed_ac', 3, 0.9, ZF - 0.14, Math.PI);
 ac('f3_av_ac', 3, 1.7, ZB + 0.14, 0);
 // 4F
-ac('f4_solar_ac', 4, 2.88, -1.9, -Math.PI / 2);
-ac('f4_gym_ac', 4, -2.88, -8.5, Math.PI / 2);
+ac('f4_solar_ac', 4, -2.88, -0.7, Math.PI / 2, CEIL - 0.35);
+ac('f4_gym_ac', 4, -2.88, -9.2, Math.PI / 2);
 
-// 4F 機房：4 組電池 + 逆變器 (公開資訊)
+// 4F 機房：右牆的逆變器、電箱、4 組電池抽屜架 (公開資訊)
 const E = D.energy || {};
 {
   const g = floors[4].g;
   const packs = (E.packs && E.packs.length ? E.packs : [E.soc, E.soc, E.soc, E.soc]).slice(0, 4);
+  const RZ = -0.7;                                 // 電池架位置
+  for (const x of [-2.92, -2.38]) for (const z of [RZ - 0.42, RZ + 0.42]) bx(g, 0.04, 1.5, 0.04, M.metal, x, 0.75, z);
   packs.forEach((soc, i) => {
-    const z = 0.1 - i * 0.82;
-    rbx(g, 0.6, 1.5, 0.72, std('#1F2937', { metalness: 0.3 }), -2.55, 0.75, z, 0.05);
+    const y = 0.22 + i * 0.36;
+    bx(g, 0.5, 0.28, 0.78, M.white, -2.65, y, RZ);
     const k = typeof soc === 'number' ? Math.max(0.03, soc / 100) : 0;
     const col = soc >= 60 ? '#22C55E' : soc >= 30 ? '#EAB308' : '#EF4444';
-    bx(g, 0.02, 1.2, 0.08, basic('#0F172A'), -2.24, 0.75, z);
-    if (k) bx(g, 0.025, 1.2 * k, 0.08, basic(col), -2.235, 0.15 + 0.6 * k, z);
+    bx(g, 0.01, 0.05, 0.6, basic('#0F172A'), -2.395, y + 0.06, RZ);
+    if (k) bx(g, 0.012, 0.05, 0.6 * k, basic(col), -2.392, y + 0.06, RZ - 0.3 + 0.3 * k);
   });
   const pvOn = (E.pv || 0) > 50;
-  bx(g, 0.22, 0.85, 0.6, M.white, 2.85, 1.5, -0.4);
-  bx(g, 0.01, 0.18, 0.3, basic(pvOn ? '#34D399' : '#334155'), 2.735, 1.7, -0.4);
-  if (pvOn) sprite(g, glowTex('rgba(110,231,183,1)'), 0.6, 2.7, 1.7, -0.4, 0.5);
+  bx(g, 0.2, 0.75, 0.5, M.white, -2.88, 1.75, 0.0);                                            // 逆變器
+  bx(g, 0.01, 0.12, 0.22, basic(pvOn ? '#34D399' : '#334155'), -2.775, 1.85, 0.0);
+  if (pvOn) sprite(g, glowTex('rgba(110,231,183,1)'), 0.6, -2.7, 1.85, 0.0, 0.5);
+  bx(g, 0.12, 0.4, 0.35, std('#F1F5F9'), -2.92, 1.5, -0.4); bx(g, 0.12, 0.3, 0.3, std('#F1F5F9'), -2.92, 0.9, 0.0);   // 電箱
   const parts = [];
   if (typeof E.pv === 'number') parts.push(`☀️ ${(E.pv / 1000).toFixed(1)} kW`);
   if (typeof E.soc === 'number') parts.push(`🔋 ${E.soc}%` + (E.packs && E.packs.length > 1 ? `（${E.packs.map(v => v ?? '—').join(' / ')}）` : ''));
   if (typeof E.load === 'number') parts.push(`🏠 ${(E.load / 1000).toFixed(1)} kW`);
-  if (parts.length) floors[4].energy = label(g, 'tag on', parts.join(' · '), 0, 1.3, 2.0);
+  window.ENERGY_TXT = parts.join(' · ');
   panelMats.forEach(m => { m.emissiveIntensity = Math.min(0.55, (E.pv || 0) / 12000); });
 }
 
@@ -648,8 +664,9 @@ const T = D.temps || {};
 const tparts = [];
 if (typeof T.out === 'number') tparts.push(`戶外 ${T.out.toFixed(1)}°C`);
 if (typeof T.room === 'number') tparts.push(`儲能室 ${T.room.toFixed(1)}°C`);
+if (window.ENERGY_TXT) tparts.unshift(window.ENERGY_TXT);
 if (D.authed) {
-  let s = `<b>${onList.length}</b> 台開啟中` + (tparts.length ? ' · ' + tparts.join(' · ') : '');
+  let s = `<b>${onList.length}</b> 台開啟中` + (tparts.length ? '<br>' + tparts.join(' · ') : '');
   if (D.login === 'need') s += '<br><span class="w">⚠️ 小米帳號需要登入，已用 LINE 傳 QR code 給你</span>';
   else if (D.age == null) s += '<br><span class="w">樹莓派還沒上傳家電資料（更新程式後約 1 分鐘出現）</span>';
   else if (D.age > 300) s += `<br><span class="w">家電資料 ${Math.round(D.age / 60)} 分鐘沒更新</span>`;
@@ -691,7 +708,6 @@ function updateTags() {
   }
   for (const fl of Object.values(floors)) {
     fl.roomLabels.forEach(l => { l.visible = focus === fl.f; });
-    if (fl.energy) fl.energy.visible = !focus ? !NARROW : focus === 4;
     fl.flabel.visible = !focus && !NARROW;
   }
 }
