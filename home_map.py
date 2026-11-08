@@ -15,7 +15,8 @@ AC_KW = ["冷氣", "空調"]
 # (id, 樓層, 顯示名稱, 類型, rules, ex)
 SLOTS = [
     ("garage_door", 1, "車庫鐵捲門", "garage", [["鐵捲", "捲門", "車庫門"]], []),
-    ("f1_living_ac", 1, "客廳冷氣", "ac", [["客廳"], AC_KW], []),
+    ("f1_living_ac", 1, "客廳冷氣", "ac", [["客廳"]], []),
+    ("f1_tv", 1, "客廳電視", "tv", [["電視"]], ["視聽"]),
     ("f1_flood", 1, "客廳投光燈", "light", [["投光"]], []),
     ("f1_ceiling", 1, "客廳吸頂燈", "light", [["吸頂"]], ["2樓", "3樓", "2F", "3F"]),
     ("f2_bed_indirect", 2, "主臥間接照明", "light", [["間接"], ["2樓", "2F", "房間", "臥"]], ["客廳"]),
@@ -29,11 +30,12 @@ SLOTS = [
     ("f1_wc", 1, "1 樓廁所燈", "light", [["廁所", "浴室"]], ["2樓", "3樓", "2F", "3F", "後"]),
     ("f1_lamp_chen", 1, "宸宸檯燈", "lamp", [["宸宸"]], []),
     ("f1_lamp_hao", 1, "澔澔檯燈", "lamp", [["澔澔"]], []),
+    ("stair2", 2, "樓梯電燈", "light", [["樓梯"]], ["1樓", "2樓", "3樓", "1F", "2F", "3F"]),
     ("f1_stair", 1, "1 樓樓梯燈", "light", [["樓梯"]], ["2樓", "3樓", "2F", "3F"]),
-    ("f1_curtain", 1, "客廳窗簾", "curtain", [["窗簾"]], []),
+    ("f2_curtain", 2, "主臥窗簾", "curtain", [["窗簾"]], []),
     ("f1_dish", 1, "洗碗廚餘機", "dish", [["洗碗", "廚餘"]], []),
-    ("f2_bed_ac", 2, "主臥冷氣", "ac", [["2樓", "2F", "主臥"], ["房間", "臥"], AC_KW], []),
-    ("f2_study_ac", 2, "2 樓書房冷氣", "ac", [["書房"], AC_KW], []),
+    ("f2_bed_ac", 2, "主臥冷氣", "ac", [["2樓", "2F", "主臥"], ["房間", "臥"]], []),
+    ("f2_study_ac", 2, "2 樓書房冷氣", "ac", [["書房"]], []),
     ("f2_night", 2, "主臥小夜燈", "light", [["夜燈"]], []),
     ("f2_main", 2, "主臥主照明", "light", [["主照明", "主燈"]], []),
     ("f2_hall", 2, "2 樓走道照明", "light", [["走道", "走廊"]], []),
@@ -41,8 +43,8 @@ SLOTS = [
     ("f2_lamp", 2, "2 樓書房檯燈", "lamp", [["檯燈", "台燈"]], ["宸", "澔"]),
     ("f1_speaker", 1, "客廳小愛同學", "speaker", [["小愛", "音箱"], ["客廳", "1樓", "1F"]], []),
     ("f2_speaker", 2, "主臥小愛同學", "speaker", [["小愛", "音箱"]], ["客廳", "1樓", "1F"]),
-    ("f3_bed_ac", 3, "3 樓房間冷氣", "ac", [["3樓", "3F"], ["房間", "臥"], AC_KW], []),
-    ("f3_av_ac", 3, "3 樓視聽室冷氣", "ac", [["視聽", "影音"], AC_KW], []),
+    ("f3_bed_ac", 3, "3 樓房間冷氣", "ac", [["3樓", "3F"], ["房間", "臥"]], []),
+    ("f3_av_ac", 3, "3 樓視聽室冷氣", "ac", [["視聽", "影音"]], []),
 ]
 # 多鍵牆壁開關：米家裡一個開關 (例如 3 鍵的「客廳」) 有好幾路，每一路是一盞燈 → 依序對到這些位置 (第 1 路 = 最左邊)。
 # (名稱關鍵字, 排除, [第 1 路, 第 2 路, ...])；只套用在讀得到 2 路以上開關的裝置。
@@ -78,6 +80,16 @@ def norm(s):
     return (s or "").translate(_CN).replace(" ", "").upper()
 
 
+def is_ac(d):
+    """冷氣：米家名稱常常只有房間名 (例如「2樓書房」)，所以看裝置類型 / 型號 (冷氣伴侶)。"""
+    m = str(d.get("m") or "").lower()
+    return (d.get("k") in ("air-conditioner", "ir-aircondition-control") or "acpartner" in m or ".aircondition" in m
+            or any(k in (d.get("n") or "") for k in AC_KW))
+
+
+HIDE = ["網關", "溫濕度", "WRITING"]                  # 不列在「其他裝置」(網關、藍牙溫濕度計另外顯示)
+
+
 def _hit(text, rules, ex=()):
     return all(any(norm(k) in text for k in grp) for grp in rules) and not any(norm(k) in text for k in ex)
 
@@ -100,13 +112,15 @@ def match(devices):
     names = [norm(d.get("n")) for d in left]
     dup = {n for n in names if names.count(n) > 1}       # 同名的 (例如兩個「間接照明」) 只能靠房間分辨
     for use_room in (False, True):
-        for sid, _f, _l, _k, rules, ex in SLOTS:
+        for sid, _f, _l, kind, rules, ex in SLOTS:
             if sid in got or rules is None:
                 continue
             for d in left:
                 if not use_room and norm(d.get("n")) in dup:
                     continue
                 text = norm(d.get("n")) + ("|" + norm(d.get("r")) if use_room else "")
+                if (kind == "ac") != is_ac(d):           # 冷氣位置只收冷氣，其他位置不收冷氣
+                    continue
                 if _hit(text, rules, ex):
                     got[sid] = d
                     left.remove(d)
@@ -119,7 +133,8 @@ def match(devices):
                 got[sid] = d
                 left.remove(d)
                 break
-    left = [d for d in left if not _hit(norm(d.get("n")) + "|" + norm(d.get("r")), SOLAR_AC_KW)]
+    left = [d for d in left if not (is_ac(d) and _hit(norm(d.get("n")), [SOLAR_AC_KW[0]]))
+            and not any(norm(k) in norm(d.get("n")) for k in HIDE)]
     return got, left
 
 

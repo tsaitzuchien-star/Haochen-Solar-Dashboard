@@ -570,6 +570,13 @@ function curtainZ(id, f, x0, x1, z) {               // 平行 x 軸的窗簾 (�
   bx(g, len + 0.1, 0.08, 0.08, M.white, (x0 + x1) / 2, 2.6, z - 0.12);
   return reg(id, f, new THREE.Vector3((x0 + x1) / 2, 2.9, z - 0.3), [a]);
 }
+function tv(id, f, x, z) {                         // 牆上電視 (面向 +x)：開著螢幕發藍光
+  const g = floors[f].g, s = D.slots[id], on = s && s.st === 'on';
+  const scr = new THREE.Mesh(new THREE.PlaneGeometry(1.55, 0.8), std('#0B1220', { emissive: '#60A5FA', emissiveIntensity: on ? 1.3 : 0 }));
+  scr.position.set(x, 1.3, z); scr.rotation.y = Math.PI / 2; g.add(scr);
+  if (on) sprite(g, GLOW_B, 2.0, x + 0.2, 1.3, z, NIGHT ? 0.45 : 0.25);
+  return reg(id, f, new THREE.Vector3(x + 0.1, 2.0, z), [scr]);
+}
 function dish(id, f, x, z) {
   const g = floors[f].g, s = D.slots[id], on = s && s.st === 'on';
   const box = bx(g, 0.58, 0.8, 0.6, std(dimmed(s) ? '#64748B' : '#E5E7EB', { metalness: 0.5, roughness: 0.3 }), x, 0.4, z);
@@ -595,7 +602,7 @@ ac('f1_living_ac', 1, -1.15, ZF - 0.14, Math.PI);
 light('f1_ceiling', 1, 0.2, -0.1, '客廳', { r: 1.8 });
 downlights('f1_flood', 1, [[-1.6, 1.6], [1.6, 1.6], [-1.6, -1.6], [1.6, -1.6]], '客廳');
 strip('f1_indirect', 1, -2.8, 2.8, -2.4, 2.8, '客廳');
-curtainZ('f1_curtain', 1, -2.6, 0.3, ZF);
+tv('f1_tv', 1, -2.86, -0.9);
 lamp('f1_lamp_chen', 1, -1.9, 2.75, -1); lamp('f1_lamp_hao', 1, -0.5, 2.75, -1);
 light('f1_stair', 1, -1.6, -4.3, '樓梯', { r: 0.8 });
 light('f1_kitchen', 1, 0.3, -7.6, '廚房 · 餐廳', { r: 1.8 });
@@ -612,6 +619,8 @@ ac('f2_bed_ac', 2, 1.2, ZF - 0.14, Math.PI);
 downlights('f2_main', 2, [[-1.4, 0.4], [1.2, 0.4], [-1.4, 2.2], [1.2, 2.2]], '主臥室');
 strip('f2_bed_indirect', 2, -2.8, 2.8, -0.8, 2.8, '主臥室');
 nightLight('f2_night', 2, -2.75, 2.75, '主臥室');
+curtainZ('f2_curtain', 2, -0.1, 2.5, ZF);
+light('stair2', 2, -2.2, -5.6, '樓梯口', { r: 0.8 });
 speaker('f2_speaker', 2, -2.9, 1.0, 0.98);
 light('f2_wc', 2, -1.8, -1.8, '主臥廁所', { r: 0.8 });
 light('f2_hall', 2, 1.3, -4.3, '樓梯口', { r: 1.0 });
