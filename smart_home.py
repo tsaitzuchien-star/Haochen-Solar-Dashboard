@@ -38,7 +38,7 @@ def render(live):
         return ("<div style='color:#94A3B8;font-family:sans-serif;padding:18px;background:#1E293B;border-radius:14px'>"
                 "還沒有收到環境資料（樹莓派更新到有溫濕度計與冷氣控制的版本後就會出現）。</div>")
     ac = c.get("ac") or {}
-    lo, hi = ac.get("off_room", 26.5), ac.get("on_room", 29)
+    lo, hi = ac.get("off_room", 26.5), ac.get("on_room", 30)
     on_cell = ac.get("on_cell", 35)
     ind, out = c.get("indoor"), c.get("outdoor")
     room = ind.get("temp") if ind else None

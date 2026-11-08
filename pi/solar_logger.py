@@ -666,14 +666,14 @@ AC_STATE = os.path.join(HERE, "ac_state.json")
 
 class AcAuto:
     """儲能室太熱就開冷氣、降溫後關掉。
-    開：室溫 ≥ ac_on_room (預設 29°C)，或電芯 ≥ ac_on_cell (預設 35°C)。開之前先切 Cool、設定 ac_target (預設 25°C，要低於關機溫度才降得下來)。
+    開：室溫 ≥ ac_on_room (預設 30°C)，或電芯 ≥ ac_on_cell (預設 35°C)。不是冷氣模式才切 Cool；預設不改設定溫度。
     關：不管是自動開還是手動 (米家 / 遙控器) 開的，室溫 ≤ ac_off_room (預設 26.5°C) 持續 10 分鐘、電芯 < 32°C 就關；
         自動開的另外要開滿 20 分鐘。config.json 設 "ac_off_manual": false 可改回「只關自動開的」。
     開了 20 分鐘室溫沒有下降 → 再送一次開 + LINE 提醒 (紅外線是單向的，可能沒被冷氣收到)。"""
 
     def __init__(self, cfg, thermo):
         self.cfg, self.thermo = cfg, thermo
-        self.on_room = float(cfg.get("ac_on_room", 29))
+        self.on_room = float(cfg.get("ac_on_room", 30))
         self.off_room = float(cfg.get("ac_off_room", 26.5))
         self.on_cell = float(cfg.get("ac_on_cell", 35))
         # 自動開機時的設定溫度：預設不改 (維持冷氣伴侶記得的設定，例如米家 App 設的 23°C)；config 設 "ac_target": 25 才會改
