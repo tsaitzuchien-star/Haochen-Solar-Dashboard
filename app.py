@@ -495,9 +495,27 @@ except Exception as e:
     fc_error = e
 
 # ==========================================
-# 6.5 熱水器加熱時機 (目前只提示；樹莓派上線後改成自動開關)
+# 6.5 熱水器：樹莓派自動開關後顯示真實狀態；沒有樹莓派資料時才用用電推測的建議
 # ==========================================
-if not stale:
+_hw = ((live or {}).get("climate") or {}).get("heater")
+_hw_fresh = _hw and _hw.get("on") is not None and \
+    (datetime.now(TW_TZ) - datetime.fromisoformat(live["time"])).total_seconds() <= 300
+if _hw_fresh:
+    _m, _hm = _hw.get("minutes_today", 0), now_tw.hour + now_tw.minute / 60
+    if _hw["on"]:
+        _txt = {"surplus": "🔥 加熱中：電池滿了，自動用多的太陽能加熱", "fallback": "🔥 陰天保底加熱中，16:30 自動關"}.get(
+            _hw.get("mode") if _hw.get("auto_on") else None, "🔥 加熱中（手動或排程開啟）")
+        _c = "#F97316"
+    elif _hm < 15 and _hm >= 9:
+        _txt, _c = "⚪ 待命：電池到 98% 且有太陽時會自動開", "#64748B"
+    elif 15 <= _hm < 16.5:
+        _txt, _c = ("✅ 今天已經加熱夠了" if _m >= 60 else "⚪ 待命"), "#34D399" if _m >= 60 else "#64748B"
+    else:
+        _txt, _c = "⚪ 關閉：明天 9:00 起有多的太陽能就自動加熱（陰天 15:00 保底）", "#64748B"
+    st.markdown(f'<div style="border:1px solid {_c}55; background:{_c}14; border-radius:10px; padding:8px 14px; margin:0 0 10px; '
+                f'font-size:14px; color:#E2E8F0;">♨️ <b>熱水器</b> {_txt} · 今天已加熱 {_m:.0f} 分鐘'
+                f'<span style="color:#64748B; font-size:12px;">（樹莓派自動控制）</span></div>', unsafe_allow_html=True)
+elif not stale:
     _recent = curve[curve["time"] > pd.Timestamp(now_tw.replace(tzinfo=None)) - pd.Timedelta(minutes=16)] if not curve.empty else curve
     _sustained = len(_recent) >= 3 and bool((_recent["load"] >= solar_core.HEATER_KW * 0.85 + 0.3).all())
     _lvl, _txt = solar_core.heater_advice(now_tw.hour, soc, pv_kw, load_kw, ana["lost_now"] if ana else 0.0, _sustained)
