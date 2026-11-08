@@ -242,7 +242,7 @@ def check_alerts(invd, packs, bms_age, inv_fail_s=0):
             if prev is not None and prev < 100 <= p["soc"] and max(p["cells"]) < 3.43:
                 out.append(("fakefull", "orange", f"電池 #{p['addr']} 顯示 100%，但最高單體只有 {max(p['cells']):.3f} V"
                                                   "（真的充滿要 3.45 V），是 BMS 計數先到頂、不是真的滿。"
-                                                  "如果其他組也一樣、逆變器停止充電，請在 JK App 對任一組重新寫入容量 340 Ah"))
+                                                  "如果逆變器停止充電，樹莓派會在 9–14 點自動用藍牙校正"))
                 break
         alarm = [p for p in packs if p.get("alarm")]
         if alarm:
@@ -423,7 +423,8 @@ class AutoCalib:
     條件連續 10 分鐘成立就用藍牙對一組從機重新寫入容量 340 Ah (跟手機 JK App 手動做的一樣)，
     讓 SOC 重算、逆變器繼續充到 3.45 V，4 組一起真正校正。
     安全：一天最多成功 1 次、嘗試 3 次；寫入工具會比對全部 34 項設定，有其他設定被改到或寫了沒效果就自動停用並通知。"""
-    MAX_CELL = 3.37      # 真的充滿後休息仍有 3.38 V 以上；假滿 (11/6) 只有 3.34 V
+    AVG_CELL = 3.36      # 真的充滿後休息平均仍有 3.38 V 以上；假滿 (11/6、11/8) 平均只有 3.34 V
+    MAX_CELL = 3.40      # 任何一顆到 3.40 V 以上就可能真的接近滿，不動作
     HOLD_S = 600
     VERIFY_S = 300
 
@@ -465,9 +466,20 @@ class AutoCalib:
             self.since = None
             return
         cells = [c for p in packs for c in p["cells"]]
-        cond = (invd is not None and len(packs) >= 4 and 9 <= now.hour < 14
-                and invd["soc"] >= 99 and max(cells) < self.MAX_CELL
-                and sum(p["curr"] for p in packs) < 3 and invd["pv_w"] >= 500)
+        if invd is None or len(packs) < 4 or not cells or invd["soc"] < 99 or not 9 <= now.hour < 14:
+            self.since = None
+            return
+        # 有沒有太陽看組串電壓：電池滿了逆變器會限發，太陽能功率只剩家裡用的量，不能用功率判斷
+        sun = max(invd["pv1"]["v"], invd["pv3"]["v"]) >= 300
+        avg, mx, chg = sum(cells) / len(cells), max(cells), sum(p["curr"] for p in packs)
+        checks = {"平均單體<3.36": avg < self.AVG_CELL, "最高單體<3.40": mx < self.MAX_CELL,
+                  "沒在充電": chg < 3, "有太陽": sun}
+        cond = all(checks.values())
+        if now.minute % 5 == 0 or cond != bool(self.since):
+            print(f"假滿檢查：SOC {invd['soc']}% 平均 {avg:.3f} V 最高 {mx:.3f} V 電流 {chg:+.1f} A "
+                  f"組串 {invd['pv1']['v']:.0f}/{invd['pv3']['v']:.0f} V → "
+                  + "、".join(f"{k}{'✓' if v else '✗'}" for k, v in checks.items())
+                  + (f"（已持續 {(time.time() - self.since) / 60:.0f} 分）" if self.since else ""), flush=True)
         if not cond:
             self.since = None
             return
@@ -479,7 +491,7 @@ class AutoCalib:
             self.st.update(tries_date=today, tries=0)
         self.st["tries"] += 1
         self.save()
-        why = f"SOC {invd['soc']}%、最高單體只有 {max(cells):.3f} V、逆變器已停充 10 分鐘"
+        why = f"SOC {invd['soc']}%、單體平均只有 {avg:.3f} V（最高 {mx:.3f} V）、逆變器已停充 10 分鐘"
         self.remember(packs)
         self.thread = threading.Thread(target=self.write, args=(why, today), daemon=True)
         self.thread.start()
