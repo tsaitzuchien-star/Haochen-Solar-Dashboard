@@ -97,3 +97,10 @@ cd ~/Haochen-Solar-Dashboard
 - 想換家人連結（例如不小心傳給別人）：刪掉 `pi/home_key.json` 再 `sudo systemctl restart solar-logger`，會用 LINE 傳新的連結，舊連結失效。
 - 想關掉這個功能：在 `pi/config.json` 加 `"home_watch": false`。
 - 金鑰檔 `pi/mi_cloud.json`、`pi/home_key.json` 只存在樹莓派上（權限 600），不會上傳到 GitHub。
+
+## 自動更新
+已用 `sudo bash pi/install_autoupdate.sh` 安裝後，樹莓派每 5 分鐘自動檢查 GitHub main：
+- 有新版就自動 `git pull`；改到樹莓派程式 (pi/、tools/ 等) 才重新啟動 solar-logger，並用 LINE 通知。
+- 只改網站或說明檔時不重啟。
+- 更新紀錄看網站「🍓 樹莓派」分頁的「🩺 診斷資訊」(家人連結才看得到)，或 `cat pi/auto_update.log`。
+- 停用：`sudo systemctl disable --now solar-autoupdate.timer`
