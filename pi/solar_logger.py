@@ -597,7 +597,8 @@ class MiThermo(threading.Thread):
             if vals:
                 d = self.data.setdefault(mac, {})
                 d.update(vals)
-                if "temp" in vals:
+                # 這款 (MJWSD05MMC) 溫度沒變就不重送，只送濕度 / 電量；有收到任何一筆就代表溫度計還在、上次的溫度仍有效
+                if "temp" in d:
                     d["t"] = time.time()
 
         async def loop():
