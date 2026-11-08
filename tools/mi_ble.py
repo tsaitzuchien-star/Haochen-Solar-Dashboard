@@ -83,17 +83,21 @@ async def scan(seconds=25):
     def cb(dev, adv):
         d = adv.service_data.get(MI_UUID)
         if d and len(d) >= 5:
-            enc, pid, *_ = parse_header(d)
-            s = seen.setdefault(dev.address, {"n": 0})
-            s.update(name=adv.local_name or dev.name or "", rssi=adv.rssi, pid=pid, enc=enc)
-            s["n"] += 1
+            enc, pid, _, i, _ = parse_header(d)
+            s = seen.setdefault(dev.address, {"enc": 0, "plain": 0, "vals": {}, "name": ""})
+            s.update(rssi=adv.rssi, pid=pid)
+            s["name"] = adv.local_name or dev.name or s["name"]
+            s["enc" if enc else "plain"] += 1
+            if not enc:
+                s["vals"].update(decode_objects(d[i:]))
 
     async with BleakScanner(cb):
         print(f"聆聽 {seconds} 秒 …", flush=True)
         await asyncio.sleep(seconds)
     for mac, s in sorted(seen.items(), key=lambda x: -x[1]["rssi"]):
-        print(f"  {mac}  訊號 {s['rssi']} dBm  產品代碼 0x{s['pid']:04X}  {'加密' if s['enc'] else '未加密'}  "
-              f"收到 {s['n']} 次  {s['name']}")
+        vals = "  未加密資料：" + json.dumps(s["vals"], ensure_ascii=False) if s["vals"] else ""
+        print(f"  {mac}  訊號 {s['rssi']} dBm  產品代碼 0x{s['pid']:04X}  加密 {s['enc']} 次 / 未加密 {s['plain']} 次"
+              f"  {s['name']}{vals}")
     print(f"共 {len(seen)} 個小米藍牙裝置" if seen else "沒聽到任何小米藍牙廣播")
 
 
