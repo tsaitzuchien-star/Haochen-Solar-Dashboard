@@ -160,6 +160,12 @@ def build(live, authed):
             st = "offline" if d.get("o") is False else "on" if d.get("on") else "off" if d.get("on") is False else "unknown"
             slots[sid] = {"st": st, "n": d.get("n") or label, "r": d.get("r"), "t": d.get("t") or "",
                           "pos": d.get("pos"), "sw": d.get("sw")}
+            # 鐵捲門控制器 (米家只有 上 / 停 / 下 三個按鈕)：按鈕只是一下下的脈衝，讀不到門現在是開還是關；
+            # 有開啟位置 (pos) 或「開門中 / 關門中」狀態時才顯示，否則標成狀態不明，不亂猜
+            if kind == "garage" and st != "offline" and d.get("pos") is None:
+                moving = any(w in str(d.get("t")).lower() for w in ("opening", "closing", "rising", "falling", "上升", "下降"))
+                slots[sid] |= {"st": "on" if moving else "unknown", "sw": None,
+                               "t": "門在動" if moving else "讀不到門開著還是關著（米家只有上 / 停 / 下按鈕）"}
         others = [{"n": d.get("n"), "r": d.get("r"), "st": "offline" if d.get("o") is False else
                    "on" if d.get("on") else "off" if d.get("on") is False else "unknown", "t": d.get("t") or ""}
                   for d in left]
