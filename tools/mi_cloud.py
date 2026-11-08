@@ -388,18 +388,19 @@ def main():
     if cmd == "list":
         sys.path.insert(0, ROOT)
         import home_map
-        rooms = mc.rooms()
-        devs = mc.devices()
-        recs = [{"n": d.get("name"), "r": rooms.get(str(d.get("did"))), "o": d.get("isOnline"), "m": d.get("model")}
-                for d in devs]
+        recs = mc.read_states()                      # 跟上傳到網站的一樣 (含多鍵開關各路、裝置類型)
         got, _left = home_map.match(recs)
-        where = {id(d): sid for sid, d in got.items()}
         label = {s[0]: s[2] for s in home_map.SLOTS}
-        print(f"伺服器 {mc.s['server']}：{len(devs)} 台\n")
+        where = {}
+        for sid, d in got.items():                   # 多鍵開關的每一路是複製出來的，用名稱 + 房間找回原本那台
+            key = (d.get("t", "").split("」")[0].lstrip("「") if "」第" in d.get("t", "") else d.get("n"), d.get("r"))
+            where.setdefault(key, []).append(label[sid] + (f"（第 {d['t'].split('第 ')[1]}）" if "」第" in d.get("t", "") else ""))
+        print(f"伺服器 {mc.s['server']}：{len(recs)} 台\n")
         for d in sorted(recs, key=lambda d: (d["r"] or "", d["n"] or "")):
-            sid = where.get(id(d))
-            print(f"{'🟢' if d['o'] else '⚫'} {d['n']}  |  房間 {d['r'] or '—'}  |  {d['m']}  →  "
-                  f"{('3D：' + label[sid]) if sid else '（沒有對應位置，會列在「其他裝置」）'}")
+            to = where.get((d["n"], d["r"]))
+            sw = f"  |  {len(d['sw'])} 路開關" if d.get("sw") else ""
+            print(f"{'🟢' if d['o'] else '⚫'} {d['n']}  |  房間 {d['r'] or '—'}  |  {d['m']}{sw}  →  "
+                  f"{('3D：' + '、'.join(to)) if to else '（沒有對應位置，會列在「其他裝置」）'}")
         miss = [label[s[0]] for s in home_map.SLOTS if s[0] not in got]
         if miss:
             print("\n3D 圖上還沒對到裝置的位置：" + "、".join(miss))
