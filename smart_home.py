@@ -59,7 +59,8 @@ def render(live):
                f'<span style="left:{pos(hi):.0f}%">{hi:g}° 開</span></div>')
     tiles = [
         _tile("🔋", "儲能室", room, ind.get("hum") if ind else None,
-              (f"{_age_txt(ind.get('age_s'))}更新" + (f" · 溫度計電量 {ind['batt']}%" if ind.get("batt") else "")) if ind
+              (f"{_age_txt(ind.get('age_s'))}更新" + (" · 小米雲端（藍牙暫時收不到）" if ind.get("src") == "cloud" else "")
+               + (f" · 溫度計電量 {ind['batt']}%" if ind.get("batt") else "")) if ind
               else "收不到溫濕度計", rc, bar),
         _tile("🌤️", "戶外（車庫）", out.get("temp") if out else None, out.get("hum") if out else None,
               f"{_age_txt(out.get('age_s'))}更新" if out else "離樹莓派太遠，暫時收不到", "#E2E8F0"),
@@ -89,9 +90,10 @@ def render(live):
                   ("，已超過門檻，冷氣運轉中降溫。" if on else "，已超過門檻，樹莓派會在 1 分鐘內開冷氣。")
         elif on and ac.get("auto_on"):
             why = (f"儲能室 {room}°C，降到 {lo:g}°C 以下並維持 10 分鐘後會自動關機。" if room is not None
-                   else "冷氣是自動開的，等室溫降下來會自動關。")
+                   else "冷氣是自動開的，但目前收不到儲能室溫度，要等溫濕度計恢復才會判斷關機。")
         elif on:
-            why = f"冷氣是手動開的，自動控制不會關它；儲能室 {room}°C。"
+            why = ("冷氣是手動開的，自動控制不會關它；" +
+                   (f"儲能室 {room}°C。" if room is not None else "而且目前收不到儲能室溫濕度計的資料。"))
         else:
             why = f"儲能室 {room}°C，在 {hi:g}°C 以下，不需要開冷氣。" if room is not None else "目前不需要開冷氣。"
         rules = (f'<div class="rules"><span>❄️ 室溫 ≥ {hi:g}°C 或電池 ≥ {on_cell:g}°C → 開（Cool {ac.get("target", 25):g}°C）</span>'

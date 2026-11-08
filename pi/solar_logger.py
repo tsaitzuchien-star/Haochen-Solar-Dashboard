@@ -572,10 +572,13 @@ class MiThermo(threading.Thread):
         super().__init__(daemon=True)
         self.keys = {k.upper(): v for k, v in keys.items()}
         self.data = {}
+        self.fallback = None        # 藍牙收不到時改用小米雲端 (HomeWatch.sensor)，參數是 MAC
 
     def latest(self, mac, max_age=900):
         d = self.data.get((mac or "").upper())
-        return d if d and time.time() - d.get("t", 0) < max_age else None
+        if d and time.time() - d.get("t", 0) < max_age:
+            return d
+        return self.fallback(mac) if self.fallback else None
 
     def run(self):
         import asyncio
@@ -670,7 +673,7 @@ class AcAuto:
         ind = self.thermo.latest(self.cfg.get("mi_indoor")) if self.thermo else None
         out = self.thermo.latest(self.cfg.get("mi_outdoor")) if self.thermo else None
         cells = [max(p["t1"], p["t2"]) for p in packs] if packs else []
-        pick = lambda d: {k: d.get(k) for k in ("temp", "hum", "batt")} | {"age_s": round(time.time() - d["t"])} if d else None
+        pick = lambda d: {k: d.get(k) for k in ("temp", "hum", "batt", "src")} | {"age_s": round(time.time() - d["t"])} if d else None
         return {"indoor": pick(ind), "outdoor": pick(out), "cell_max": max(cells) if cells else None,
                 "ac": {"on": self.status.get("on"), "mode": self.status.get("mode"), "temp": self.status.get("temp"),
                        "mode_name": self.mode_name(self.status.get("mode")), "fan": self.status.get("fan"),
@@ -970,6 +973,17 @@ class HomeWatch(threading.Thread):
             self.ew_t = time.time()
             self._ewelink()
 
+    def sensor(self, mac):
+        """藍牙收不到溫濕度計時的備援：從小米雲端 (經網關) 讀到的溫濕度。儲能室 = 名稱含「儲能」，戶外 = 含「車庫」。"""
+        if not mac or not self.devices or time.time() - self.t > 600:
+            return None
+        kw = "儲能" if mac.upper() == str(self.cfg.get("mi_indoor", "")).upper() else \
+             "車庫" if mac.upper() == str(self.cfg.get("mi_outdoor", "")).upper() else None
+        for d in self.devices if kw else []:
+            if kw in (d.get("n") or "") and d.get("temp") is not None:
+                return {"temp": d["temp"], "hum": d.get("hum"), "batt": None, "t": self.t, "src": "cloud"}
+        return None
+
     def summary(self):
         return {"key_sha": self.key_sha, "login": self.login, "t": round(self.t) if self.t else None,
                 "devices": (self.devices or []) + self.ew}
@@ -1002,6 +1016,8 @@ def main():
     home = HomeWatch(cfg) if not a.once and cfg.get("home_watch", True) else None
     if home:
         home.start()
+        if thermo:
+            thermo.fallback = home.sensor
     while True:
         t0 = time.time()
         invd = None

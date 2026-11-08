@@ -111,7 +111,7 @@ def match(devices):
                     if sid not in got:
                         got[sid] = d | {"on": sw[i] if d.get("o") is not False else None, "sw": None,
                                         "n": LABEL.get(sid, sid).split(" (")[0],
-                                        "t": f"「{d.get('n')}」第 {i + 1} 路"}
+                                        "t": "", "g": f"米家開關「{d.get('n')}」第 {i + 1} 路"}
                 left.remove(d)
                 break
     names = [norm(d.get("n")) for d in left]
@@ -163,7 +163,7 @@ def build(live, authed):
                 continue
             st = "offline" if d.get("o") is False else "on" if d.get("on") else "off" if d.get("on") is False else "unknown"
             slots[sid] = {"st": st, "n": d.get("n") or label, "r": d.get("r"), "t": d.get("t") or "",
-                          "pos": d.get("pos"), "sw": d.get("sw")}
+                          "pos": d.get("pos"), "sw": d.get("sw"), "g": d.get("g")}
             # 鐵捲門控制器 (米家只有 上 / 停 / 下 三個按鈕)：按鈕只是一下下的脈衝，讀不到門現在是開還是關；
             # 有開啟位置 (pos) 或「開門中 / 關門中」狀態時才顯示，否則標成狀態不明，不亂猜
             if kind == "garage" and st != "offline" and d.get("pos") is None:
