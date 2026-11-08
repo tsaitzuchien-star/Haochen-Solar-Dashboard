@@ -59,7 +59,8 @@ def render(live):
                f'<span style="left:{pos(hi):.0f}%">{hi:g}° 開</span></div>')
     tiles = [
         _tile("🔋", "儲能室", room, ind.get("hum") if ind else None,
-              (f"{_age_txt(ind.get('age_s'))}更新" + (f" · 溫度計電量 {ind['batt']}%" if ind.get("batt") else "")) if ind
+              (f"{_age_txt(ind.get('age_s'))}更新" + (" · 小米雲端（藍牙暫時收不到）" if ind.get("src") == "cloud" else "")
+               + (f" · 溫度計電量 {ind['batt']}%" if ind.get("batt") else "")) if ind
               else "收不到溫濕度計", rc, bar),
         _tile("🌤️", "戶外（車庫）", out.get("temp") if out else None, out.get("hum") if out else None,
               f"{_age_txt(out.get('age_s'))}更新" if out else "離樹莓派太遠，暫時收不到", "#E2E8F0"),

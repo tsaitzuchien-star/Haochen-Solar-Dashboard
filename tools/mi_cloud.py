@@ -31,9 +31,10 @@ ACCOUNT = "https://account.xiaomi.com"
 # 3D 圖會用到的服務 (依優先順序決定裝置類型) 與屬性；其他 (電量、指示燈、童鎖…) 不讀
 SERVICES = ["air-conditioner", "ir-aircondition-control", "water-heater", "heater", "light", "curtain",
             "window-opener", "motor-controller", "garage-door", "door", "dishwasher", "washer", "speaker",
-            "play-control", "television", "fan", "air-purifier", "switch", "outlet", "plug"]
+            "play-control", "television", "fan", "air-purifier", "switch", "outlet", "plug",
+            "temperature-humidity-sensor"]
 PROPS = ["on", "brightness", "mode", "target-temperature", "status", "current-position", "target-position",
-         "playing-state", "left-time", "fault"]
+         "playing-state", "left-time", "fault", "temperature", "relative-humidity"]
 IDLE = {"idle", "off", "standby", "sleep", "stop", "stopped", "close", "closed", "pause", "paused", "complete",
         "completed", "done", "wait", "waiting", "none", "normal", "no fault", "no faults", "unknown"}
 
@@ -295,7 +296,8 @@ class MiCloud:
         for d in devs:
             did, model = str(d.get("did")), d.get("model") or ""
             svcs = []
-            if not did.startswith("blt.") and d.get("isOnline"):
+            # 藍牙裝置只讀溫濕度計 (經網關上傳到雲端，給藍牙收不到時備援)
+            if (not did.startswith("blt.") or "sensor_ht" in model) and d.get("isOnline"):
                 svcs = sorted(self.spec(model).get("svcs") or [], key=lambda s: SERVICES.index(s["n"]))
             picks = []
             count = {}
@@ -363,6 +365,10 @@ def summarize(d, room, kind, v):
            "on": on, "t": " · ".join(dict.fromkeys(txt))[:60]}
     if pos is not None:
         rec["pos"] = pos
+    temp = next((x for k, x in v.items() if k.endswith(".temperature") and isinstance(x, (int, float))), None)
+    hum = next((x for k, x in v.items() if k.endswith(".relative-humidity") and isinstance(x, (int, float))), None)
+    if temp is not None:
+        rec |= {"temp": round(temp, 1), "hum": hum, "t": f"{temp:.1f}°C" + (f" {hum:.0f}%" if hum is not None else "")}
     if len(ons) > 1:
         rec["sw"] = ons
     return rec
