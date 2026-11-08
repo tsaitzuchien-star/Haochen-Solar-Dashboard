@@ -99,7 +99,7 @@ def render(live):
                    (f"儲能室 {room}°C。" if room is not None else "而且目前收不到儲能室溫濕度計的資料。"))
         else:
             why = f"儲能室 {room}°C，在 {hi:g}°C 以下，不需要開冷氣。" if room is not None else "目前不需要開冷氣。"
-        rules = (f'<div class="rules"><span>❄️ 室溫 ≥ {hi:g}°C 或電池 ≥ {on_cell:g}°C → 開（Cool {ac.get("target", 25):g}°C）</span>'
+        rules = (f'<div class="rules"><span>❄️ 室溫 ≥ {hi:g}°C 或電池 ≥ {on_cell:g}°C → 開（{f"Cool {ac['target']:g}°C" if ac.get("target") is not None else "維持冷氣原本的設定溫度"}）</span>'
                  f'<span>✅ {"不管誰開的冷氣" if offm else "自動開的冷氣"}，室溫 ≤ {lo:g}°C 持續 10 分鐘 → 關</span>'
                  f'<span>📱 每次開關都用 LINE 通知</span></div>')
         ac_html = (f'<div class="card"><h3>❄️ 太陽能機房冷氣 <span class="muted">Panasonic · 小米冷氣伴侶</span></h3>'

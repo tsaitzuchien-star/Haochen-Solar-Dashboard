@@ -635,7 +635,8 @@ class AcAuto:
         self.on_room = float(cfg.get("ac_on_room", 29))
         self.off_room = float(cfg.get("ac_off_room", 26.5))
         self.on_cell = float(cfg.get("ac_on_cell", 35))
-        self.target = float(cfg.get("ac_target", 25))
+        # 自動開機時的設定溫度：預設不改 (維持冷氣伴侶記得的設定，例如米家 App 設的 23°C)；config 設 "ac_target": 25 才會改
+        self.target = float(cfg["ac_target"]) if cfg.get("ac_target") is not None else None
         self.enabled = bool(cfg.get("ac_auto", True) and cfg.get("ac", {}).get("token"))
         self.off_manual = bool(cfg.get("ac_off_manual", True))
         self.ac, self.status, self.status_t, self.cool_since = None, {}, 0, None
@@ -709,12 +710,17 @@ class AcAuto:
             try:
                 ac = self.dev()
                 mv = ac.mode_value("cool")
-                ac.set(**({"mode": mv} if mv is not None else {}), temp=self.target)
+                kw = {"mode": mv} if mv is not None and st.get("mode") != mv else {}   # 不是冷氣模式才切 Cool
+                if self.target is not None:
+                    kw["temp"] = self.target
+                if kw:
+                    ac.set(**kw)
                 ac.set(on=True)
                 self.st.update(auto_on=True, changed=now, on_room=room)
                 self.save()
                 self.read_status(force=True)
-                self.line(f"❄️ {why}，已自動開冷氣（Cool {self.target:.0f}°C）。")
+                t_set = self.target if self.target is not None else st.get("temp")
+                self.line(f"❄️ {why}，已自動開冷氣（Cool" + (f" {t_set:g}°C" if isinstance(t_set, (int, float)) else "") + "）。")
             except Exception as e:                 # noqa: BLE001
                 self.line(f"🟠 {why}，想自動開冷氣但冷氣伴侶沒有回應：{e}")
                 self.st["changed"] = now
