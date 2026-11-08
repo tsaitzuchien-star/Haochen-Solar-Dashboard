@@ -16,6 +16,7 @@ from streamlit_autorefresh import st_autorefresh
 import power_flow
 import pv_forecast
 import battery_page
+import smart_home
 import solar_core
 
 # Streamlit Cloud 更新程式後只會重跑 app.py，已載入的模組可能還是舊版 (曾因此讀不到新欄位而 KeyError)；
@@ -24,6 +25,7 @@ importlib.reload(power_flow)
 importlib.reload(pv_forecast)
 importlib.reload(solar_core)
 importlib.reload(battery_page)
+importlib.reload(smart_home)
 power_flow_html = power_flow.power_flow_html
 from solar_core import (CAPACITY_KWP, TW_TZ, analyze_curve, grid_buy_kw, grid_rate_kw, rows_to_curve,  # noqa: E402
                         soc_jumps, solar_charge_kw, solar_surplus, sun_shape)
@@ -878,7 +880,10 @@ with st.expander("📥 下載逐 5 分鐘明細（CSV）"):
 # 9. 分頁：設備與溫度 / 趨勢
 # ==========================================
 st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
-tab_dev, tab_bat, tab_pi, tab_trend = st.tabs(["🌡️ 溫度與設備", "🔋 儲能", "🍓 樹莓派", "📊 趨勢"])
+tab_dev, tab_bat, tab_home, tab_pi, tab_trend = st.tabs(["🌡️ 溫度與設備", "🔋 儲能", "🏠 智慧家庭", "🍓 樹莓派", "📊 趨勢"])
+
+with tab_home:
+    st.html(smart_home.render(live))
 
 with tab_pi:
     # 樹莓派本身的狀態：每次上傳一起帶過來
@@ -922,7 +927,7 @@ with tab_pi:
         st.markdown(f"""<div class="card" style="color:#CBD5E1; font-size:14px; line-height:1.9;">
           {"🟢 連線中" if online else "🔴 離線"}（最後回報 {datetime.fromisoformat(live["time"]):%H:%M:%S}，{age_s:.0f} 秒前）<br>
           ⏱️ 已連續運轉 {up_txt}<br>⚡ 電壓不足 / 降速紀錄：{thr_txt}
-          <div style="color:#64748B; font-size:12px; margin-top:4px;">Raspberry Pi 5 · 每 15 秒讀取逆變器與 4 組電池並上傳；CPU 80°C 以上會用 LINE 通知</div>
+          <div style="color:#64748B; font-size:12px; margin-top:4px;">Raspberry Pi 5 · 每分鐘讀取逆變器、4 組電池與儲能室溫濕度並上傳；CPU 80°C 以上會用 LINE 通知</div>
         </div>""", unsafe_allow_html=True)
 
 with tab_bat:

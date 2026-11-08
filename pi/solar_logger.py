@@ -652,6 +652,15 @@ class AcAuto:
                 print(f"讀不到冷氣伴侶：{e}", flush=True)
         return self.status
 
+    def mode_name(self, v):
+        try:
+            for m in (self.dev().p["mode"] or {}).get("values") or []:
+                if m["value"] == v:
+                    return m["description"]
+        except Exception:                          # noqa: BLE001
+            pass
+        return None
+
     def line(self, text):
         print(text.splitlines()[0], flush=True)
         send_line(self.cfg, text + f"\n（樹莓派冷氣自動控制 {dt.datetime.now(TW):%H:%M}）")
@@ -664,6 +673,9 @@ class AcAuto:
         pick = lambda d: {k: d.get(k) for k in ("temp", "hum", "batt")} | {"age_s": round(time.time() - d["t"])} if d else None
         return {"indoor": pick(ind), "outdoor": pick(out), "cell_max": max(cells) if cells else None,
                 "ac": {"on": self.status.get("on"), "mode": self.status.get("mode"), "temp": self.status.get("temp"),
+                       "mode_name": self.mode_name(self.status.get("mode")), "fan": self.status.get("fan"),
+                       "since": self.st.get("changed"), "on_room": self.on_room, "off_room": self.off_room,
+                       "target": self.target, "on_cell": self.on_cell,
                        "auto_on": bool(self.st.get("auto_on")), "enabled": self.enabled} if self.status else None}
 
     def tick(self, packs):
