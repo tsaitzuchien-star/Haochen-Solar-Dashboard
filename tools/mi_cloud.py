@@ -10,6 +10,7 @@
   .venv/bin/python tools/mi_cloud.py list      # 列出全部裝置、房間、在不在線，以及對應到 3D 圖的哪個位置
   .venv/bin/python tools/mi_cloud.py status    # 讀一次所有裝置的狀態 (跟上傳到網站的內容一樣)
   .venv/bin/python tools/mi_cloud.py spec 型號  # 看某個型號的功能清單 (除錯用)
+  .venv/bin/python tools/mi_cloud.py blekey    # 從雲端更新藍牙溫濕度計的 BLE KEY (存進 pi/config.json，不顯示)
 """
 import base64
 import hashlib
@@ -385,6 +386,38 @@ def main():
             print(f"只有一支手機的話，也可以直接用手機瀏覽器打開：\n  {q['url']}")
         print(f"等待掃描中（{q['timeout']} 秒內有效）…")
         print("✅ 登入成功，已存到 pi/mi_cloud.json" if mc.qr_wait(q) else "❌ 逾時，請再執行一次")
+        return
+    if cmd == "blekey":
+        # 從小米雲端抓藍牙溫濕度計最新的 BLE KEY，直接存進 pi/config.json (畫面上不顯示金鑰)
+        if not mc.logged_in() and not mc.refresh():
+            sys.exit("還沒登入：先執行 .venv/bin/python tools/mi_cloud.py login")
+        cfg_path = os.path.join(ROOT, "pi", "config.json")
+        with open(cfg_path, encoding="utf-8") as f:
+            cfg = json.load(f)
+        keys = cfg.setdefault("mi_keys", {})
+        n = 0
+        for d in mc.devices():
+            did, mac = str(d.get("did")), str(d.get("mac") or "").upper()
+            if not did.startswith("blt.") or "sensor_ht" not in str(d.get("model")) or not mac:
+                continue
+            r = mc.api("/v2/device/blt_get_beaconkey", {"did": did, "pdid": 1}) or {}
+            k = str(r.get("beaconkey") or "").lower()
+            if len(k) != 32:
+                print(f"⚠️ {d.get('name')}：雲端沒有給金鑰")
+                continue
+            changed = keys.get(mac) != k
+            keys[mac] = k
+            name = d.get("name") or ""
+            if "儲能" in name:
+                cfg["mi_indoor"] = mac
+            elif "車庫" in name:
+                cfg["mi_outdoor"] = mac
+            n += 1
+            print(f"✅ {name}（{mac}）{'金鑰已更新（原本的不一樣）' if changed else '金鑰沒變'}")
+        fd = os.open(cfg_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=1)
+        print(f"\n共 {n} 顆。接著執行：sudo systemctl restart solar-logger")
         return
     if cmd == "spec" and len(sys.argv) > 2:
         print(json.dumps(mc.spec(sys.argv[2]), ensure_ascii=False, indent=1))
