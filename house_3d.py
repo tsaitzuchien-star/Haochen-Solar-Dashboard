@@ -234,14 +234,14 @@ function room(f, name, x0, x1, z0, z1, color, { lift = 0, showLabel = true } = {
   if (showLabel) fl.roomLabels.push(label(fl.g, 'room', name, (x0 + x1) / 2, 0.15, (z0 + z1) / 2));
   return m;
 }
-function stairs(g) {                               // 折返梯：右半段往後爬到中間平台，左半段往前爬到上一層
+function stairs(g) {                               // 折返梯：第一段靠外牆 (左側) 往前爬到前端平台，第二段 (靠走道) 往後爬到上一層
   const n = 8, rise = FH / 2 / n, run = (SZ1 - SZ0 - 1.0) / n, xm = (SX0 + SX1) / 2;
   for (let i = 0; i < n; i++) {
-    bx(g, SX1 - xm - 0.05, rise, run, M.woodL, (xm + SX1) / 2, (i + 0.5) * rise, SZ1 - (i + 0.5) * run);
-    bx(g, xm - SX0 - 0.05, rise, run, M.woodL, (SX0 + xm) / 2, FH / 2 + (i + 0.5) * rise, SZ0 + 1.0 + (i + 0.5) * run);
+    bx(g, xm - SX0 - 0.05, rise, run, M.woodL, (SX0 + xm) / 2, (i + 0.5) * rise, SZ0 + (i + 0.5) * run);
+    bx(g, SX1 - xm - 0.05, rise, run, M.woodL, (xm + SX1) / 2, FH / 2 + (i + 0.5) * rise, SZ1 - 1.0 - (i + 0.5) * run);
   }
-  bx(g, SX1 - SX0, 0.12, 1.0, M.woodL, xm, FH / 2 - 0.06, SZ0 + 0.5);            // 中間平台
-  bx(g, 0.04, 0.9, SZ1 - SZ0 - 1.0, M.wood, xm, FH / 2 + 0.45, (SZ1 + SZ0 + 1.0) / 2);   // 中間扶手牆
+  bx(g, SX1 - SX0, 0.12, 1.0, M.woodL, xm, FH / 2 - 0.06, SZ1 - 0.5);            // 中間平台 (前端)
+  bx(g, 0.04, 0.9, SZ1 - SZ0 - 1.0, M.wood, xm, FH / 2 + 0.45, (SZ0 + SZ1 - 1.0) / 2);   // 中間扶手
 }
 function sides(g, zf, zb = ZB) {
   wall(g, -HW, zb, -HW, zf); wall(g, HW, zb, HW, zf); wall(g, -HW, zb, HW, zb);
