@@ -143,8 +143,15 @@ def oauth_login(appid, secret):
 
 
 def setup():
-    appid = input("APPID：").strip()
-    secret = input("APP SECRET：").strip()
+    import getpass
+    appid = ""
+    while len(appid) < 16:
+        appid = input("APPID：").strip()
+    secret = ""
+    while len(secret) < 16:            # 貼上時常多帶一個換行 → 收到空白，SECRET 錯了 eWeLink 登入頁會一直登不進去
+        secret = getpass.getpass("APP SECRET（輸入時不會顯示，貼上後按 Enter）：").strip()
+        if len(secret) < 16:
+            print("沒有收到完整的 APP SECRET，請再貼一次")
     cfg = oauth_login(appid, secret)
     things = cloud(cfg, "GET", "/v2/device/thing", params={"num": 100}).get("thingList", [])
     devs = [t["itemData"] for t in things if t.get("itemType") in (1, 2)]
