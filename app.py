@@ -475,8 +475,25 @@ if is_limited and not stale:
 # 6.5 天氣預報 (預測區與 3D 場景共用)
 # ==========================================
 @st.cache_data(ttl=3600)
-def fetch_pv_forecast(soc7, version):
-    return pv_forecast.forecast(soc7=soc7)
+def fetch_pv_forecast(soc7, version, scale=None):
+    return pv_forecast.forecast(soc7=soc7, scale=scale)
+
+
+def intraday_ratio(fc_hourly):
+    """今天到目前為止：實際可發電 (含電池滿被限發的部分) ÷ 預測。預測到目前不到 3 度 (清晨) 時不修正。"""
+    if fc_hourly is None or ana is None or stale:
+        return None, 0.0, 0.0
+    now_naive = pd.Timestamp(now_tw.replace(tzinfo=None))
+    c = ana["df"]
+    c = c[c["time"].dt.date == now_tw.date()]
+    actual = float((c["pv"] + c["lost"]).sum() * 5 / 60)
+    t = fc_hourly[fc_hourly["time"].dt.date == now_tw.date()]
+    done = t[t["time"] <= now_naive.floor("h")]["pv"].sum()      # 時間標記在該小時結束
+    cur = t[t["time"] == now_naive.floor("h") + pd.Timedelta(hours=1)]["pv"].sum() * now_naive.minute / 60
+    so_far = float(done + cur)
+    if so_far < 3:
+        return None, actual, so_far
+    return float(np.clip(actual / so_far, 0.2, 1.5)), actual, so_far
 
 
 def today_soc7():
@@ -493,10 +510,20 @@ def today_soc7():
 
 soc7_val, soc7_how = today_soc7()
 fc_hourly, fc_days, fc_error = None, None, None
+fc_ratio, fc_raw_today, fc_actual_sofar, fc_pred_sofar = None, None, 0.0, 0.0
 try:
     fc_hourly, fc_days = with_fallback(f"pv_forecast-v{pv_forecast.MODEL_VERSION}", fetch_pv_forecast,
                                        {now_tw.date(): round(soc7_val)} if soc7_val is not None else {},
                                        pv_forecast.MODEL_VERSION)
+    # 白天即時修正：今天實際跟預測差超過 10% 就整天乘上這個比例重算 (比例取到 0.05，讓快取可以重複用)
+    fc_raw_today = (fc_days or {}).get(now_tw.date())
+    fc_ratio, fc_actual_sofar, fc_pred_sofar = intraday_ratio(fc_hourly)
+    if fc_ratio is not None and abs(fc_ratio - 1) >= 0.1:
+        fc_ratio = round(fc_ratio * 20) / 20
+        fc_hourly, fc_days = fetch_pv_forecast({now_tw.date(): round(soc7_val)} if soc7_val is not None else {},
+                                               pv_forecast.MODEL_VERSION, {now_tw.date(): fc_ratio})
+    else:
+        fc_ratio = None
 except Exception as e:
     fc_error = e
 
@@ -694,7 +721,13 @@ if fd:
     hrs = fd["best_hours"]
     best = solar_core.day_advice(fd, pick, sum(pv_forecast.LOAD_PROFILE.values()))
     strings_txt = "　".join(f'<span style="color:{c}">{n}</span> {fd[n]:.1f}' for _, n, _, c in STRINGS)
-    st.markdown(f"""<div class="card">
+    adj = ""
+    if tomorrow == now_tw.date() and fc_ratio is not None and fc_raw_today:
+        adj = (f'<div style="margin-bottom:10px; padding:8px 12px; border-radius:10px; background:#F59E0B14; border:1px solid #F59E0B55; '
+               f'color:#FDE68A; font-size:13px;">🔄 已依今天實際發電修正：早上預報 {fc_raw_today["pv"]:.0f} kWh，'
+               f'到 {now_tw:%H:%M} 實際只有預測的 <b>{fc_ratio * 100:.0f}%</b>（{fc_actual_sofar:.1f} / {fc_pred_sofar:.1f} kWh）'
+               f'{"，雲比預報厚" if fc_ratio < 1 else "，雲比預報薄"}，下面的數字已經照這個比例調整</div>')
+    st.markdown(f"""<div class="card">{adj}
       <div style="display:flex; flex-wrap:wrap; gap:16px 36px; align-items:flex-end;">
         <div><div class="kpi-label">預估可發電量</div><div class="kpi-value" style="color:{C_PV};">{fd['pv']:.0f}<span class="kpi-unit">kWh</span></div>
           <div class="kpi-sub">{sky}{rain} · 日照 {fd['ghi']:.1f} kWh/m²</div></div>
@@ -1280,6 +1313,12 @@ with tab_trend:
             fv = fc_log[fc_log["date"].between(v["date"].min(), v["date"].max())]
             fd_.add_trace(go.Scatter(x=fv["date"], y=fv["pv"], name="當天預測", mode="markers",
                                      marker=dict(color="#FDE68A", size=7, symbol="diamond")))
+        # 今天還沒結束：長條只到現在，跟「整天」的預測比會看起來差很多，標註清楚
+        _today = v[v["source"] == "today"]
+        if len(_today):
+            _r = _today.iloc[-1]
+            fd_.add_annotation(x=_r["date"], y=_r["pv"], text=f"今天<br>到 {now_tw:%H:%M}", showarrow=False,
+                               yanchor="bottom", yshift=14, font=dict(color="#FDE68A", size=10))
         rewire = pd.Timestamp("2026-10-22")
         if v["date"].min() <= rewire <= v["date"].max():
             fd_.add_vline(x=rewire, line=dict(color="#E2E8F0", width=1, dash="dot"))
@@ -1301,7 +1340,7 @@ with tab_trend:
         st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:6px;">'
                     "每天凌晨自動存檔前一天的總量（只存每日總量，不存 5 分鐘明細）。從 2026/7/28 起以逆變器 5 分鐘資料計算；"
                     "Growatt 電站日報偏低約 3 成且每天誤差很大，所以更早的資料不列入比較。"
-                    "「正常年」是過去 10 年天氣套用本系統配置推算的平均（改線前扣掉混串損失 6%），沒有扣掉電池充滿後的限發，所以限發多的月份會偏低；白色短線是當天實際總發電、黃色菱形是當天凌晨的發電預測。"
+                    "「正常年」是過去 10 年天氣套用本系統配置推算的平均（改線前扣掉混串損失 6%），沒有扣掉電池充滿後的限發，所以限發多的月份會偏低；白色短線是當天實際總發電、黃色菱形是當天凌晨的發電預測（整天）。最右邊的「今天」只算到現在，太陽下山後才能跟預測比。"
                     "省下的電費依台電表燈累進電價（6–9 月夏月）計算：沒有太陽能時這個月全部向台電買的電費，減去實際向台電買的電費（每期最低 200 元）。</div>", unsafe_allow_html=True)
 
 st.markdown("<div style='height: 40px;'></div>", unsafe_allow_html=True)
