@@ -94,7 +94,7 @@ def hourly_pr(df):
     return PR_CLOUDY + (PR_CLEAR - PR_CLOUDY) * (1 - np.clip(eff, 0, 1))
 
 
-def forecast(df=None, soc7=None):
+def forecast(df=None, soc7=None, scale=None):
     """回傳 (逐時預測表, 每日摘要)。逐時表含三組 PV、總功率、家用、充電、限發 (kW = 該小時 kWh)。
 
     soc7: {日期: 早上 7 點實際電量}。沒有實測的日子，以前一天模擬到午夜的電量扣掉凌晨用電推估，
@@ -108,6 +108,10 @@ def forecast(df=None, soc7=None):
     for side in ("E", "W"):
         cell = df["temp"] + poa[side] * 0.03
         df[f"kw_{side}"] = PANEL_KWP * poa[side] / 1000 * df["pr"] * (1 + TEMP_COEF * (cell - 25))
+    # 白天即時修正：{日期: 比例}，用今天到目前「實際 ÷ 預測」修正整天 (例如預報晴時多雲、實際整天厚雲)
+    for d, r in (scale or {}).items():
+        m = df["time"].dt.date == d
+        df.loc[m, ["kw_E", "kw_W"]] *= r
     for name, (e, w) in STRING_PANELS.items():
         df[name] = (e * df["kw_E"] + w * df["kw_W"]).clip(lower=0)
     df["pv"] = df[list(STRING_PANELS)].sum(axis=1).clip(upper=INVERTER_KW)
