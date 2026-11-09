@@ -1280,6 +1280,12 @@ with tab_trend:
             fv = fc_log[fc_log["date"].between(v["date"].min(), v["date"].max())]
             fd_.add_trace(go.Scatter(x=fv["date"], y=fv["pv"], name="當天預測", mode="markers",
                                      marker=dict(color="#FDE68A", size=7, symbol="diamond")))
+        # 今天還沒結束：長條只到現在，跟「整天」的預測比會看起來差很多，標註清楚
+        _today = v[v["source"] == "today"]
+        if len(_today):
+            _r = _today.iloc[-1]
+            fd_.add_annotation(x=_r["date"], y=_r["pv"], text=f"今天<br>到 {now_tw:%H:%M}", showarrow=False,
+                               yanchor="bottom", yshift=14, font=dict(color="#FDE68A", size=10))
         rewire = pd.Timestamp("2026-10-22")
         if v["date"].min() <= rewire <= v["date"].max():
             fd_.add_vline(x=rewire, line=dict(color="#E2E8F0", width=1, dash="dot"))
@@ -1301,7 +1307,7 @@ with tab_trend:
         st.markdown('<div style="color:#94A3B8; font-size:13px; margin-top:6px;">'
                     "每天凌晨自動存檔前一天的總量（只存每日總量，不存 5 分鐘明細）。從 2026/7/28 起以逆變器 5 分鐘資料計算；"
                     "Growatt 電站日報偏低約 3 成且每天誤差很大，所以更早的資料不列入比較。"
-                    "「正常年」是過去 10 年天氣套用本系統配置推算的平均（改線前扣掉混串損失 6%），沒有扣掉電池充滿後的限發，所以限發多的月份會偏低；白色短線是當天實際總發電、黃色菱形是當天凌晨的發電預測。"
+                    "「正常年」是過去 10 年天氣套用本系統配置推算的平均（改線前扣掉混串損失 6%），沒有扣掉電池充滿後的限發，所以限發多的月份會偏低；白色短線是當天實際總發電、黃色菱形是當天凌晨的發電預測（整天）。最右邊的「今天」只算到現在，太陽下山後才能跟預測比。"
                     "省下的電費依台電表燈累進電價（6–9 月夏月）計算：沒有太陽能時這個月全部向台電買的電費，減去實際向台電買的電費（每期最低 200 元）。</div>", unsafe_allow_html=True)
 
 st.markdown("<div style='height: 40px;'></div>", unsafe_allow_html=True)
