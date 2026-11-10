@@ -943,7 +943,10 @@ tab_dev, tab_bat, tab_home, tab_pi, tab_trend = st.tabs(["🌡️ 溫度與設�
 
 def home_authed():
     """家人專用連結 (?k=…)：樹莓派產生隨機鑰匙並用 LINE 傳連結，Gist 只放 SHA-256；比對通過才顯示燈、鐵捲門等。
-    通過後記在這次瀏覽 (session)，之後網址沒有 k 也維持登入。"""
+    通過後記在這次瀏覽 (session)，之後網址沒有 k 也維持登入。
+    屋主決定不要訪客模式 (只有自己在用)：預設一律顯示全部；Streamlit Secrets 設 HOME_GUEST_MODE = true 可恢復訪客模式。"""
+    if str(get_secret("HOME_GUEST_MODE", "")).lower() not in ("1", "true", "yes"):
+        return True
     if st.session_state.get("home_ok"):
         return True
     k = st.query_params.get("k")
