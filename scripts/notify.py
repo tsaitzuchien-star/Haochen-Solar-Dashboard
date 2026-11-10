@@ -81,7 +81,7 @@ def yesterday_review(now):
     if len(p) and p.iloc[0]["pv"] > 0:
         d = pot / p.iloc[0]["pv"] - 1
         err = (f"，預測 {p.iloc[0]['pv']:.1f}，" + ("準確" if abs(d) < 0.05 else
-               f"實際{'多' if d > 0 else '少'}了 {abs(d) * 100:.0f}%（雲比凌晨預報{'薄' if d > 0 else '厚'}）"))
+               f"實際{'多' if d > 0 else '少'}了 {abs(d) * 100:.0f}%，雲比凌晨預報{'薄' if d > 0 else '厚'}"))
     else:
         err = ""
     if lost >= 0.5:
