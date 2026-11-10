@@ -77,8 +77,13 @@ def yesterday_review(now):
     lost = float(r["lost"]) if pd.notna(r.get("lost")) and str(r.get("lost")).strip() != "" else 0.0
     pot = r["pv"] + lost
     p = fc[fc["date"] == y]
-    err = (f"，預測 {p.iloc[0]['pv']:.1f}，誤差 {abs(p.iloc[0]['pv'] / pot - 1) * 100:.0f}%"
-           if len(p) and pot > 0 else "")
+    # 誤差以「預測」為基準：實際比預測多 / 少幾 % (以實際為分母時，陰天實際很小會被放大成 100% 以上)
+    if len(p) and p.iloc[0]["pv"] > 0:
+        d = pot / p.iloc[0]["pv"] - 1
+        err = (f"，預測 {p.iloc[0]['pv']:.1f}，" + ("準確" if abs(d) < 0.05 else
+               f"實際{'多' if d > 0 else '少'}了 {abs(d) * 100:.0f}%（雲比凌晨預報{'薄' if d > 0 else '厚'}）"))
+    else:
+        err = ""
     if lost >= 0.5:
         txt = (f"\n📊 昨天可發電 {pot:.1f} 度{err}\n"
                f"（實際用到 {r['pv']:.1f} 度，電池滿了、家裡用不完被限發 {lost:.1f} 度）")
