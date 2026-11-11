@@ -853,9 +853,16 @@ class HeaterAuto:
             self.line(f"🟠 想{'開' if on else '關'}熱水器但 eWeLink 沒有回應：{e}")
             return False
 
+    def _away_dates(self):
+        try:
+            with open(os.path.join(HERE, "heater_away.json"), encoding="utf-8") as f:
+                return set(json.load(f).get("dates") or [])
+        except (OSError, ValueError):
+            return set()
+
     def summary(self):
         return {"on": self.on, "heating": self.heating, "auto_on": bool(self.st.get("auto_on")), "mode": self.st.get("mode"),
-                "minutes_today": round(self.st.get("minutes", 0)), "enabled": self.enabled}
+                "minutes_today": round(self.st.get("minutes", 0)), "enabled": self.enabled, "away": getattr(self, "away", False)}
 
     def tick(self, invd):
         if not self.enabled:
@@ -867,6 +874,13 @@ class HeaterAuto:
             self.save()
         on = self.read()
         if on is None:
+            return
+        self.away = today in self._away_dates()
+        if self.away:                                 # 外出日 (pi/heater_away.json)：不自動加熱；自動開著的關掉
+            if on and self.st.get("auto_on") and self.switch(False):
+                self.st.update(auto_on=False, mode=None, changed=now)
+                self.line("🧳 今天外出，已關掉自動開的熱水器，今天不再自動加熱。")
+            self.save()
             return
         load_kw = (invd.get("load_w") or 0) / 1000 if invd else 0
         self.heating = bool(on and load_kw >= self.HEAT_LOAD_KW)

@@ -113,7 +113,8 @@ def render(live):
         on = bool(hw.get("on"))
         mode = {"surplus": "電池滿了、自動用多的太陽能加熱", "fallback": "陰天保底加熱 1 小時（到 16:00）"}.get(hw.get("mode"))
         heating = hw.get("heating")
-        who = mode if hw.get("auto_on") and mode else "手動或排程開啟（不會被自動關掉）" if on else "等電池充滿會自動開"
+        who = ("🧳 今天外出，不自動加熱" if hw.get("away") and not on else
+               mode if hw.get("auto_on") and mode else "手動或排程開啟（不會被自動關掉）" if on else "等電池充滿會自動開")
         mins = hw.get("minutes_today", 0)
         hw_html = (f'<div class="card" style="margin-top:12px"><h3>🔥 儲熱電熱水器 <span class="muted">4 kW · eWeLink 開關</span></h3>'
                    f'<div class="acstate {"on" if on else "off"}"><div class="fanicon heat{" glow" if on else ""}">♨</div>'
