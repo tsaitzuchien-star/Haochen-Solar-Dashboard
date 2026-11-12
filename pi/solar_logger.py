@@ -547,6 +547,11 @@ class AutoCalib:
         self.before = {"soc": me["soc"] if me else None, "settings": dict(sets) if sets else None}
 
     def write(self, why, today):
+        thermo = getattr(self, "thermo", None)
+        if thermo:
+            thermo.paused.set()
+            thermo.idle.wait(15)
+            time.sleep(5)                          # 讓藍牙晶片完全空出來再連 JK BMS
         try:
             r = subprocess.run([sys.executable, JK_BLE, "set-capacity", self.pack, str(self.cap), "--yes"],
                                capture_output=True, text=True, timeout=300)
@@ -554,6 +559,9 @@ class AutoCalib:
         except subprocess.TimeoutExpired as e:
             out = (e.stdout or "") if isinstance(e.stdout, str) else ""
             out += "\n藍牙逾時"
+        finally:
+            if thermo:
+                thermo.paused.clear()              # 恢復溫度計旁聽
         if "⚠️⚠️" in out:
             self.st["disabled"] = True
             self.save()
@@ -614,6 +622,9 @@ class MiThermo(threading.Thread):
         self.keys = {k.upper(): v for k, v in keys.items()}
         self.data = {}
         self.fallback = None        # 藍牙收不到時改用小米雲端 (HomeWatch.sensor)，參數是 MAC
+        self.paused = threading.Event()      # 藍牙要連 JK BMS (自動校正) 時暫停掃描：一邊掃描一邊連線，樹莓派內建藍牙容易漏收封包
+        self.idle = threading.Event()        # 掃描已經真的停下來
+        self.idle.set()
 
     def latest(self, mac, max_age=900):
         d = self.data.get((mac or "").upper())
@@ -644,12 +655,19 @@ class MiThermo(threading.Thread):
 
         async def loop():
             while True:
+                if self.paused.is_set():
+                    self.idle.set()
+                    await asyncio.sleep(1)
+                    continue
                 try:
+                    self.idle.clear()
                     async with BleakScanner(cb):
-                        # 每 30 分鐘重開一次掃描；超過 10 分鐘一筆都沒收到 (藍牙卡住) 就提早重開
+                        # 每 30 分鐘重開一次掃描；超過 10 分鐘一筆都沒收到 (藍牙卡住) 就提早重開；要暫停時馬上停
                         t0 = time.time()
-                        while time.time() - t0 < 1800:
-                            await asyncio.sleep(60)
+                        while time.time() - t0 < 1800 and not self.paused.is_set():
+                            await asyncio.sleep(1)
+                            if int(time.time() - t0) % 60:
+                                continue
                             last = max([d.get("t", 0) for d in self.data.values()] or [0])
                             if time.time() - max(last, t0) > 600:
                                 print("溫度計 10 分鐘沒有訊號，重新開始藍牙掃描", flush=True)
@@ -657,6 +675,9 @@ class MiThermo(threading.Thread):
                 except Exception as e:             # noqa: BLE001  藍牙偶爾被佔用：等一下重來
                     print(f"溫度計旁聽錯誤：{e}", flush=True)
                     await asyncio.sleep(30)
+                finally:
+                    if self.paused.is_set():
+                        self.idle.set()
 
         asyncio.run(loop())
 
@@ -1089,6 +1110,8 @@ def main():
     thermo = MiThermo(cfg["mi_keys"]) if cfg.get("mi_keys") and not a.once else None
     if thermo:
         thermo.start()
+    if calib:
+        calib.thermo = thermo
     acauto = AcAuto(cfg, thermo) if not a.once else None
     heater = HeaterAuto(cfg) if not a.once else None
     home = HomeWatch(cfg) if not a.once and cfg.get("home_watch", True) else None

@@ -1148,7 +1148,7 @@ with tab_trend:
         # 預測的是板子「發得出來」的量：電池滿了、家裡用不完被限發的部分也算進去再比，才不會把限發當成預測誤差
         fc_join = fc_log.merge(d[["date", "pv", "lost", "points"]], on="date", suffixes=("_fc", "")) if not fc_log.empty else pd.DataFrame()
         fc_join = fc_join[fc_join["points"] >= 270] if not fc_join.empty else fc_join
-        fc_err = ((fc_join["pv_fc"] / (fc_join["pv"] + fc_join["lost"].fillna(0)) - 1).abs().tail(30).mean()
+        fc_err = (((fc_join["pv"] + fc_join["lost"].fillna(0)) / fc_join["pv_fc"] - 1).abs().tail(30).mean()
                   if len(fc_join) else float("nan"))
         # ⏱️ 運轉時間：啟用至今，累計發電 = 有完整資料的實測 + 之前的電站日報 (偏低約 3 成，x1.24 修正)
         life_kwh = d["pv"].sum() + float(daily[(daily["source"] == "plant") & (daily["date"] < d["date"].min())]["pv"].sum()) * 1.24
