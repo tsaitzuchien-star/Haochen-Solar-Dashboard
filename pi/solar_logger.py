@@ -605,6 +605,9 @@ class AutoCalib:
         b, n = before.get("soc"), (me["soc"] if me else None)
         if b is not None and n is not None and n <= b - 3:
             self.line(f"✅ 自動校正有效：電池 {self.pack} SOC {b}% → {n}%（依電壓重新計算），{set_note}。\n{charging}")
+        elif b is not None and n is not None and b < 95:
+            # 寫入前就不是假滿 (例如之前已經校正過)：SOC 本來就依電壓算好了，不會再掉，不能當成「方法無效」
+            self.line(f"ℹ️ 已重新寫入容量，電池 {self.pack} SOC {b}% → {n}%（寫入前就不是假滿，不需要再校正）。{charging}")
         elif b is not None and n is not None:
             self.st["disabled"] = True
             self.save()
