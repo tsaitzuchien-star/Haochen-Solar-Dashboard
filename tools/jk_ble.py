@@ -103,7 +103,12 @@ class Jk:
 
     async def read_all(self):
         info = await self.ask(command(CMD_DEVICE_INFO), [0x03], 6)
-        ok = await self.ask(command(CMD_CELL_INFO), [0x01, 0x02], 12)
+        await asyncio.sleep(0.5)
+        ok = False
+        for _ in range(3):                       # 同一次連線裡重送：有時請求被藍牙模組吃掉
+            ok = await self.ask(command(CMD_CELL_INFO), [0x01, 0x02], 6)
+            if ok:
+                break
         if not ok:
             raise RuntimeError(f"沒收到電芯 / 設定資料 (收到 {self.n_bytes} bytes、完整封包類型 {sorted(set(self.seen))}、"
                                f"校驗錯 {self.n_bad} 包、開頭 {self.first.hex(' ')[:71] or '無'})")
