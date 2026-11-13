@@ -183,6 +183,10 @@ class BmsListener(threading.Thread):
                         break
                     got, buf = jk.frames(buf)
                     for addr, f in got:
+                        # 地址是封包後面接的那個 byte；電池斷電重開時匯流排上的時序會亂掉，偶爾會讀到不存在的地址
+                        # (例如 11/13 鎖螺絲重開後出現「#56」)，JK 並聯最多 16 組，超出範圍的直接丟掉
+                        if addr >= 16:
+                            continue
                         if f[4] == 0x02:
                             self.packs[addr] = {"addr": addr, **jk.decode_cells(f), "t": time.time()}
                             self.last = time.time()
