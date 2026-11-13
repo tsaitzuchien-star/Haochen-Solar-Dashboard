@@ -44,6 +44,8 @@ def decode_cells(f):
         "soc": f[173], "remain_ah": u32(f, 174) / 1000, "full_ah": u32(f, 178) / 1000,
         "cycles": u32(f, 182), "cycle_ah": u32(f, 186), "soh": f[190],
         "runtime_h": u32(f, 194) / 3600, "chg_on": f[198], "dis_on": f[199],
+        # 每顆電芯的連接線阻 (BMS 量測線 + 電芯端子 + 匯流排螺絲)，單位 Ω；螺絲鬆或氧化時會變大
+        "res": [u16(f, 80 + 2 * n) / 1000 for n in range(16)],
     }
 
 
