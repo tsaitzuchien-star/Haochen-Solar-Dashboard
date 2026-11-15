@@ -316,8 +316,11 @@ str_kw = [(f(f"ppv{n}") or f(f"vpv{n}") * f(f"ipv{n}")) / 1000 for n, *_ in STRI
 # PV 電流：沒在發電 (電壓低於 50 V) 時，電流感測器有固定 0.2~0.3 A 的零點偏移，不是真的有電流，顯示為 0
 ipv = lambda n: f(f"ipv{n}") if f(f"vpv{n}") >= 50 else 0.0
 str_today = [f(f"epv{n}Today") for n, *_ in STRINGS]
-is_limited = (pv_kw > 0.05 and soc >= 95 and p_charge < 0.1 and p_sell < 0.05
-              and 8 <= last_update.hour < 16)
+# 電池滿了、逆變器把太陽能壓低到「剛好夠家裡用」：組串電壓會被推高到 420–440 V (正常追蹤最大功率時約 340–370 V)，
+# 電池也只剩很小的涓流充電；用電壓判斷比只看充電功率可靠 (11/15 涓流 0.13 kW 時舊條件判斷失敗，3D 誤顯示多雲)
+_v_high = max((f(f"vpv{n}") for n, *_ in STRINGS), default=0) >= 400
+is_limited = (pv_kw > 0.05 and soc >= 95 and p_sell < 0.05 and 8 <= last_update.hour < 16
+              and (p_charge < 0.1 or (_v_high and p_charge < 0.6)))
 
 # ==========================================
 # 5. 頂部狀態列
