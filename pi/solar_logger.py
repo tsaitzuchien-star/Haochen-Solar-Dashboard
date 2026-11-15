@@ -435,6 +435,26 @@ def upload(cfg, snap):
     return False
 
 
+_res_logged = 0.0
+
+
+def log_res(snap):
+    """每 10 分鐘存一次每顆電芯的連接線阻 (mΩ)，給「鎖螺絲前後」這類比較用：~/solar_logs/res_日期.csv。"""
+    global _res_logged
+    if time.time() - _res_logged < 600 or not snap["packs"]:
+        return
+    _res_logged = time.time()
+    fn = os.path.join(LOG_DIR, f"res_{snap['time'][:10]}.csv")
+    new = not os.path.exists(fn)
+    with open(fn, "a", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        if new:
+            w.writerow(["時間", "電池", "電流A", "SOC%"] + [f"電芯{n}線阻mΩ" for n in range(1, 17)])
+        for p in snap["packs"]:
+            if p.get("res"):
+                w.writerow([snap["time"], p["addr"], p["curr"], p["soc"]] + [round(r * 1000, 1) for r in p["res"]])
+
+
 def log_csv(snap):
     os.makedirs(LOG_DIR, exist_ok=True)
     fn = os.path.join(LOG_DIR, f"{snap['time'][:10]}.csv")
@@ -1181,6 +1201,10 @@ def main():
             snap["home"] = home.summary()
         ok = upload(cfg, snap)
         log_csv(snap)
+        try:
+            log_res(snap)
+        except OSError as e:
+            print(f"線阻記錄錯誤：{e}", flush=True)
         notify(cfg, alerts)
         try:
             calib.tick(invd, snap["packs"])
