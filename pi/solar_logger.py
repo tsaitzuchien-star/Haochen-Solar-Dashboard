@@ -893,12 +893,23 @@ class HeaterAuto:
         return self.on
 
     def switch(self, on):
+        # 開關離線 (11/16 eWeLink 4002 設備控制失敗) 時不要每分鐘重試、每分鐘發 LINE：
+        # 連續失敗 3 次就暫停 1 小時；失敗通知 3 小時內只發一次
+        if time.time() < getattr(self, "fail_until", 0):
+            return False
         try:
             self._h().set_switch(on)
-            self.on, self.status_t = on, time.time()
+            self.on, self.status_t, self.fails = on, time.time(), 0
             return True
         except (Exception, SystemExit) as e:      # noqa: BLE001
-            self.line(f"🟠 想{'開' if on else '關'}熱水器但 eWeLink 沒有回應：{e}")
+            self.fails = getattr(self, "fails", 0) + 1
+            if self.fails >= 3:
+                self.fail_until, self.fails = time.time() + 3600, 0
+            print(f"熱水器{'開' if on else '關'}失敗：{e}", flush=True)
+            if time.time() - getattr(self, "fail_noted", 0) > 3 * 3600:
+                self.fail_noted = time.time()
+                self.line(f"🟠 想{'開' if on else '關'}熱水器但 eWeLink 沒有回應：{e}\n"
+                          "（開關可能離線；之後每小時再試一次，3 小時內不再重複通知）")
             return False
 
     def _away_dates(self):
