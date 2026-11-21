@@ -167,25 +167,32 @@ def render(snap, live_soc=None, info=None):
     allres = sorted(r for p in packs for r in (p.get("res") or []) if r > 0)
     if len(allres) >= 16:
         med = allres[len(allres) // 2]
-        def rc(r):
-            k = r / med if med else 1
+        # 每個位置 (第幾顆) 的量測線長度不同：同一位置跨 4 組比較才看得出哪一顆接觸變差；整排同樣的高低是線長，不是問題
+        pos_med = []
+        for i in range(16):
+            v = sorted((p.get("res") or [0] * 16)[i] for p in packs if p.get("res"))
+            pos_med.append(v[len(v) // 2] if v else 0)
+        def rc(r, i):
+            k = r / pos_med[i] if pos_med[i] else 1
             return "#34D399" if k < 1.3 else "#FBBF24" if k < 1.6 else "#F97316" if k < 2 else "#EF4444"
         res_rows = []
         for p in packs:
             rs = p.get("res") or []
             if not rs:
                 continue
-            tds = "".join(f'<div class="cell" style="background:{rc(r)}" title="#{p["addr"]} 第 {i + 1} 顆：{r * 1000:.0f} mΩ">'
+            tds = "".join(f'<div class="cell" style="background:{rc(r, i)}" '
+                          f'title="#{p["addr"]} 第 {i + 1} 顆：{r * 1000:.0f} mΩ（同位置中位數 {pos_med[i] * 1000:.0f}）">'
                           f'<span>{r * 1000:.0f}</span></div>' for i, r in enumerate(rs))
             res_rows.append(f'<div class="hrow"><div class="hlabel">#{p["addr"]}</div>{tds}'
                             f'<div class="hend">{max(rs) * 1000:.0f}</div></div>')
-        worst = max(((r, p["addr"], i) for p in packs for i, r in enumerate(p.get("res") or [])), default=None)
-        note = (f"全部中位數 {med * 1000:.0f} mΩ；最高 #{worst[1]} 第 {worst[2] + 1} 顆 {worst[0] * 1000:.0f} mΩ"
-                f"（{worst[0] / med:.1f} 倍）" if worst and med else "")
+        worst = max(((r / pos_med[i], r, p["addr"], i) for p in packs for i, r in enumerate(p.get("res") or []) if pos_med[i]),
+                    default=None)
+        note = (f"跟同位置其他組比，最偏高的是 #{worst[2]} 第 {worst[3] + 1} 顆 {worst[1] * 1000:.0f} mΩ（{worst[0]:.2f} 倍）"
+                if worst else "")
         res_html = f'''<div class="card">
-      <h3>電芯連接線阻 <span class="muted">每顆電芯 BMS 量測線＋端子＋匯流排螺絲的電阻（mΩ）· 綠 正常、黃 偏高 1.3 倍、橘 1.6 倍、紅 2 倍以上</span></h3>
+      <h3>電芯連接線阻 <span class="muted">每顆電芯 BMS 量測線＋端子＋匯流排螺絲的電阻（mΩ）· 顏色是跟其他組「同一個位置」比：綠 正常、黃 偏高 1.3 倍、橘 1.6 倍、紅 2 倍以上</span></h3>
       <div class="heat"><div class="hrow"><div></div>{head_nums}<div class="hnum">最高</div></div>{"".join(res_rows)}</div>
-      <div class="legend">{note}。某一顆明顯比其他高，通常是那顆的螺絲鬆了或端子氧化，鎖緊、清潔後會下降；整排一起偏高則多半是量測線本身較長，屬正常</div>
+      <div class="legend">{note}。中間幾顆數字比較大是量測線比較長 (4 組都一樣的高低形狀)，屬正常；只有某一組的某一顆明顯比其他組同位置高，才可能是螺絲鬆或端子氧化</div>
     </div>'''
 
     # 保護設定
